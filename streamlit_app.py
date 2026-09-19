@@ -1,6 +1,7 @@
 from datetime import datetime
 from pathlib import Path
 import ast
+import base64
 import hashlib
 import html
 import operator
@@ -829,9 +830,26 @@ def cat_svg_for_mood(mood: str) -> str:
 
 
 def render_haru_mascot(mood: str) -> None:
-    # st.html renders SVG as HTML instead of interpreting indented SVG tags
-    # as Markdown code blocks.
-    st.html(cat_svg_for_mood(mood))
+    """Render HARU's mood SVG as an image for maximum Streamlit compatibility."""
+    markup = cat_svg_for_mood(mood)
+    svg_start = markup.find("<svg")
+    svg_end = markup.rfind("</svg>")
+    if svg_start < 0 or svg_end < 0:
+        return
+
+    svg = markup[svg_start : svg_end + len("</svg>")]
+    encoded = base64.b64encode(svg.encode("utf-8")).decode("ascii")
+
+    st.markdown(
+        (
+            '<div class="haru-cat-wrap">'
+            f'<img class="haru-cat" '
+            f'src="data:image/svg+xml;base64,{encoded}" '
+            f'alt="HARU {html.escape(normalize_haru_mood(mood).lower())} expression">'
+            '</div>'
+        ),
+        unsafe_allow_html=True,
+    )
 
 
 def render_latest_history_tracker() -> None:
@@ -954,6 +972,7 @@ st.markdown(
           max-width:72vw;
           height:auto;
           display:block;
+          object-fit:contain;
           animation:haru-breathe 2.6s ease-in-out infinite alternate;
       }
       @keyframes haru-breathe {
@@ -1703,4 +1722,4 @@ with st.expander("Developer panel"):
             st.write(f"**You:** {q}")
             st.write(f"**HARU:** {a}")
 
-st.markdown("<div class=\"footer\">HARU Lab v2.5.1 • fixed mood-responsive line-art cat</div>", unsafe_allow_html=True)
+st.markdown("<div class=\"footer\">HARU Lab v2.5.2 • reliable mood-responsive line-art cat</div>", unsafe_allow_html=True)
