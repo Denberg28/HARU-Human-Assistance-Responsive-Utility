@@ -311,11 +311,14 @@ def ask_ai(
                     "max_total_tokens": token_budget,
                 },
             }
-            if enable_native_tools:
-                payload["tools"] = [
+            payload["tools"] = (
+                [
                     {"type": "google_search"},
                     {"type": "url_context"},
                 ]
+                if enable_native_tools
+                else []
+            )
 
             data = _json_request(
                 "https://generativelanguage.googleapis.com/v1beta/interactions",
