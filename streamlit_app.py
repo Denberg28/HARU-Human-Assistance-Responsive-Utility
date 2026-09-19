@@ -627,7 +627,6 @@ def active_model_display_name() -> str:
         "gemini-3.6-flash": "Gemini 3.6 Flash",
         "gemini-3.5-flash": "Gemini 3.5 Flash",
         "gemini-3.5-flash-lite": "Gemini 3.5 Flash-Lite",
-        "gemma-4-31b-it": "Gemma 4 31B",
         "antigravity-preview-09-2026": "Antigravity",
         "gemini-3.1-flash-lite": "Gemini 3.1 Flash-Lite",
         "gemini-3.1-pro-preview": "Gemini 3.1 Pro Preview",
@@ -704,26 +703,22 @@ def render_haru_mascot(mood: str) -> None:
 
 
 def render_latest_history_tracker() -> None:
-    """Show the latest user-to-HARU exchange for quick conversation tracking."""
+    """Show only the most recent user entry as a compact chat-style bubble."""
     history = st.session_state.get("history", [])
-    if history:
-        latest = history[-1]
-        if isinstance(latest, (tuple, list)) and len(latest) >= 2:
-            user_text, haru_text = str(latest[0]), str(latest[1])
-        else:
-            user_text, haru_text = str(latest), ""
+    if not history:
+        return
+
+    latest = history[-1]
+    if isinstance(latest, (tuple, list)) and latest:
+        user_text = str(latest[0])
     else:
-        user_text, haru_text = "No previous message yet.", "Hello. I'm HARU."
+        user_text = str(latest)
 
     safe_user = html.escape(user_text).replace("\n", "<br>")
-    safe_haru = html.escape(haru_text).replace("\n", "<br>")
-
     st.markdown(
         f"""
-        <div class="history-track">
-          <div class="history-label">Latest communication</div>
-          <div class="history-line"><strong>You:</strong> {safe_user}</div>
-          <div class="history-line"><strong>HARU:</strong> {safe_haru}</div>
+        <div class="latest-entry-row">
+          <div class="latest-entry-bubble">{safe_user}</div>
         </div>
         """,
         unsafe_allow_html=True,
@@ -872,25 +867,20 @@ st.markdown(
       button, input, textarea, select {
           box-shadow:none !important;
       }
-      .history-track {
-          padding:.72rem .9rem;
-          border:1px solid rgba(127,127,127,.22);
-          border-radius:12px;
-          background:rgba(127,127,127,.045);
-          margin-top:.35rem;
+      .latest-entry-row {
+          display:flex;
+          justify-content:flex-end;
+          width:100%;
+          margin:.25rem 0 .5rem;
       }
-      .history-label {
-          font-size:.7rem;
-          font-weight:700;
-          letter-spacing:.08em;
-          text-transform:uppercase;
-          opacity:.58;
-          margin-bottom:.38rem;
-      }
-      .history-line {
-          font-size:.9rem;
-          line-height:1.35;
-          margin:.12rem 0;
+      .latest-entry-bubble {
+          max-width:82%;
+          padding:.68rem .9rem;
+          border-radius:18px 18px 5px 18px;
+          background:rgba(127,127,127,.12);
+          border:1px solid rgba(127,127,127,.16);
+          font-size:.92rem;
+          line-height:1.4;
           overflow-wrap:anywhere;
       }
       .footer {
@@ -921,6 +911,7 @@ assistant_tab, news_tab = st.tabs(["Assistant", "News"])
 with assistant_tab:
     render_haru_mascot(st.session_state.mood)
     st.markdown(f'<div class="status">{st.session_state.mood}</div>', unsafe_allow_html=True)
+    render_latest_history_tracker()
     safe_reply = html.escape(str(st.session_state.message)).replace("\n", "<br>")
     st.markdown(f'<div class="reply">{safe_reply}</div>', unsafe_allow_html=True)
 
@@ -930,7 +921,6 @@ with assistant_tab:
             "Type a question or task…",
             key="haru_chat_input",
         )
-        render_latest_history_tracker()
 
     if command:
         st.session_state.mood = "THINKING"
@@ -1078,18 +1068,18 @@ with st.expander("AI selector"):
             )
         else:
             provider_options = [
-                "OpenRouter API",
                 "Google Gemini API",
+                "OpenRouter API",
             ]
             if st.session_state.ai_provider not in provider_options:
-                st.session_state.ai_provider = provider_options[0]
+                st.session_state.ai_provider = "Google Gemini API"
 
         provider_labels = {
             "Ollama": "Ollama on this PC — recommended",
             "Local OpenAI-compatible": "Other local OpenAI-compatible server",
             "Android on-device (APK only)": "Android on-device model",
-            "Google Gemini API": "Google Gemini API",
-            "OpenRouter API": "OpenRouter API",
+            "Google Gemini API": "Google Gemini API — default",
+            "OpenRouter API": "OpenRouter API — free models only",
         }
         provider = st.selectbox(
             "Provider",
@@ -1101,9 +1091,8 @@ with st.expander("AI selector"):
 
         model_catalogs = {
             "Google Gemini API": {
-                "Gemma 4 31B — highest free daily quota": "gemma-4-31b-it",
+                "Antigravity — default agent": "antigravity-preview-09-2026",
                 "Gemini 3.5 Flash-Lite — long context / tools": "gemini-3.5-flash-lite",
-                "Antigravity — agent workflows": "antigravity-preview-09-2026",
             },
             "Android on-device (APK only)": {
                 "Gemma 4 E4B Instruct — HARU recommended": "google/gemma-4-E4B-it",
@@ -1245,13 +1234,16 @@ with st.expander("AI selector"):
                     ),
                 )
 
+            free_modes = [
+                "Free auto-router — recommended",
+                "Choose a specific free model",
+            ]
+            if st.session_state.get("openrouter_model_mode") not in free_modes:
+                st.session_state["openrouter_model_mode"] = free_modes[0]
+
             openrouter_mode = st.radio(
                 "Model access",
-                [
-                    "Free auto-router — recommended",
-                    "Choose a specific free model",
-                    "All OpenRouter models",
-                ],
+                free_modes,
                 horizontal=False,
                 key="openrouter_model_mode",
             )
@@ -1259,23 +1251,27 @@ with st.expander("AI selector"):
             if openrouter_mode == "Free auto-router — recommended":
                 st.session_state.ai_model = "openrouter/free"
                 st.success(
-                    "Using OpenRouter Free Models Router. HARU will automatically use an available free model."
+                    "Using OpenRouter Free Models Router. Paid models are hidden in HARU."
                 )
                 st.caption(
-                    "Model ID: openrouter/free · No token charge. Free-plan request limits still apply."
+                    "Model ID: openrouter/free · Free-plan request limits still apply."
                 )
             else:
-                if st.button("Refresh OpenRouter models", use_container_width=True):
+                if st.button("Refresh free OpenRouter models", use_container_width=True):
                     try:
                         names = list_openai_compatible_models(
                             st.session_state.ai_endpoint,
                             resolved_api_key("OpenRouter API", st.session_state.ai_api_key),
                         )
-                        st.session_state["openrouter_models"] = names
+                        free_names = [
+                            name for name in names
+                            if name == "openrouter/free" or name.endswith(":free")
+                        ]
+                        st.session_state["openrouter_models"] = free_names
                         st.session_state.ai_status = (
-                            f"Found {len(names)} OpenRouter model(s)."
-                            if names else
-                            "OpenRouter returned no models."
+                            f"Found {len(free_names)} free OpenRouter model(s)."
+                            if free_names else
+                            "No specific free models were returned; use the free auto-router."
                         )
                         st.rerun()
                     except AiRuntimeError as exc:
@@ -1283,47 +1279,25 @@ with st.expander("AI selector"):
                         st.session_state.ai_status = f"OpenRouter discovery failed: {exc}"
 
                 discovered = st.session_state.get("openrouter_models", [])
+                free_models = [
+                    name for name in discovered
+                    if name == "openrouter/free" or name.endswith(":free")
+                ]
+                if "openrouter/free" not in free_models:
+                    free_models.insert(0, "openrouter/free")
 
-                if openrouter_mode == "Choose a specific free model":
-                    free_models = [
-                        name for name in discovered
-                        if name == "openrouter/free" or name.endswith(":free")
-                    ]
-                    if "openrouter/free" not in free_models:
-                        free_models.insert(0, "openrouter/free")
-
-                    current = (
-                        st.session_state.ai_model
-                        if st.session_state.ai_model in free_models
-                        else free_models[0]
-                    )
-                    st.session_state.ai_model = st.selectbox(
-                        "Free model",
-                        free_models,
-                        index=free_models.index(current),
-                        help="Free variants normally use the :free suffix. Availability can change.",
-                    )
-                    st.caption("Free model selected. OpenRouter free-tier rate limits still apply.")
-                else:
-                    if discovered:
-                        current = (
-                            st.session_state.ai_model
-                            if st.session_state.ai_model in discovered
-                            else discovered[0]
-                        )
-                        st.session_state.ai_model = st.selectbox(
-                            "OpenRouter model",
-                            discovered,
-                            index=discovered.index(current),
-                            help="Shows models returned by your OpenRouter account.",
-                        )
-                    else:
-                        st.session_state.ai_model = st.text_input(
-                            "OpenRouter model ID",
-                            value=st.session_state.ai_model,
-                            placeholder="e.g. openrouter/free",
-                            help="Refresh models to avoid typing model IDs manually.",
-                        )
+                current = (
+                    st.session_state.ai_model
+                    if st.session_state.ai_model in free_models
+                    else free_models[0]
+                )
+                st.session_state.ai_model = st.selectbox(
+                    "Free model",
+                    free_models,
+                    index=free_models.index(current),
+                    help="HARU only exposes OpenRouter's free router and :free model variants.",
+                )
+                st.caption("Free-only OpenRouter mode. Paid models are not selectable.")
 
         elif provider == "Local OpenAI-compatible":
             st.session_state.ai_endpoint = st.text_input(
@@ -1373,16 +1347,14 @@ with st.expander("AI selector"):
                     "Model type",
                     labels,
                     index=labels.index(current_label),
-                    help="HARU is limited to three free-first Google options.",
+                    help="HARU uses Antigravity by default, with Gemini 3.5 Flash-Lite as the lightweight alternative.",
                 )
                 st.session_state.ai_model = catalog[selected_label]
 
-                if st.session_state.ai_model == "gemma-4-31b-it":
-                    st.caption("30 RPM · 16K TPM · 14.4K RPD — best default for free daily usage.")
-                elif st.session_state.ai_model == "gemini-3.5-flash-lite":
-                    st.caption("15 RPM · 250K TPM · 500 RPD — use for long context and Gemini-native tools.")
+                if st.session_state.ai_model == "antigravity-preview-09-2026":
+                    st.caption("Default · agent workflows · 60 RPM · 100K TPM · 100 RPD.")
                 else:
-                    st.caption("60 RPM · 100K TPM · 100 RPD — use for agent-style workflows.")
+                    st.caption("Gemini 3.5 Flash-Lite · 15 RPM · 250K TPM · 500 RPD · long context / tools.")
             else:
                 labels = list(catalog.keys()) + ["Custom model…"]
                 current_label = next(
@@ -1443,8 +1415,8 @@ with st.expander("AI selector"):
         if provider != "Ollama":
             st.info(
                 "When applied, HARU becomes the shell for the selected model/agent. "
-                "Gemma 4 31B is the free-volume default, Gemini 3.5 Flash-Lite handles long-context/tool-heavy requests, "
-                "and Antigravity is reserved for agent workflows. HARU local tools remain available for device-specific tasks."
+                "Google Antigravity is the online default, Gemini 3.5 Flash-Lite is the lightweight alternative, "
+                "and OpenRouter exposes free models only. HARU local tools remain available for device-specific tasks."
             )
 
         if provider != "Ollama":
@@ -1594,4 +1566,4 @@ with st.expander("Developer panel"):
             st.write(f"**You:** {q}")
             st.write(f"**HARU:** {a}")
 
-st.markdown("<div class=\"footer\">HARU Lab v2.8 • free-first 3-model Google selector</div>", unsafe_allow_html=True)
+st.markdown("<div class=\"footer\">HARU Lab v2.9 • Antigravity default + free-only routing</div>", unsafe_allow_html=True)
