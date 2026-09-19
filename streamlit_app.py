@@ -798,7 +798,7 @@ def cat_svg_for_mood(mood: str) -> str:
 
     svg = f"""
     <div class="haru-cat-wrap">
-      <svg class="haru-cat" viewBox="0 0 320 280" role="img" aria-label="HARU {mood.lower()} expression">
+      <svg xmlns="http://www.w3.org/2000/svg" class="haru-cat" viewBox="0 0 320 280" role="img" aria-label="HARU {mood.lower()} expression">
         <g fill="none" stroke="#202428" stroke-width="8" stroke-linecap="round" stroke-linejoin="round">
           <path d="M67 95
                    C62 72 70 38 87 24
@@ -838,6 +838,13 @@ def render_haru_mascot(mood: str) -> None:
         return
 
     svg = markup[svg_start : svg_end + len("</svg>")]
+    if 'xmlns="http://www.w3.org/2000/svg"' not in svg:
+        svg = svg.replace(
+            "<svg ",
+            '<svg xmlns="http://www.w3.org/2000/svg" ',
+            1,
+        )
+
     encoded = base64.b64encode(svg.encode("utf-8")).decode("ascii")
 
     st.markdown(
@@ -1722,4 +1729,4 @@ with st.expander("Developer panel"):
             st.write(f"**You:** {q}")
             st.write(f"**HARU:** {a}")
 
-st.markdown("<div class=\"footer\">HARU Lab v2.5.2 • reliable mood-responsive line-art cat</div>", unsafe_allow_html=True)
+st.markdown("<div class=\"footer\">HARU Lab v2.5.3 • fixed standalone mood SVG</div>", unsafe_allow_html=True)
