@@ -3,7 +3,14 @@ import re
 
 import streamlit as st
 
-from ai_runtime import AiConfig, AiRuntimeError, ask_ai, list_ollama_models, test_ai
+from ai_runtime import (
+    AiConfig,
+    AiRuntimeError,
+    ask_ai,
+    list_ollama_models,
+    list_openai_compatible_models,
+    test_ai,
+)
 from news_service import (
     deduplicate,
     friendly_time,
@@ -386,14 +393,30 @@ with st.expander("Developer panel"):
         )
         st.session_state.ai_provider = provider
 
-        default_models = {
-            "Ollama": "",
-            "Local OpenAI-compatible": "",
-            "Android on-device (APK only)": "phone-local",
-            "OpenAI API": "",
-            "Google Gemini API": "",
-            "Anthropic Claude API": "",
-            "Cloud OpenAI-compatible": "",
+        model_catalogs = {
+            "OpenAI API": {
+                "GPT-5.6 Sol — flagship reasoning/coding": "gpt-5.6-sol",
+                "GPT-5.6 Terra — balanced intelligence/cost": "gpt-5.6-terra",
+                "GPT-5.6 Luna — low-cost/high-volume": "gpt-5.6-luna",
+            },
+            "Google Gemini API": {
+                "Gemini 3.8 Flash — newest stable Flash": "gemini-3.8-flash",
+                "Gemini 3.7 Flash — previous stable": "gemini-3.7-flash",
+                "Gemini 3.6 Flash — balanced stable": "gemini-3.6-flash",
+                "Gemini 3.5 Flash — stable general model": "gemini-3.5-flash",
+                "Gemini 3.5 Flash-Lite — low-cost/high-throughput": "gemini-3.5-flash-lite",
+                "Gemini 3.1 Flash-Lite — very low-cost stable": "gemini-3.1-flash-lite",
+                "Gemini 3.1 Pro Preview — higher capability preview": "gemini-3.1-pro-preview",
+            },
+            "Anthropic Claude API": {
+                "Claude Fable 5 — newest high-capability model": "claude-fable-5",
+                "Claude Opus 5 — advanced reasoning": "claude-opus-5",
+                "Claude Sonnet 5 — balanced general model": "claude-sonnet-5",
+                "Claude Haiku 4.5 — fast/low-cost": "claude-haiku-4-5-20251001",
+            },
+            "Android on-device (APK only)": {
+                "Phone local runtime — model selected in Android": "phone-local",
+            },
         }
 
         default_endpoints = {
@@ -410,27 +433,86 @@ with st.expander("Developer panel"):
             )
 
         if provider == "Ollama":
-            discover_col, refresh_col = st.columns([3, 1])
-            with discover_col:
-                st.session_state.ai_model = st.text_input(
-                    "Model",
-                    value=st.session_state.ai_model or default_models[provider],
-                    placeholder="Installed Ollama model name",
-                )
-            with refresh_col:
-                if st.button("List models"):
-                    try:
-                        names = list_ollama_models(st.session_state.ai_endpoint)
-                        st.session_state.ai_status = "Found: " + ", ".join(names[:8]) if names else "No Ollama models found."
-                    except AiRuntimeError as exc:
-                        st.session_state.ai_status = f"Ollama discovery failed: {exc}"
-        else:
-            st.session_state.ai_model = st.text_input(
-                "Model ID",
-                value=st.session_state.ai_model or default_models.get(provider, ""),
-                placeholder="Enter provider model ID",
-                help="Model IDs change over time; enter the exact model exposed by your account/provider.",
+            if st.button("Discover installed Ollama models", use_container_width=True):
+                try:
+                    names = list_ollama_models(st.session_state.ai_endpoint)
+                    st.session_state["ollama_models"] = names
+                    st.session_state.ai_status = f"Found {len(names)} Ollama model(s)." if names else "No Ollama models found."
+                except AiRuntimeError as exc:
+                    st.session_state["ollama_models"] = []
+                    st.session_state.ai_status = f"Ollama discovery failed: {exc}"
+
+            discovered = st.session_state.get("ollama_models", [])
+            options = discovered + ["Custom model…"] if discovered else ["Custom model…"]
+            current_label = st.session_state.ai_model if st.session_state.ai_model in discovered else "Custom model…"
+            selected_model = st.selectbox(
+                "Model type",
+                options,
+                index=options.index(current_label),
             )
+            if selected_model == "Custom model…":
+                st.session_state.ai_model = st.text_input(
+                    "Custom Ollama model",
+                    value=st.session_state.ai_model if st.session_state.ai_model not in discovered else "",
+                    placeholder="e.g. qwen3:4b",
+                )
+            else:
+                st.session_state.ai_model = selected_model
+
+        elif provider in {"Local OpenAI-compatible", "Cloud OpenAI-compatible"}:
+            if st.button("Discover endpoint models", use_container_width=True):
+                try:
+                    names = list_openai_compatible_models(
+                        st.session_state.ai_endpoint,
+                        st.session_state.ai_api_key,
+                    )
+                    st.session_state["compatible_models"] = names
+                    st.session_state.ai_status = f"Found {len(names)} model(s)." if names else "No models returned by endpoint."
+                except AiRuntimeError as exc:
+                    st.session_state["compatible_models"] = []
+                    st.session_state.ai_status = f"Model discovery failed: {exc}"
+
+            discovered = st.session_state.get("compatible_models", [])
+            options = discovered + ["Custom model…"] if discovered else ["Custom model…"]
+            current_label = st.session_state.ai_model if st.session_state.ai_model in discovered else "Custom model…"
+            selected_model = st.selectbox(
+                "Model type",
+                options,
+                index=options.index(current_label),
+            )
+            if selected_model == "Custom model…":
+                st.session_state.ai_model = st.text_input(
+                    "Custom model ID",
+                    value=st.session_state.ai_model if st.session_state.ai_model not in discovered else "",
+                )
+            else:
+                st.session_state.ai_model = selected_model
+
+        else:
+            catalog = model_catalogs.get(provider, {})
+            labels = list(catalog.keys()) + ["Custom model…"]
+            current_label = next(
+                (label for label, model_id in catalog.items() if model_id == st.session_state.ai_model),
+                labels[0] if catalog and not st.session_state.ai_model else "Custom model…",
+            )
+            selected_label = st.selectbox(
+                "Model type",
+                labels,
+                index=labels.index(current_label),
+                help="Friendly model names are mapped internally to the provider's API model ID.",
+            )
+
+            if selected_label == "Custom model…":
+                st.session_state.ai_model = st.text_input(
+                    "Custom model ID",
+                    value=st.session_state.ai_model if st.session_state.ai_model not in catalog.values() else "",
+                    placeholder="Enter provider model ID",
+                )
+            else:
+                st.session_state.ai_model = catalog[selected_label]
+
+            if st.session_state.ai_model:
+                st.caption(f"API model: {st.session_state.ai_model}")
 
         if provider in {"OpenAI API", "Google Gemini API", "Anthropic Claude API", "Cloud OpenAI-compatible"}:
             st.session_state.ai_api_key = st.text_input(
