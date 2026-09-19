@@ -1,0 +1,36 @@
+name: Validate HARU
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Install runtime dependencies
+        run: |
+          python -m pip install --disable-pip-version-check -r requirements.txt
+          python -m pip check
+
+      - name: Compile Python runtime
+        run: |
+          python -m compileall -q streamlit_app.py ai_runtime.py credential_store.py news_service.py
+
+      - name: Check forbidden secret files and stale media references
+        shell: bash
+        run: |
+          test ! -f .streamlit/secrets.toml
+          ! grep -R -n -E 'haru_animation|haru_cute_theme|generate_haru_media|HARU_THEME|music_enabled'             --exclude-dir=.git . || exit 1
