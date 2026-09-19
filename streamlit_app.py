@@ -1148,43 +1148,85 @@ with st.expander("AI selector"):
                 help="Stored only in this Streamlit session and never committed to GitHub.",
             )
 
-            if st.button("Discover OpenRouter models", use_container_width=True):
-                try:
-                    names = list_openai_compatible_models(
-                        st.session_state.ai_endpoint,
-                        st.session_state.ai_api_key,
-                    )
-                    st.session_state["openrouter_models"] = names
-                    st.session_state.ai_status = (
-                        f"Found {len(names)} OpenRouter model(s)."
-                        if names else
-                        "OpenRouter returned no models."
-                    )
-                    st.rerun()
-                except AiRuntimeError as exc:
-                    st.session_state["openrouter_models"] = []
-                    st.session_state.ai_status = f"OpenRouter discovery failed: {exc}"
+            openrouter_mode = st.radio(
+                "Model access",
+                [
+                    "Free auto-router — recommended",
+                    "Choose a specific free model",
+                    "All OpenRouter models",
+                ],
+                horizontal=False,
+                key="openrouter_model_mode",
+            )
 
-            discovered = st.session_state.get("openrouter_models", [])
-            if discovered:
-                current = (
-                    st.session_state.ai_model
-                    if st.session_state.ai_model in discovered
-                    else discovered[0]
+            if openrouter_mode == "Free auto-router — recommended":
+                st.session_state.ai_model = "openrouter/free"
+                st.success(
+                    "Using OpenRouter Free Models Router. HARU will automatically use an available free model."
                 )
-                st.session_state.ai_model = st.selectbox(
-                    "OpenRouter model",
-                    discovered,
-                    index=discovered.index(current),
-                    help="Select any model available through your OpenRouter account.",
+                st.caption(
+                    "Model ID: openrouter/free · No token charge. Free-plan request limits still apply."
                 )
             else:
-                st.session_state.ai_model = st.text_input(
-                    "OpenRouter model ID",
-                    value=st.session_state.ai_model,
-                    placeholder="e.g. openai/gpt-4.1-mini",
-                    help="Use Discover OpenRouter models to avoid typing model IDs manually.",
-                )
+                if st.button("Refresh OpenRouter models", use_container_width=True):
+                    try:
+                        names = list_openai_compatible_models(
+                            st.session_state.ai_endpoint,
+                            st.session_state.ai_api_key,
+                        )
+                        st.session_state["openrouter_models"] = names
+                        st.session_state.ai_status = (
+                            f"Found {len(names)} OpenRouter model(s)."
+                            if names else
+                            "OpenRouter returned no models."
+                        )
+                        st.rerun()
+                    except AiRuntimeError as exc:
+                        st.session_state["openrouter_models"] = []
+                        st.session_state.ai_status = f"OpenRouter discovery failed: {exc}"
+
+                discovered = st.session_state.get("openrouter_models", [])
+
+                if openrouter_mode == "Choose a specific free model":
+                    free_models = [
+                        name for name in discovered
+                        if name == "openrouter/free" or name.endswith(":free")
+                    ]
+                    if "openrouter/free" not in free_models:
+                        free_models.insert(0, "openrouter/free")
+
+                    current = (
+                        st.session_state.ai_model
+                        if st.session_state.ai_model in free_models
+                        else free_models[0]
+                    )
+                    st.session_state.ai_model = st.selectbox(
+                        "Free model",
+                        free_models,
+                        index=free_models.index(current),
+                        help="Free variants normally use the :free suffix. Availability can change.",
+                    )
+                    st.caption("Free model selected. OpenRouter free-tier rate limits still apply.")
+                else:
+                    if discovered:
+                        current = (
+                            st.session_state.ai_model
+                            if st.session_state.ai_model in discovered
+                            else discovered[0]
+                        )
+                        st.session_state.ai_model = st.selectbox(
+                            "OpenRouter model",
+                            discovered,
+                            index=discovered.index(current),
+                            help="Shows models returned by your OpenRouter account.",
+                        )
+                    else:
+                        st.session_state.ai_model = st.text_input(
+                            "OpenRouter model ID",
+                            value=st.session_state.ai_model,
+                            placeholder="e.g. openrouter/free",
+                            help="Refresh models to avoid typing model IDs manually.",
+                        )
 
         elif provider in {"Local OpenAI-compatible", "Cloud OpenAI-compatible"}:
             st.session_state.ai_endpoint = st.text_input(
@@ -1381,4 +1423,4 @@ with st.expander("Developer panel"):
             st.write(f"**You:** {q}")
             st.write(f"**HARU:** {a}")
 
-st.markdown("<div class=\"footer\">HARU Lab v1.7 • OpenRouter API support</div>", unsafe_allow_html=True)
+st.markdown("<div class=\"footer\">HARU Lab v1.8 • simplified OpenRouter free mode</div>", unsafe_allow_html=True)
