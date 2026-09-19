@@ -2,6 +2,7 @@ from datetime import datetime
 from pathlib import Path
 import ast
 import hashlib
+import importlib.util
 import html
 import operator
 import os
@@ -44,6 +45,39 @@ ROOT_DIR = Path(__file__).resolve().parent
 ASSET_DIR = ROOT_DIR / "assets"
 HARU_ANIMATION = ASSET_DIR / "haru_animation.gif"
 HARU_THEME = ASSET_DIR / "haru_cute_theme.wav"
+
+
+def ensure_haru_media() -> None:
+    """Create HARU media on first run when deployed assets are missing."""
+    ASSET_DIR.mkdir(parents=True, exist_ok=True)
+
+    need_animation = not HARU_ANIMATION.exists()
+    need_theme = not HARU_THEME.exists()
+    if not need_animation and not need_theme:
+        return
+
+    generator_path = ROOT_DIR / "scripts" / "generate_haru_media.py"
+    if not generator_path.exists():
+        return
+
+    try:
+        spec = importlib.util.spec_from_file_location("haru_media_generator", generator_path)
+        if spec is None or spec.loader is None:
+            return
+
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+
+        if need_animation and hasattr(module, "make_gif"):
+            module.make_gif()
+        if need_theme and hasattr(module, "make_theme"):
+            module.make_theme()
+    except Exception:
+        # Keep HARU usable even if optional media generation fails.
+        return
+
+
+ensure_haru_media()
 
 
 SECRET_NAME_BY_PROVIDER = {
@@ -660,18 +694,23 @@ def active_model_display_name() -> str:
 
 
 def render_haru_mascot(mood: str) -> None:
-    """Render animated HARU when generated assets are available."""
+    """Render the animated HARU mascot, generating it on demand if needed."""
+    ensure_haru_media()
+
     if HARU_ANIMATION.exists():
         left, center, right = st.columns([1.15, 1.7, 1.15])
         with center:
             st.image(str(HARU_ANIMATION), use_container_width=True)
-    else:
-        # Safe fallback while GitHub Actions is generating the media assets.
-        st.markdown(face_html(mood), unsafe_allow_html=True)
+        return
+
+    # Last-resort fallback keeps the assistant functional if media generation fails.
+    st.markdown(face_html(mood), unsafe_allow_html=True)
 
 
 def render_haru_theme_control() -> None:
     """Optional original HARU theme; off by default to avoid surprise audio."""
+    ensure_haru_media()
+
     if not HARU_THEME.exists():
         return
 
