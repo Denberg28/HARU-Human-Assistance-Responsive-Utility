@@ -420,7 +420,7 @@ with news_tab:
         general = deduplicate(philippines_headlines(6) + world_items[:4]) if not local_items else deduplicate(local_items[:3] + world_items[:3])
         render_news_items(general, "general", 6)
 
-with st.expander("Developer panel"):
+with st.expander("AI selector"):
     st.markdown("#### AI runtime")
     st.caption(
         "HARU local skills always run first. AI is optional and can be used only as a fallback for commands "
@@ -684,10 +684,15 @@ with st.expander("Developer panel"):
 
         st.caption(f"Diagnostic response: {st.session_state.ai_status}")
 
-    st.divider()
+
+with st.expander("Developer panel"):
     st.markdown("#### HARU face")
     mood_options = ["IDLE", "LISTENING", "THINKING", "WORKING", "HAPPY", "CONFUSED", "ALERT", "SLEEPY"]
-    selected_mood = st.selectbox("Preview expression", mood_options, index=mood_options.index(st.session_state.mood))
+    selected_mood = st.selectbox(
+        "Preview expression",
+        mood_options,
+        index=mood_options.index(st.session_state.mood),
+    )
     if st.button("Apply mood"):
         st.session_state.mood = selected_mood
         st.rerun()
@@ -698,4 +703,4 @@ with st.expander("Developer panel"):
             st.write(f"**You:** {q}")
             st.write(f"**HARU:** {a}")
 
-st.markdown('<div class="footer">HARU Lab v0.4 • local-first assistant + verified AI runtime</div>', unsafe_allow_html=True)
+st.markdown('<div class="footer">HARU Lab v0.5 • local-first assistant + separate AI selector</div>', unsafe_allow_html=True)
