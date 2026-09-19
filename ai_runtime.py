@@ -130,6 +130,32 @@ def list_ollama_models(endpoint: str, timeout_s: int = 5) -> list[str]:
     return names
 
 
+def pull_ollama_model(
+    endpoint: str,
+    model: str,
+    timeout_s: int = 1800,
+) -> str:
+    """Download an Ollama model through the local API without invoking a shell."""
+    name = (model or "").strip()
+    if not name:
+        raise AiRuntimeError("Choose a model to download first.")
+    if len(name) > 120:
+        raise AiRuntimeError("Model name is too long.")
+    if not all(ch.isalnum() or ch in "._:/-" for ch in name):
+        raise AiRuntimeError("Model name contains unsupported characters.")
+
+    base = _normalize_endpoint(endpoint, "http://localhost:11434")
+    data = _json_request(
+        f"{base}/api/pull",
+        payload={"name": name, "stream": False},
+        timeout=timeout_s,
+    )
+    status = str(data.get("status") or "").strip()
+    if status and status.lower() not in {"success", "done"}:
+        raise AiRuntimeError(f"Ollama download did not complete: {status}")
+    return status or "success"
+
+
 def list_openai_compatible_models(
     endpoint: str,
     api_key: str = "",
