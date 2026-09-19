@@ -4,6 +4,7 @@ plugins {
 }
 
 android {
+    // HARU v0.3.0 online-only build
     namespace = "io.haru.assistant"
     compileSdk = 37
 
