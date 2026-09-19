@@ -55,23 +55,12 @@ if not exist ".venv\Scripts\python.exe" (
 )
 
 call .venv\Scripts\activate.bat
-python -m pip install --upgrade pip >nul
 python -m pip install -r requirements.txt
 
 echo.
 echo Starting HARU at http://localhost:8501
 echo Close this window to stop HARU.
 echo.
-
-if not exist "assets\haru_animation.gif" (
-  echo Generating HARU mascot and theme...
-  python scripts\generate_haru_media.py
-)
-
-if not exist "assets\haru_cute_theme.wav" (
-  echo Generating HARU mascot and theme...
-  python scripts\generate_haru_media.py
-)
 
 python -m streamlit run streamlit_app.py --server.address localhost --server.port 8501
 
