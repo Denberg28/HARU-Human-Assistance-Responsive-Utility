@@ -420,6 +420,46 @@ def route_command(command: str):
     )
 
 
+def choose_ollama_model(models: list[str]) -> str:
+    if not models:
+        return ""
+
+    def score(name: str) -> tuple[int, float]:
+        low = name.lower()
+        family_score = 0
+        priorities = [
+            ("qwen3", 90),
+            ("gemma4", 88),
+            ("gemma3", 85),
+            ("llama3", 82),
+            ("phi4", 78),
+            ("mistral", 72),
+        ]
+        for token, value in priorities:
+            if token in low:
+                family_score = value
+                break
+
+        size = 0.0
+        match = re.search(r"(\d+(?:\.\d+)?)b", low)
+        if match:
+            size = float(match.group(1))
+
+        # Favor capable but still desktop-friendly models.
+        if size > 14:
+            size_bonus = 0
+        elif size >= 7:
+            size_bonus = 12
+        elif size >= 3:
+            size_bonus = 10
+        else:
+            size_bonus = 5
+
+        return family_score + size_bonus, size
+
+    return max(models, key=score)
+
+
 def draft_ai_config() -> AiConfig:
     return AiConfig(
         mode=st.session_state.get("ai_mode", "Off"),
@@ -919,11 +959,9 @@ with st.expander("AI selector"):
                 "Android on-device (APK only)",
             ]
             if st.session_state.ai_provider not in provider_options:
-                st.session_state.ai_provider = provider_options[0]
+                st.session_state.ai_provider = "Ollama"
             st.caption(
-                "In hosted Streamlit, localhost means the Streamlit server—not your phone or home PC. "
-                "For Ollama on your own machine, use HARU Lab locally or expose a secured reachable endpoint. "
-                "The Android APK will later support true phone-local runtimes."
+                "Recommended: Ollama on the same PC as HARU. No API key required."
             )
         else:
             provider_options = [
@@ -935,10 +973,20 @@ with st.expander("AI selector"):
             if st.session_state.ai_provider not in provider_options:
                 st.session_state.ai_provider = provider_options[0]
 
+        provider_labels = {
+            "Ollama": "Ollama on this PC — recommended",
+            "Local OpenAI-compatible": "Other local OpenAI-compatible server",
+            "Android on-device (APK only)": "Android on-device model",
+            "OpenAI API": "OpenAI API",
+            "Google Gemini API": "Google Gemini API",
+            "Anthropic Claude API": "Anthropic Claude API",
+            "Cloud OpenAI-compatible": "Cloud OpenAI-compatible",
+        }
         provider = st.selectbox(
             "Provider",
             provider_options,
             index=provider_options.index(st.session_state.ai_provider),
+            format_func=lambda item: provider_labels.get(item, item),
         )
         st.session_state.ai_provider = provider
 
@@ -977,41 +1025,95 @@ with st.expander("AI selector"):
             "Cloud OpenAI-compatible": "https://example.com",
         }
 
-        if provider in default_endpoints:
+        if provider == "Ollama":
+            st.session_state.ai_endpoint = st.session_state.ai_endpoint or "http://localhost:11434"
+
+            if st.button(
+                "Connect Ollama on this PC",
+                type="primary",
+                use_container_width=True,
+                key="ollama_quick_connect",
+            ):
+                try:
+                    names = list_ollama_models(st.session_state.ai_endpoint)
+                    st.session_state["ollama_models"] = names
+
+                    if not names:
+                        st.session_state.ai_connection_state = "FAILED"
+                        st.session_state.ai_connection_message = (
+                            "Ollama is reachable, but no models are installed. Run: ollama pull qwen3:4b"
+                        )
+                        st.session_state.ai_status = "No Ollama models installed."
+                        st.rerun()
+
+                    chosen = choose_ollama_model(names)
+                    st.session_state.ai_model = chosen
+                    candidate = draft_ai_config()
+                    candidate.provider = "Ollama"
+                    candidate.mode = "Local"
+                    candidate.model = chosen
+                    candidate.endpoint = st.session_state.ai_endpoint
+
+                    result = test_ai(candidate)
+                    st.session_state.ai_applied_mode = "Local"
+                    st.session_state.ai_applied_provider = "Ollama"
+                    st.session_state.ai_applied_model = chosen
+                    st.session_state.ai_applied_endpoint = st.session_state.ai_endpoint
+                    st.session_state.ai_applied_api_key = ""
+                    st.session_state.ai_applied_signature = ai_config_signature(candidate)
+                    st.session_state.ai_connection_state = "CONNECTED"
+                    st.session_state.ai_runtime_degraded = False
+                    st.session_state.ai_runtime_degraded_reason = ""
+                    st.session_state.ai_connection_message = f"Ollama connected. {chosen} is now HARU."
+                    st.session_state.ai_status = result
+                    st.rerun()
+                except AiRuntimeError as exc:
+                    st.session_state.ai_connection_state = "FAILED"
+                    st.session_state.ai_connection_message = (
+                        "HARU cannot reach Ollama on this machine. "
+                        "If this page is Streamlit Cloud, run HARU locally using run_haru_local.bat."
+                    )
+                    st.session_state.ai_status = str(exc)
+                    st.rerun()
+
+            discovered = st.session_state.get("ollama_models", [])
+            if discovered:
+                current = (
+                    st.session_state.ai_model
+                    if st.session_state.ai_model in discovered
+                    else choose_ollama_model(discovered)
+                )
+                selected_model = st.selectbox(
+                    "Installed model",
+                    discovered,
+                    index=discovered.index(current),
+                    help="HARU auto-selects a good default. Change this only if you prefer another installed model.",
+                )
+                st.session_state.ai_model = selected_model
+                st.caption(f"Using: {selected_model}")
+
+            with st.expander("Advanced Ollama settings"):
+                st.session_state.ai_endpoint = st.text_input(
+                    "Ollama endpoint",
+                    value=st.session_state.ai_endpoint,
+                    help="Default is http://localhost:11434. Change only for a remote Ollama server.",
+                )
+                if st.button("Refresh installed models", use_container_width=True):
+                    try:
+                        names = list_ollama_models(st.session_state.ai_endpoint)
+                        st.session_state["ollama_models"] = names
+                        st.session_state.ai_status = f"Found {len(names)} model(s)."
+                        st.rerun()
+                    except AiRuntimeError as exc:
+                        st.session_state.ai_status = f"Ollama discovery failed: {exc}"
+
+        elif provider in {"Local OpenAI-compatible", "Cloud OpenAI-compatible"}:
             st.session_state.ai_endpoint = st.text_input(
                 "Endpoint",
                 value=st.session_state.ai_endpoint or default_endpoints[provider],
                 help="Use the base URL only. HARU adds the provider API path automatically.",
             )
 
-        if provider == "Ollama":
-            if st.button("Discover installed Ollama models", use_container_width=True):
-                try:
-                    names = list_ollama_models(st.session_state.ai_endpoint)
-                    st.session_state["ollama_models"] = names
-                    st.session_state.ai_status = f"Found {len(names)} Ollama model(s)." if names else "No Ollama models found."
-                except AiRuntimeError as exc:
-                    st.session_state["ollama_models"] = []
-                    st.session_state.ai_status = f"Ollama discovery failed: {exc}"
-
-            discovered = st.session_state.get("ollama_models", [])
-            options = discovered + ["Custom model…"] if discovered else ["Custom model…"]
-            current_label = st.session_state.ai_model if st.session_state.ai_model in discovered else "Custom model…"
-            selected_model = st.selectbox(
-                "Model type",
-                options,
-                index=options.index(current_label),
-            )
-            if selected_model == "Custom model…":
-                st.session_state.ai_model = st.text_input(
-                    "Custom Ollama model",
-                    value=st.session_state.ai_model if st.session_state.ai_model not in discovered else "",
-                    placeholder="e.g. qwen3:4b",
-                )
-            else:
-                st.session_state.ai_model = selected_model
-
-        elif provider in {"Local OpenAI-compatible", "Cloud OpenAI-compatible"}:
             if st.button("Discover endpoint models", use_container_width=True):
                 try:
                     names = list_openai_compatible_models(
@@ -1082,10 +1184,11 @@ with st.expander("AI selector"):
         else:
             st.session_state.ai_api_key = ""
 
-        st.info(
-            "When applied, HARU becomes the shell for this model. Supported online providers keep their native "
-            "web-search capability; HARU local tools remain available for device-specific and deterministic tasks."
-        )
+        if provider != "Ollama":
+            st.info(
+                "When applied, HARU becomes the shell for this model. Supported online providers keep their native "
+                "web-search capability; HARU local tools remain available for device-specific and deterministic tasks."
+            )
 
         apply_col, test_col, clear_col = st.columns([1.35, 1, 1])
         with apply_col:
@@ -1167,4 +1270,4 @@ with st.expander("Developer panel"):
             st.write(f"**You:** {q}")
             st.write(f"**HARU:** {a}")
 
-st.markdown("<div class=\"footer\">HARU Lab v1.4 • capable HARU Local mode</div>", unsafe_allow_html=True)
+st.markdown("<div class=\"footer\">HARU Lab v1.5 • one-click Ollama local AI</div>", unsafe_allow_html=True)
