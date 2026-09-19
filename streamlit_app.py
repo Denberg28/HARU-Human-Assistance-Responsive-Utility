@@ -516,22 +516,13 @@ st.markdown(
           font-size:.98rem;
           line-height:1.45;
       }
-      div[data-testid="stForm"] {
-          padding:.65rem .8rem .7rem .8rem;
-          border-radius:12px;
+      div[data-testid="stChatInput"] {
+          margin:.15rem 0 .35rem 0;
       }
-      div[data-testid="stForm"] [data-testid="stTextArea"] {
-          margin-bottom:.2rem;
-      }
-      div[data-testid="stForm"] textarea {
-          min-height:68px !important;
+      div[data-testid="stChatInput"] textarea {
+          min-height:44px !important;
           max-height:110px !important;
-          resize:none !important;
           line-height:1.35 !important;
-          padding:.65rem .75rem !important;
-      }
-      div[data-testid="stForm"] small {
-          margin-bottom:.15rem;
       }
       .stTabs [data-baseweb="tab-list"] {
           gap:.35rem;
@@ -582,26 +573,22 @@ with assistant_tab:
     safe_reply = html.escape(str(st.session_state.message)).replace("\n", "<br>")
     st.markdown(f'<div class="reply">{safe_reply}</div>', unsafe_allow_html=True)
 
-    with st.form("haru_command", clear_on_submit=True):
-        st.caption("Ask HARU")
-        command = st.text_area(
-            "HARU command",
-            placeholder="Type a question or task…",
-            height=68,
-            label_visibility="collapsed",
-            key="haru_command_text",
+    with st.container(border=True):
+        st.caption("Ask HARU · Enter to send · Shift+Enter for a new line")
+        command = st.chat_input(
+            "Type a question or task…",
+            key="haru_chat_input",
         )
-        c1, c2 = st.columns([3, 1])
-        with c1:
-            sent = st.form_submit_button("Send", use_container_width=True)
-        with c2:
-            help_clicked = st.form_submit_button("Help", use_container_width=True)
+        help_clicked = st.button(
+            "Help",
+            key="haru_help",
+            use_container_width=True,
+        )
 
     if help_clicked:
         command = "help"
-        sent = True
 
-    if sent:
+    if command:
         st.session_state.mood = "THINKING"
         mood, reply = route_command(command)
         st.session_state.mood = mood
@@ -989,4 +976,4 @@ with st.expander("Developer panel"):
             st.write(f"**You:** {q}")
             st.write(f"**HARU:** {a}")
 
-st.markdown("<div class=\"footer\">HARU Lab v1.2 • resilient provider-shell mode</div>", unsafe_allow_html=True)
+st.markdown("<div class=\"footer\">HARU Lab v1.3 • Enter-to-send chat input</div>", unsafe_allow_html=True)
