@@ -48,6 +48,46 @@ class HaruViewModel(
         )
     }
 
+    fun submitOrPrepareLocalAi(hasLocalAi: Boolean): String? {
+        val command = uiState.command.trim()
+        if (command.isBlank()) {
+            submit()
+            return null
+        }
+
+        if (!hasLocalAi) {
+            submit()
+            return null
+        }
+
+        val localResult = router.route(command)
+        if (localResult.success) {
+            uiState = uiState.copy(
+                mood = HaruMood.HAPPY,
+                message = localResult.message,
+                command = "",
+                isBusy = false,
+            )
+            return null
+        }
+
+        uiState = uiState.copy(
+            mood = HaruMood.THINKING,
+            message = "Thinking locally…",
+            command = "",
+            isBusy = true,
+        )
+        return command
+    }
+
+    fun completeLocalAi(message: String, success: Boolean = true) {
+        uiState = uiState.copy(
+            mood = if (success) HaruMood.HAPPY else HaruMood.CONFUSED,
+            message = message,
+            isBusy = false,
+        )
+    }
+
     fun submitVoice(command: String) {
         updateCommand(command)
         submit()
