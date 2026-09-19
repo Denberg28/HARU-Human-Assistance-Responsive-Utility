@@ -2,11 +2,8 @@ package io.haru.assistant
 
 import android.Manifest
 import android.annotation.SuppressLint
-import android.app.DownloadManager
-import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.location.Location
 import android.location.LocationListener
@@ -15,7 +12,6 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Looper
-import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -73,7 +69,6 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
     private var hasGeminiKey by mutableStateOf(false)
     private var updateStatus by mutableStateOf("")
     private var updateUrl by mutableStateOf("")
-    private var updateDownloadId: Long? = null
 
     private var newsBundle by mutableStateOf(AndroidNewsBundle())
     private var hazardBundle by mutableStateOf(AndroidHazardBundle())
@@ -82,15 +77,6 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
 
     private var trustedLocations by mutableStateOf(emptyList<TrustedLocation>())
     private var locationShareCode by mutableStateOf("")
-
-    private val updateDownloadReceiver = object : BroadcastReceiver() {
-        override fun onReceive(context: Context?, intent: Intent?) {
-            val completedId =
-                intent?.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1L) ?: -1L
-            if (completedId <= 0L || completedId != updateDownloadId) return
-            finishDownloadedUpdate(completedId)
-        }
-    }
 
     private val audioPermissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -146,14 +132,6 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
         refreshOnlineKeyState()
         trustedLocations = trustedLocationManager.load()
 
-        val updateFilter = IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE)
-        ContextCompat.registerReceiver(
-            this,
-            updateDownloadReceiver,
-            updateFilter,
-            ContextCompat.RECEIVER_NOT_EXPORTED,
-        )
-
         setContent {
             HaruTheme {
                 val haruViewModel: HaruViewModel = viewModel()
@@ -188,7 +166,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
                     onSaveGeminiKey = ::saveGeminiKey,
                     onTestOnlineAi = ::testOnlineAi,
                     onCheckUpdate = ::checkForUpdate,
-                    onInstallUpdate = ::downloadAndInstallUpdate,
+                    onInstallUpdate = ::openUrl,
                     onRefreshNews = ::refreshNews,
                     onRefreshHazards = ::refreshHazards,
                     onOpenUrl = ::openUrl,
@@ -337,83 +315,6 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
                 exc.message ?: "Could not check for updates."
             }
         }
-    }
-
-    private fun downloadAndInstallUpdate(url: String) {
-        if (!url.startsWith("https://")) {
-            updateStatus = "Invalid update URL."
-            return
-        }
-
-        if (
-            Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
-            !packageManager.canRequestPackageInstalls()
-        ) {
-            updateStatus =
-                "Allow HARU to install updates, return, then tap Install update again."
-            startActivity(
-                Intent(
-                    Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
-                    Uri.parse("package:$packageName"),
-                )
-            )
-            return
-        }
-
-        val manager =
-            getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
-
-        val request = DownloadManager.Request(Uri.parse(url))
-            .setTitle("HARU update")
-            .setDescription("Downloading the latest HARU APK")
-            .setMimeType(APK_MIME)
-            .setNotificationVisibility(
-                DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED
-            )
-            .setAllowedOverMetered(true)
-            .setAllowedOverRoaming(false)
-
-        updateDownloadId = manager.enqueue(request)
-        updateStatus = "Downloading HARU update…"
-    }
-
-    private fun finishDownloadedUpdate(downloadId: Long) {
-        val manager =
-            getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
-
-        manager.query(
-            DownloadManager.Query().setFilterById(downloadId)
-        ).use { cursor ->
-            if (!cursor.moveToFirst()) {
-                updateStatus = "Update download could not be verified."
-                return
-            }
-
-            val status = cursor.getInt(
-                cursor.getColumnIndexOrThrow(
-                    DownloadManager.COLUMN_STATUS
-                )
-            )
-            if (status != DownloadManager.STATUS_SUCCESSFUL) {
-                updateStatus =
-                    "Update download failed. Check again and retry."
-                return
-            }
-        }
-
-        val uri = manager.getUriForDownloadedFile(downloadId)
-        if (uri == null) {
-            updateStatus = "Downloaded APK could not be opened."
-            return
-        }
-
-        updateStatus = "Update downloaded. Opening Android installer…"
-        startActivity(
-            Intent(Intent.ACTION_VIEW).apply {
-                setDataAndType(uri, APK_MIME)
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            }
-        )
     }
 
     private fun purgeLegacyLocalAi() {
@@ -700,7 +601,6 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
     }
 
     override fun onDestroy() {
-        runCatching { unregisterReceiver(updateDownloadReceiver) }
         voiceController.shutdown()
         super.onDestroy()
     }
@@ -712,9 +612,6 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
         }
 
     companion object {
-        private const val APK_MIME =
-            "application/vnd.android.package-archive"
-
         private const val SYSTEM_PROMPT =
             "You are HARU, a concise and practical personal companion. " +
                 "Use local device tools for notes, tasks, reminders, voice, hazards, news, and trusted locations. " +
