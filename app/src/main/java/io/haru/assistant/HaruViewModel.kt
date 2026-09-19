@@ -48,14 +48,9 @@ class HaruViewModel(
         )
     }
 
-    fun submitOrPrepareLocalAi(hasLocalAi: Boolean): String? {
+    fun prepareAiPrompt(): String? {
         val command = uiState.command.trim()
         if (command.isBlank()) {
-            submit()
-            return null
-        }
-
-        if (!hasLocalAi) {
             submit()
             return null
         }
@@ -73,11 +68,19 @@ class HaruViewModel(
 
         uiState = uiState.copy(
             mood = HaruMood.THINKING,
-            message = "Thinking locally…",
+            message = "Thinking…",
             command = "",
             isBusy = true,
         )
         return command
+    }
+
+    fun submitOrPrepareLocalAi(hasLocalAi: Boolean): String? {
+        if (!hasLocalAi) {
+            submit()
+            return null
+        }
+        return prepareAiPrompt()
     }
 
     fun completeLocalAi(message: String, success: Boolean = true) {
