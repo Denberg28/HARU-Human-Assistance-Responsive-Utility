@@ -3,15 +3,14 @@
 HARU is a lightweight, free-first personal assistant prototype with two front ends:
 
 - **Streamlit HARU Lab** for rapid testing and cloud/local use.
-- **Native Android app** for local voice, deterministic skills, and future device actions.
+- **Native Android app** for low-power voice, deterministic skills, Gemini/Antigravity AI, OpenStreetMap, hazards, reminders, and in-app updates.
 
 ## Design principles
 
 - Keep the UI simple and responsive.
 - Local deterministic skills continue to work without an AI provider.
 - Online AI is optional and provider-isolated.
-- Google online mode defaults to **Antigravity**, with **Gemini 3.5 Flash-Lite** as the lightweight alternative.
-- OpenRouter exposes **free routes/models only** in HARU.
+- Android online mode defaults to **Antigravity**. Gemini models are discovered from Google's live model catalog with a manual Refresh button.
 - API keys are never committed. Streamlit Cloud uses app Secrets; local Windows uses the OS credential store after a successful connection.
 - AI providers receive text context only. Android microphone and TTS remain in the device voice layer.
 
@@ -22,12 +21,6 @@ python -m venv .venv
 .\.venv\Scripts\activate
 python -m pip install -r requirements.txt
 python -m streamlit run streamlit_app.py
-```
-
-For local Ollama setup, run:
-
-```powershell
-.\run_haru_local.bat
 ```
 
 ## Secrets
@@ -42,7 +35,6 @@ For Streamlit Cloud, configure:
 
 ```toml
 GEMINI_API_KEY = "..."
-OPENROUTER_API_KEY = "..."
 HARU_LOCATION_SHARE_SECRET = "use-a-long-random-secret"
 ```
 
@@ -52,15 +44,15 @@ HARU_LOCATION_SHARE_SECRET = "use-a-long-random-secret"
 
 Open the repository in Android Studio, allow Gradle sync, and run the `app` configuration. Microphone permission is requested only when voice input is used.
 
-HARU Android v0.2 uses **Unsloth Qwen3.5 2B Q4_K_M GGUF** for the curated on-device model. The model is downloaded in the background with pause/resume support, verified against a pinned SHA-256 digest, and loaded through a CPU/NEON llama.cpp runtime. Model files stay in app-private storage.
+HARU Android v0.3.0 removes the on-device LLM stack entirely to reduce APK size, RAM use, heat, background work, and battery drain. Online AI is limited to Antigravity and Gemini. The Gemini model list refreshes on demand from Google's model catalog.
 
 ## APK build
 
 HARU uses a simple reproducible GitHub Actions build instead of committing Gradle wrapper binaries.
 
 - GitHub: run **Build Android APK** from Actions, or push an Android code change to `main`.
-- Output artifact: **HARU-debug-apk**
-- APK inside the artifact: `app-debug.apk`
+- Output artifact: **HARU-v0.3.0-arm64**
+- APK: `HARU-v0.3.0-arm64.apk`
 
 For a local build, open the project in Android Studio and use **Build > Build APK(s)**.
 
