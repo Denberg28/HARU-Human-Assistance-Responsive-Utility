@@ -1179,7 +1179,7 @@ with st.expander("AI selector"):
                         st.session_state.ai_applied_provider = "Ollama"
                         st.session_state.ai_applied_model = chosen
                         st.session_state.ai_applied_endpoint = st.session_state.ai_endpoint
-                                        st.session_state.ai_applied_signature = ai_config_signature(candidate)
+                        st.session_state.ai_applied_signature = ai_config_signature(candidate)
                         st.session_state.ai_connection_state = "CONNECTED"
                         st.session_state.ai_runtime_degraded = False
                         st.session_state.ai_runtime_degraded_reason = ""
