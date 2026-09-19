@@ -162,7 +162,12 @@ for key, value in DEFAULTS.items():
 COMPANION_STORE = CompanionStore()
 
 if not st.session_state.companion_loaded:
-    if not is_cloud_haru():
+    _cwd_hint = os.getcwd().replace("\\", "/").lower()
+    _is_cloud_hint = (
+        _cwd_hint.startswith("/mount/src/")
+        or "streamlit" in os.environ.get("HOSTNAME", "").lower()
+    )
+    if not _is_cloud_hint:
         persisted = COMPANION_STORE.load()
         st.session_state.local_notes = persisted["notes"]
         st.session_state.local_tasks = persisted["tasks"]
