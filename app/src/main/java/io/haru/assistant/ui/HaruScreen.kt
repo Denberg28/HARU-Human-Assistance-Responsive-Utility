@@ -1,5 +1,6 @@
 package io.haru.assistant.ui
 
+import android.view.MotionEvent
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -69,6 +70,7 @@ import io.haru.assistant.voice.HaruVoiceController
 import org.maplibre.android.MapLibre
 import org.maplibre.android.annotations.MarkerOptions
 import org.maplibre.android.camera.CameraPosition
+import org.maplibre.android.camera.CameraUpdateFactory
 import org.maplibre.android.geometry.LatLng
 import org.maplibre.android.maps.MapView
 import java.text.DateFormat
@@ -650,13 +652,42 @@ private fun TrustedLocationsMap(
     val mapKey = locations.joinToString("|") {
         it.id + ":" + it.latitude + ":" + it.longitude
     }
+    var mapController by remember(mapKey) {
+        mutableStateOf<org.maplibre.android.maps.MapLibreMap?>(null)
+    }
 
     val mapView = remember(context, mapKey) {
         MapLibre.getInstance(context.applicationContext)
 
         MapView(context).apply {
             onCreate(null)
+
+            setOnTouchListener { view, event ->
+                when (event.actionMasked) {
+                    MotionEvent.ACTION_UP,
+                    MotionEvent.ACTION_CANCEL ->
+                        view.parent?.requestDisallowInterceptTouchEvent(false)
+                    else ->
+                        view.parent?.requestDisallowInterceptTouchEvent(true)
+                }
+                false
+            }
+
             getMapAsync { map ->
+                mapController = map
+
+                map.uiSettings.apply {
+                    setZoomGesturesEnabled(true)
+                    setDoubleTapGesturesEnabled(true)
+                    setQuickZoomGesturesEnabled(true)
+                    setScrollGesturesEnabled(true)
+                    setScaleVelocityAnimationEnabled(true)
+                    setRotateGesturesEnabled(false)
+                    setTiltGesturesEnabled(false)
+                }
+                map.setMinZoomPreference(3.0)
+                map.setMaxZoomPreference(20.0)
+
                 map.setStyle(OPENFREE_MAP_STYLE) {
                     val focus = locations.lastOrNull()
                     val target = if (focus != null) {
@@ -690,6 +721,7 @@ private fun TrustedLocationsMap(
                     }
                 }
             }
+
             onStart()
             onResume()
         }
@@ -697,6 +729,8 @@ private fun TrustedLocationsMap(
 
     DisposableEffect(mapView) {
         onDispose {
+            mapController = null
+            mapView.setOnTouchListener(null)
             mapView.onPause()
             mapView.onStop()
             mapView.onDestroy()
@@ -704,13 +738,53 @@ private fun TrustedLocationsMap(
     }
 
     Card(modifier = Modifier.fillMaxWidth()) {
-        AndroidView(
-            factory = { mapView },
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(300.dp),
-        )
+                .height(320.dp),
+        ) {
+            AndroidView(
+                factory = { mapView },
+                modifier = Modifier.fillMaxSize(),
+            )
+
+            Column(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(8.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Button(
+                    onClick = {
+                        mapController?.easeCamera(
+                            CameraUpdateFactory.zoomBy(1.0),
+                            160,
+                        )
+                    },
+                    enabled = mapController != null,
+                ) {
+                    Text("+")
+                }
+
+                Button(
+                    onClick = {
+                        mapController?.easeCamera(
+                            CameraUpdateFactory.zoomBy(-1.0),
+                            160,
+                        )
+                    },
+                    enabled = mapController != null,
+                ) {
+                    Text("−")
+                }
+            }
+        }
     }
+
+    Text(
+        "Pinch to zoom · double-tap to zoom in · double-tap and drag for quick zoom.",
+        style = MaterialTheme.typography.labelSmall,
+    )
 }
 
 private val PHILIPPINES_CENTER =
