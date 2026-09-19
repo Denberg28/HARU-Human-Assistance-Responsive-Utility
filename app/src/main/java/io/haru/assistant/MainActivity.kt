@@ -148,7 +148,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
         appUpdateManager = AndroidAppUpdateManager()
 
         companionSnapshot = companionStore.load()
-        purgeLegacyLocalAi()
+        cleanupLegacyStorageOnce()
         val onlineSettings = onlineAiManager.settings()
         onlineProvider = onlineSettings.provider
         selectedGeminiModel = onlineSettings.geminiModel
@@ -344,12 +344,29 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
         }
     }
 
-    private fun purgeLegacyLocalAi() {
-        runCatching {
-            java.io.File(filesDir, "models").deleteRecursively()
-            applicationContext.deleteSharedPreferences("haru_local_ai")
-            applicationContext.deleteSharedPreferences("haru_model_download")
+    private fun cleanupLegacyStorageOnce() {
+        val migration =
+            getSharedPreferences(
+                "haru_migrations",
+                Context.MODE_PRIVATE,
+            )
+
+        if (migration.getBoolean("legacy_local_ai_removed", false)) {
+            return
         }
+
+        runCatching {
+            java.io.File(filesDir, "models")
+                .deleteRecursively()
+            applicationContext
+                .deleteSharedPreferences("haru_local_ai")
+            applicationContext
+                .deleteSharedPreferences("haru_model_download")
+        }
+
+        migration.edit()
+            .putBoolean("legacy_local_ai_removed", true)
+            .apply()
     }
 
     private fun openUrl(url: String) {
