@@ -52,6 +52,16 @@ HARU_LOCATION_SHARE_SECRET = "use-a-long-random-secret"
 
 Open the repository in Android Studio, allow Gradle sync, and run the `app` configuration. Microphone permission is requested only when voice input is used.
 
+## APK build
+
+HARU uses a simple reproducible GitHub Actions build instead of committing Gradle wrapper binaries.
+
+- GitHub: run **Build Android APK** from Actions, or push an Android code change to `main`.
+- Output artifact: **HARU-debug-apk**
+- APK inside the artifact: `app-debug.apk`
+
+For a local build, open the project in Android Studio and use **Build > Build APK(s)**.
+
 ## Reliability scope
 
 HARU is intentionally small: one UI shell, deterministic local skills, provider adapters, bounded external requests, and minimal persistent state. Add integrations as isolated adapters rather than expanding the core UI.
