@@ -582,7 +582,10 @@ with st.expander("AI selector"):
                 "Claude Haiku 4.5 — fast/low-cost": "claude-haiku-4-5-20251001",
             },
             "Android on-device (APK only)": {
-                "Phone local runtime — model selected in Android": "phone-local",
+                "Gemma 4 E4B Instruct — HARU recommended": "google/gemma-4-E4B-it",
+                "Gemma 4 E2B Instruct — lightweight fallback": "google/gemma-4-E2B-it",
+                "Qwen3 4B — text-only alternative": "Qwen/Qwen3-4B",
+                "Phi-4 Mini — compact reasoning alternative": "microsoft/Phi-4-mini-instruct",
             },
         }
 
@@ -680,6 +683,12 @@ with st.expander("AI selector"):
 
             if st.session_state.ai_model:
                 st.caption(f"API model: {st.session_state.ai_model}")
+            if provider == "Android on-device (APK only)":
+                st.info(
+                    "HARU local default: Gemma 4 E4B Instruct. "
+                    "Use E2B on lower-memory phones. Streamlit only configures this target; "
+                    "the model itself will run inside the native Android app through the mobile inference runtime."
+                )
 
         if provider in {"OpenAI API", "Google Gemini API", "Anthropic Claude API", "Cloud OpenAI-compatible"}:
             st.session_state.ai_api_key = st.text_input(
