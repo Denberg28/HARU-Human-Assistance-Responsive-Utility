@@ -79,7 +79,33 @@ def list_openai_compatible_models(
     return names
 
 
-def ask_ai(config: AiConfig, prompt: str, system_prompt: str = "") -> str:
+def _gemini_grounding_sources(data: dict, limit: int = 5) -> list[tuple[str, str]]:
+    try:
+        metadata = data["candidates"][0].get("groundingMetadata", {})
+    except (KeyError, IndexError, TypeError):
+        return []
+
+    sources = []
+    seen = set()
+    for chunk in metadata.get("groundingChunks", []):
+        web = chunk.get("web") or {}
+        uri = (web.get("uri") or "").strip()
+        title = (web.get("title") or "Web source").strip()
+        if not uri or uri in seen:
+            continue
+        seen.add(uri)
+        sources.append((title, uri))
+        if len(sources) >= limit:
+            break
+    return sources
+
+
+def ask_ai(
+    config: AiConfig,
+    prompt: str,
+    system_prompt: str = "",
+    enable_live_search: bool = False,
+) -> str:
     provider = config.provider
     model = config.model.strip()
 
@@ -155,6 +181,9 @@ def ask_ai(config: AiConfig, prompt: str, system_prompt: str = "") -> str:
         payload = {"contents": [{"parts": [{"text": prompt}]}]}
         if system_prompt:
             payload["systemInstruction"] = {"parts": [{"text": system_prompt}]}
+        if enable_live_search:
+            payload["tools"] = [{"google_search": {}}]
+
         data = _json_request(
             f"https://generativelanguage.googleapis.com/v1beta/{quote(model_path, safe='/')}:generateContent",
             payload=payload,
@@ -166,8 +195,18 @@ def ask_ai(config: AiConfig, prompt: str, system_prompt: str = "") -> str:
             text = "\n".join(part.get("text", "") for part in parts).strip()
         except (KeyError, IndexError, TypeError):
             text = ""
+
         if not text:
             raise AiRuntimeError("Gemini returned no text.")
+
+        if enable_live_search:
+            sources = _gemini_grounding_sources(data)
+            if sources:
+                source_lines = "\n".join(
+                    f"- {title}: {uri}" for title, uri in sources
+                )
+                text = f"{text}\n\nLive sources:\n{source_lines}"
+
         return text
 
     if provider == "Anthropic Claude API":
