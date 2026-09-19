@@ -76,7 +76,17 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
     private var hazardsLoading = false
 
     private var trustedLocations by mutableStateOf(emptyList<TrustedLocation>())
+    private var currentDeviceLocation by mutableStateOf<TrustedLocation?>(null)
     private var locationShareCode by mutableStateOf("")
+    private var mapLocationStatus by mutableStateOf("")
+
+    private enum class LocationRequestPurpose {
+        NONE,
+        SHARE,
+        MAP,
+    }
+
+    private var pendingLocationPurpose = LocationRequestPurpose.NONE
 
     private val audioPermissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -102,10 +112,21 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
                 permissions[Manifest.permission.ACCESS_FINE_LOCATION] == true ||
                     permissions[Manifest.permission.ACCESS_COARSE_LOCATION] == true
             if (granted) {
-                captureLocationForShare()
+                captureRequestedLocation()
             } else {
-                locationShareCode = ""
-                onlineStatus = "Location permission is needed to create a share."
+                when (pendingLocationPurpose) {
+                    LocationRequestPurpose.SHARE -> {
+                        locationShareCode = ""
+                        onlineStatus =
+                            "Location permission is needed to create a share."
+                    }
+                    LocationRequestPurpose.MAP -> {
+                        mapLocationStatus =
+                            "Location permission is needed to show your GPS position."
+                    }
+                    LocationRequestPurpose.NONE -> Unit
+                }
+                pendingLocationPurpose = LocationRequestPurpose.NONE
             }
         }
 
@@ -152,7 +173,9 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
                     newsBundle = newsBundle,
                     hazardBundle = hazardBundle,
                     trustedLocations = trustedLocations,
+                    currentDeviceLocation = currentDeviceLocation,
                     locationShareCode = locationShareCode,
+                    mapLocationStatus = mapLocationStatus,
                     onSubmitClick = {
                         submitWithAi(haruViewModel, speakResult = false)
                     },
@@ -170,6 +193,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
                     onRefreshNews = ::refreshNews,
                     onRefreshHazards = ::refreshHazards,
                     onOpenUrl = ::openUrl,
+                    onLocateMe = ::requestMapLocation,
                     onCreateLocationShare = ::requestLocationShare,
                     onImportLocationShare = ::importLocationShare,
                     onClearTrustedLocations = ::clearTrustedLocations,
@@ -334,12 +358,30 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
         }
     }
 
-    private fun requestLocationShare(name: String, minutes: Int) {
-        pendingShareName = name.trim().take(40).ifBlank { "Loved one" }
-        pendingShareMinutes = minutes.coerceIn(15, 24 * 60)
+    private fun requestLocationShare(
+        name: String,
+        minutes: Int,
+    ) {
+        pendingShareName =
+            name.trim().take(40).ifBlank { "Loved one" }
+        pendingShareMinutes =
+            minutes.coerceIn(15, 24 * 60)
+        pendingLocationPurpose =
+            LocationRequestPurpose.SHARE
 
+        requestOrCaptureLocation()
+    }
+
+    private fun requestMapLocation() {
+        pendingLocationPurpose =
+            LocationRequestPurpose.MAP
+        mapLocationStatus = "Getting GPS location…"
+        requestOrCaptureLocation()
+    }
+
+    private fun requestOrCaptureLocation() {
         if (hasLocationPermission()) {
-            captureLocationForShare()
+            captureRequestedLocation()
         } else {
             locationPermissionLauncher.launch(
                 arrayOf(
@@ -361,37 +403,55 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
             ) == PackageManager.PERMISSION_GRANTED
 
     @SuppressLint("MissingPermission")
-    private fun captureLocationForShare() {
+    private fun captureRequestedLocation() {
         if (!hasLocationPermission()) return
 
-        val manager = getSystemService(Context.LOCATION_SERVICE) as LocationManager
+        val manager =
+            getSystemService(Context.LOCATION_SERVICE) as LocationManager
         val providers = listOf(
             LocationManager.NETWORK_PROVIDER,
             LocationManager.GPS_PROVIDER,
         ).filter { provider ->
-            runCatching { manager.isProviderEnabled(provider) }.getOrDefault(false)
+            runCatching {
+                manager.isProviderEnabled(provider)
+            }.getOrDefault(false)
         }
 
         if (providers.isEmpty()) {
-            onlineStatus = "Turn on phone location services to create a share."
+            when (pendingLocationPurpose) {
+                LocationRequestPurpose.MAP ->
+                    mapLocationStatus =
+                        "Turn on phone location services to show your position."
+                LocationRequestPurpose.SHARE ->
+                    onlineStatus =
+                        "Turn on phone location services to create a share."
+                LocationRequestPurpose.NONE -> Unit
+            }
+            pendingLocationPurpose =
+                LocationRequestPurpose.NONE
             return
         }
 
         val lastLocation = providers
             .mapNotNull { provider ->
-                runCatching { manager.getLastKnownLocation(provider) }.getOrNull()
+                runCatching {
+                    manager.getLastKnownLocation(provider)
+                }.getOrNull()
             }
             .maxByOrNull { it.time }
 
-        if (lastLocation != null) {
-            finishLocationShare(lastLocation)
+        if (
+            lastLocation != null &&
+            System.currentTimeMillis() - lastLocation.time <= 5 * 60_000L
+        ) {
+            handleCapturedLocation(lastLocation)
             return
         }
 
         val listener = object : LocationListener {
             override fun onLocationChanged(location: Location) {
                 manager.removeUpdates(this)
-                finishLocationShare(location)
+                handleCapturedLocation(location)
             }
 
             override fun onProviderDisabled(provider: String) = Unit
@@ -405,8 +465,46 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
                 Looper.getMainLooper(),
             )
         }.onFailure {
-            onlineStatus = "HARU could not obtain a phone location."
+            when (pendingLocationPurpose) {
+                LocationRequestPurpose.MAP ->
+                    mapLocationStatus =
+                        "HARU could not obtain your GPS location."
+                LocationRequestPurpose.SHARE ->
+                    onlineStatus =
+                        "HARU could not obtain a phone location."
+                LocationRequestPurpose.NONE -> Unit
+            }
+            pendingLocationPurpose =
+                LocationRequestPurpose.NONE
         }
+    }
+
+    private fun handleCapturedLocation(location: Location) {
+        when (pendingLocationPurpose) {
+            LocationRequestPurpose.MAP -> {
+                currentDeviceLocation = TrustedLocation(
+                    id = "haru-current-device",
+                    name = "My location",
+                    latitude = location.latitude,
+                    longitude = location.longitude,
+                    accuracyM = location.accuracy.toDouble(),
+                    expiresAt = Long.MAX_VALUE,
+                )
+                mapLocationStatus =
+                    "GPS location marked · ±" +
+                        location.accuracy.toInt() +
+                        " m"
+            }
+
+            LocationRequestPurpose.SHARE -> {
+                finishLocationShare(location)
+            }
+
+            LocationRequestPurpose.NONE -> Unit
+        }
+
+        pendingLocationPurpose =
+            LocationRequestPurpose.NONE
     }
 
     private fun finishLocationShare(location: Location) {
