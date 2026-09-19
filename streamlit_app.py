@@ -40,11 +40,8 @@ st.set_page_config(
 )
 
 SECRET_NAME_BY_PROVIDER = {
-    "OpenAI API": "OPENAI_API_KEY",
     "Google Gemini API": "GEMINI_API_KEY",
-    "Anthropic Claude API": "ANTHROPIC_API_KEY",
     "OpenRouter API": "OPENROUTER_API_KEY",
-    "Cloud OpenAI-compatible": "CLOUD_OPENAI_API_KEY",
 }
 
 
@@ -1035,11 +1032,8 @@ with st.expander("AI selector"):
             )
         else:
             provider_options = [
-                "OpenAI API",
-                "Google Gemini API",
-                "Anthropic Claude API",
                 "OpenRouter API",
-                "Cloud OpenAI-compatible",
+                "Google Gemini API",
             ]
             if st.session_state.ai_provider not in provider_options:
                 st.session_state.ai_provider = provider_options[0]
@@ -1048,11 +1042,8 @@ with st.expander("AI selector"):
             "Ollama": "Ollama on this PC — recommended",
             "Local OpenAI-compatible": "Other local OpenAI-compatible server",
             "Android on-device (APK only)": "Android on-device model",
-            "OpenAI API": "OpenAI API",
             "Google Gemini API": "Google Gemini API",
-            "Anthropic Claude API": "Anthropic Claude API",
             "OpenRouter API": "OpenRouter API",
-            "Cloud OpenAI-compatible": "Cloud OpenAI-compatible",
         }
         provider = st.selectbox(
             "Provider",
@@ -1063,11 +1054,6 @@ with st.expander("AI selector"):
         st.session_state.ai_provider = provider
 
         model_catalogs = {
-            "OpenAI API": {
-                "GPT-5.6 Sol — flagship reasoning/coding": "gpt-5.6-sol",
-                "GPT-5.6 Terra — balanced intelligence/cost": "gpt-5.6-terra",
-                "GPT-5.6 Luna — low-cost/high-volume": "gpt-5.6-luna",
-            },
             "Google Gemini API": {
                 "Gemini 3.8 Flash — newest stable Flash": "gemini-3.8-flash",
                 "Gemini 3.7 Flash — previous stable": "gemini-3.7-flash",
@@ -1076,12 +1062,6 @@ with st.expander("AI selector"):
                 "Gemini 3.5 Flash-Lite — low-cost/high-throughput": "gemini-3.5-flash-lite",
                 "Gemini 3.1 Flash-Lite — very low-cost stable": "gemini-3.1-flash-lite",
                 "Gemini 3.1 Pro Preview — higher capability preview": "gemini-3.1-pro-preview",
-            },
-            "Anthropic Claude API": {
-                "Claude Fable 5 — newest high-capability model": "claude-fable-5",
-                "Claude Opus 5 — advanced reasoning": "claude-opus-5",
-                "Claude Sonnet 5 — balanced general model": "claude-sonnet-5",
-                "Claude Haiku 4.5 — fast/low-cost": "claude-haiku-4-5-20251001",
             },
             "Android on-device (APK only)": {
                 "Gemma 4 E4B Instruct — HARU recommended": "google/gemma-4-E4B-it",
@@ -1095,7 +1075,6 @@ with st.expander("AI selector"):
             "Ollama": "http://localhost:11434",
             "Local OpenAI-compatible": "http://localhost:1234",
             "OpenRouter API": "https://openrouter.ai/api",
-            "Cloud OpenAI-compatible": "https://example.com",
         }
 
         if provider == "Ollama":
@@ -1304,7 +1283,7 @@ with st.expander("AI selector"):
                             help="Refresh models to avoid typing model IDs manually.",
                         )
 
-        elif provider in {"Local OpenAI-compatible", "Cloud OpenAI-compatible"}:
+        elif provider == "Local OpenAI-compatible":
             st.session_state.ai_endpoint = st.text_input(
                 "Endpoint",
                 value=st.session_state.ai_endpoint or default_endpoints[provider],
@@ -1371,7 +1350,7 @@ with st.expander("AI selector"):
                     "the model itself will run inside the native Android app through the mobile inference runtime."
                 )
 
-        if provider in {"OpenAI API", "Google Gemini API", "Anthropic Claude API", "Cloud OpenAI-compatible"}:
+        if provider == "Google Gemini API":
             provider_server_key = server_secret_for_provider(provider)
             provider_saved_key = local_stored_key_for_provider(provider)
             if provider_server_key:
@@ -1399,8 +1378,8 @@ with st.expander("AI selector"):
 
         if provider != "Ollama":
             st.info(
-                "When applied, HARU becomes the shell for this model. Supported online providers keep their native "
-                "web-search capability; HARU local tools remain available for device-specific and deterministic tasks."
+                "When applied, HARU becomes the shell for this model. Gemini keeps native web-search grounding; "
+                "OpenRouter uses the selected routed model. HARU local tools remain available for device-specific tasks."
             )
 
         if provider != "Ollama":
@@ -1550,4 +1529,4 @@ with st.expander("Developer panel"):
             st.write(f"**You:** {q}")
             st.write(f"**HARU:** {a}")
 
-st.markdown("<div class=\"footer\">HARU Lab v2.1 • persistent secure API credentials</div>", unsafe_allow_html=True)
+st.markdown("<div class=\"footer\">HARU Lab v2.2 • focused Gemini + OpenRouter online AI</div>", unsafe_allow_html=True)
