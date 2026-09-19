@@ -15,7 +15,7 @@ permissions:
   contents: write
 
 jobs:
-  debug-apk:
+  release-apk:
     runs-on: ubuntu-latest
     timeout-minutes: 35
 
@@ -35,7 +35,7 @@ jobs:
           test -d "$ANDROID_HOME"
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --version
 
-      - name: Restore stable HARU debug signing key
+      - name: Restore stable HARU signing key
         uses: actions/cache@v4
         with:
           path: ~/.android/debug.keystore
@@ -46,27 +46,26 @@ jobs:
         with:
           gradle-version: "9.6.0"
 
-      - name: Build HARU update APK
-        run: gradle --no-daemon :app:assembleDebug --stacktrace
+      - name: Build optimized HARU APK
+        run: gradle --no-daemon :app:lintRelease :app:assembleRelease --stacktrace
 
       - name: Package APK
         shell: bash
         run: |
           VERSION=$(grep -m1 'versionName = ' app/build.gradle.kts | sed -E 's/.*"([^"]+)".*/\1/')
-          cp app/build/outputs/apk/debug/app-debug.apk "HARU-v__VERSION__-arm64.apk"
-          mv "HARU-v__VERSION__-arm64.apk" "HARU-v$VERSION-arm64.apk"
-          sha256sum "HARU-v$VERSION-arm64.apk" > "HARU-v$VERSION-arm64.apk.sha256"
+          APK="HARU-v$VERSION-arm64.apk"
+          cp app/build/outputs/apk/release/app-release.apk "$APK"
+          sha256sum "$APK" > "$APK.sha256"
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
-          echo "APK=HARU-v$VERSION-arm64.apk" >> "$GITHUB_ENV"
+          echo "APK=$APK" >> "$GITHUB_ENV"
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: HARU-v0.2.3-arm64
+          name: HARU-v0.3.0-arm64
           path: |
-            HARU-v0.2.3-arm64.apk
-            HARU-v0.2.3-arm64.apk.sha256
-            tools/haru_model_migrate.py
+            HARU-v0.3.0-arm64.apk
+            HARU-v0.3.0-arm64.apk.sha256
           if-no-files-found: error
           retention-days: 14
 
@@ -76,8 +75,10 @@ jobs:
         shell: bash
         run: |
           TAG="v$VERSION"
+          NOTES="HARU Android $TAG: local AI removed, live Gemini refresh, OpenStreetMap, stable PAGASA viewer, low-battery cleanup, and repaired in-app updates."
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" "$APK" "$APK.sha256" --clobber
+            gh release edit "$TAG" --title "HARU $TAG" --notes "$NOTES" --latest
           else
-            gh release create "$TAG" "$APK" "$APK.sha256"               --title "HARU $TAG"               --notes "HARU Android update APK. Install over the existing HARU app to preserve local model and app data."               --latest
+            gh release create "$TAG" "$APK" "$APK.sha256"               --title "HARU $TAG"               --notes "$NOTES"               --latest
           fi
