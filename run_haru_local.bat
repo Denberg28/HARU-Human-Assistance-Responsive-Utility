@@ -11,10 +11,30 @@ echo.
 
 where ollama >nul 2>nul
 if errorlevel 1 (
-  echo [ERROR] Ollama is not installed or not in PATH.
-  echo Install Ollama, then reopen this launcher.
-  pause
-  exit /b 1
+  echo Ollama is not installed.
+  where winget >nul 2>nul
+  if errorlevel 1 (
+    echo [ERROR] HARU could not find winget.
+    echo Install Ollama from https://ollama.com/download and reopen this launcher.
+    pause
+    exit /b 1
+  )
+
+  choice /M "Install Ollama now with winget"
+  if errorlevel 2 (
+    echo Install Ollama, then reopen HARU Local.
+    pause
+    exit /b 1
+  )
+
+  winget install --id Ollama.Ollama -e --accept-package-agreements --accept-source-agreements
+  if errorlevel 1 (
+    echo [ERROR] Ollama installation did not complete.
+    pause
+    exit /b 1
+  )
+  echo Ollama installed. Refreshing PATH...
+  set "PATH=%PATH%;%LOCALAPPDATA%\Programs\Ollama"
 )
 
 where python >nul 2>nul
@@ -42,7 +62,8 @@ for /f "delims=" %%A in ('ollama list 2^>nul ^| findstr /R /C:"^[A-Za-z0-9]"') d
 if not defined FOUND_MODEL (
   echo.
   echo No Ollama models found.
-  echo Recommended lightweight model: qwen3:4b
+  echo HARU recommends qwen3:4b as a lightweight starter model.
+  echo You can install larger models later from HARU's Local AI setup screen.
   choice /M "Install qwen3:4b now"
   if errorlevel 2 goto :skip_pull
   ollama pull qwen3:4b
