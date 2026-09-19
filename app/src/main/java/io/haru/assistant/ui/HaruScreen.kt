@@ -27,12 +27,15 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import io.haru.assistant.HaruViewModel
 import io.haru.assistant.core.HaruMood
+import io.haru.assistant.voice.HaruVoiceController
 
 @Composable
 fun HaruScreen(
     viewModel: HaruViewModel,
+    voiceStatus: HaruVoiceController.VoiceRuntimeStatus,
     onMicClick: () -> Unit,
-    modifier: Modifier = Modifier
+    onSpeakClick: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val state = viewModel.uiState
 
@@ -41,35 +44,42 @@ fun HaruScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(horizontal = 24.dp, vertical = 20.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
+            horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Text(
                 text = "HARU",
                 style = MaterialTheme.typography.headlineMedium,
-                fontWeight = FontWeight.Bold
+                fontWeight = FontWeight.Bold,
             )
             Text(
                 text = "Human Assistance & Responsive Utility",
-                style = MaterialTheme.typography.bodySmall
+                style = MaterialTheme.typography.bodySmall,
             )
 
-            Spacer(Modifier.height(24.dp))
+            Spacer(Modifier.height(18.dp))
             HaruFace(mood = state.mood)
-            Spacer(Modifier.height(20.dp))
+            Spacer(Modifier.height(16.dp))
 
             Card(modifier = Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(18.dp)) {
+                Column(Modifier.padding(16.dp)) {
                     Text(
                         text = state.mood.name.lowercase().replaceFirstChar { it.uppercase() },
-                        style = MaterialTheme.typography.labelMedium
+                        style = MaterialTheme.typography.labelMedium,
                     )
                     Spacer(Modifier.height(6.dp))
                     Text(
                         text = state.message,
-                        style = MaterialTheme.typography.bodyLarge
+                        style = MaterialTheme.typography.bodyLarge,
                     )
                 }
             }
+
+            Spacer(Modifier.height(10.dp))
+
+            Text(
+                text = "Voice: " + voiceStatus.speechInput + " STT • " + voiceStatus.speechOutput,
+                style = MaterialTheme.typography.labelSmall,
+            )
 
             Spacer(Modifier.weight(1f))
 
@@ -77,48 +87,45 @@ fun HaruScreen(
                 value = state.command,
                 onValueChange = viewModel::updateCommand,
                 label = { Text("Ask HARU") },
-                placeholder = { Text("Try: calculate 22.2 * 60") },
+                placeholder = { Text("Type or tap Mic") },
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
                 keyboardActions = KeyboardActions(onSend = { viewModel.submit() }),
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth(),
             )
 
             Spacer(Modifier.height(12.dp))
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.Center
+                horizontalArrangement = Arrangement.Center,
             ) {
                 Button(
                     onClick = viewModel::submit,
-                    enabled = !state.isBusy && state.command.isNotBlank()
+                    enabled = !state.isBusy && state.command.isNotBlank(),
                 ) {
                     Text("Send")
                 }
-                Spacer(Modifier.width(12.dp))
+                Spacer(Modifier.width(10.dp))
                 OutlinedButton(
                     onClick = onMicClick,
-                    enabled = !state.isBusy || state.mood == HaruMood.LISTENING
+                    enabled = !state.isBusy || state.mood == HaruMood.LISTENING,
                 ) {
                     Text(if (state.mood == HaruMood.LISTENING) "Listening…" else "Mic")
                 }
-                Spacer(Modifier.width(12.dp))
+                Spacer(Modifier.width(10.dp))
                 OutlinedButton(
-                    onClick = {
-                        viewModel.updateCommand("help")
-                        viewModel.submit()
-                    },
-                    enabled = !state.isBusy
+                    onClick = onSpeakClick,
+                    enabled = !state.isBusy && state.message.isNotBlank(),
                 ) {
-                    Text("Help")
+                    Text("Speak")
                 }
             }
 
             Spacer(Modifier.height(8.dp))
             Text(
-                text = "v0.1 • local-first • tap-to-talk",
-                style = MaterialTheme.typography.labelSmall
+                text = "local STT/TTS • AI-provider independent",
+                style = MaterialTheme.typography.labelSmall,
             )
         }
     }
