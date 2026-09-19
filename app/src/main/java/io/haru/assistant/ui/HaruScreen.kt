@@ -809,6 +809,9 @@ private fun LocalAiSetupDialog(
     onValidate: (String) -> Unit,
     onDelete: (String) -> Unit,
 ) {
+    val downloadActive = downloadState in listOf("DOWNLOADING", "QUEUED")
+    val downloadPaused = downloadState in listOf("PAUSED", "FAILED")
+
     AlertDialog(
         onDismissRequest = onDismiss,
         confirmButton = {
@@ -839,16 +842,17 @@ private fun LocalAiSetupDialog(
 
                 if (busy || downloadLabel.isNotBlank()) {
                     Spacer(Modifier.height(10.dp))
-                    if (downloadProgress != null) {
-                        LinearProgressIndicator(
+
+                    when {
+                        downloadProgress != null -> LinearProgressIndicator(
                             progress = { downloadProgress.coerceIn(0f, 1f) },
                             modifier = Modifier.fillMaxWidth(),
                         )
-                    } else if (downloadState in listOf("DOWNLOADING", "QUEUED")) {
-                        LinearProgressIndicator(
+                        downloadActive -> LinearProgressIndicator(
                             modifier = Modifier.fillMaxWidth(),
                         )
                     }
+
                     if (downloadLabel.isNotBlank()) {
                         Spacer(Modifier.height(4.dp))
                         Text(
@@ -857,13 +861,13 @@ private fun LocalAiSetupDialog(
                         )
                     }
 
-                    if (downloadState in listOf("DOWNLOADING", "QUEUED", "PAUSED", "FAILED")) {
+                    if (downloadActive || downloadPaused) {
                         Spacer(Modifier.height(6.dp))
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
-                            if (downloadState in listOf("DOWNLOADING", "QUEUED")) {
+                            if (downloadActive) {
                                 OutlinedButton(
                                     onClick = onPauseDownload,
                                     modifier = Modifier.weight(1f),
@@ -878,18 +882,24 @@ private fun LocalAiSetupDialog(
                                     Text("Resume")
                                 }
                             }
+
                             TextButton(onClick = onCancelDownload) {
                                 Text("Cancel")
                             }
                         }
+
                         Text(
-                            "Download continues in the background. You can close this window or switch apps.",
+                            "Background download continues while you use HARU or another app.",
                             style = MaterialTheme.typography.labelSmall,
                         )
                     }
                 }
 
-                Spacer(Modifier.height(10.dp))
+                Spacer(Modifier.height(12.dp))
+                Text(
+                    "Available models",
+                    fontWeight = FontWeight.SemiBold,
+                )
 
                 options.forEach { option ->
                     val installed = status.installedModels.contains(option.fileName)
@@ -898,6 +908,14 @@ private fun LocalAiSetupDialog(
                     val fits =
                         status.ramGb >= option.minRamGb &&
                             status.freeStorageGb >= option.minFreeStorageGb
+                    val thisDownload =
+                        downloadModelId == option.id &&
+                            downloadState in listOf(
+                                "DOWNLOADING",
+                                "QUEUED",
+                                "PAUSED",
+                                "FAILED",
+                            )
 
                     Card(
                         modifier = Modifier
@@ -916,26 +934,53 @@ private fun LocalAiSetupDialog(
                                 )
                                 Text(
                                     when {
+                                        active -> "ACTIVE"
+                                        recommended -> "BEST FIT"
+                                        installed -> "DOWNLOADED"
+                                        thisDownload -> downloadState
+                                        else -> ""
+                                    },
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.Bold,
+                                )
+                            }
+
+                            Text(
+                                option.description,
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                            Text(
+                                "Needs about " + option.minRamGb + " GB RAM · " +
+                                    option.minFreeStorageGb + " GB free",
+                                style = MaterialTheme.typography.labelSmall,
+                            )
+
+                            Spacer(Modifier.height(6.dp))
+
+                            when {
                                 active -> Text(
-                                    "Active on this phone.",
+                                    "Loaded and ready for local use.",
                                     style = MaterialTheme.typography.labelSmall,
                                 )
+
                                 installed -> Text(
-                                    "Downloaded. Manage it below.",
+                                    "Downloaded. Load it from the section below.",
                                     style = MaterialTheme.typography.labelSmall,
                                 )
-                                downloadModelId == option.id &&
-                                    downloadState in listOf("DOWNLOADING", "QUEUED", "PAUSED") -> Text(
-                                    "Background download " + downloadState.lowercase() + ".",
+
+                                thisDownload -> Text(
+                                    when (downloadState) {
+                                        "PAUSED" -> "Paused. Use Resume above."
+                                        "FAILED" -> "Interrupted. Use Resume above to retry."
+                                        else -> "Downloading in the background."
+                                    },
                                     style = MaterialTheme.typography.labelSmall,
-                                    fontWeight = FontWeight.SemiBold,
                                 )
+
                                 else -> {
                                     Button(
                                         onClick = { onDownload(option) },
-                                        enabled = !busy &&
-                                            fits &&
-                                            downloadState !in listOf("DOWNLOADING", "QUEUED"),
+                                        enabled = !busy && fits && !downloadActive,
                                         modifier = Modifier.fillMaxWidth(),
                                     ) {
                                         Text(
@@ -943,6 +988,7 @@ private fun LocalAiSetupDialog(
                                             else "Download"
                                         )
                                     }
+
                                     if (!fits) {
                                         Text(
                                             "Not recommended for current RAM/storage.",
@@ -959,6 +1005,7 @@ private fun LocalAiSetupDialog(
                     Spacer(Modifier.height(14.dp))
                     HorizontalDivider()
                     Spacer(Modifier.height(10.dp))
+
                     Text(
                         "Downloaded models",
                         fontWeight = FontWeight.SemiBold,
@@ -984,6 +1031,7 @@ private fun LocalAiSetupDialog(
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
                                     horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically,
                                 ) {
                                     Text(
                                         displayName,
@@ -998,6 +1046,9 @@ private fun LocalAiSetupDialog(
                                         )
                                     }
                                 }
+
+                                Spacer(Modifier.height(4.dp))
+
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
                                     horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -1009,6 +1060,7 @@ private fun LocalAiSetupDialog(
                                     ) {
                                         Text(if (active) "Loaded" else "Load model")
                                     }
+
                                     TextButton(
                                         onClick = { onDelete(fileName) },
                                         enabled = !busy,
