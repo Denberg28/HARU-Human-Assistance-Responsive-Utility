@@ -557,9 +557,9 @@ private fun MapPane(
             .padding(14.dp)
             .verticalScroll(rememberScrollState()),
     ) {
-        Text("Trusted Locations", style = MaterialTheme.typography.titleMedium)
+        Text("Shared Locations", style = MaterialTheme.typography.titleMedium)
         Text(
-            "Native MapLibre map using OpenStreetMap data. No browser embed or Google Maps API.",
+            "Native MapLibre map using OpenStreetMap data. Share codes protect integrity, but sender identity is not independently verified.",
             style = MaterialTheme.typography.labelSmall,
         )
 
