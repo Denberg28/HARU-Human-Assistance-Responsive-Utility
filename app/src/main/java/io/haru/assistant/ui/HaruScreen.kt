@@ -44,6 +44,7 @@ fun HaruScreen(
     voiceStatus: HaruVoiceController.VoiceRuntimeStatus,
     localAiStatus: LocalAiStatus,
     localAiBusy: Boolean,
+    onSubmitClick: () -> Unit,
     onMicClick: () -> Unit,
     onSpeakClick: () -> Unit,
     onImportLocalModel: () -> Unit,
@@ -122,7 +123,7 @@ fun HaruScreen(
                 placeholder = { Text("Type or tap Mic") },
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-                keyboardActions = KeyboardActions(onSend = { viewModel.submit() }),
+                keyboardActions = KeyboardActions(onSend = { onSubmitClick() }),
                 modifier = Modifier.fillMaxWidth(),
             )
 
@@ -133,7 +134,7 @@ fun HaruScreen(
                 horizontalArrangement = Arrangement.Center,
             ) {
                 Button(
-                    onClick = viewModel::submit,
+                    onClick = onSubmitClick,
                     enabled = !state.isBusy && state.command.isNotBlank(),
                 ) {
                     Text("Send")
