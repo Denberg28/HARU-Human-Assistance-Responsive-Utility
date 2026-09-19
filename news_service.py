@@ -9,6 +9,8 @@ from urllib.parse import quote_plus
 from urllib.request import Request, urlopen
 import xml.etree.ElementTree as ET
 
+MAX_RSS_BYTES = 2_000_000
+
 
 @dataclass(frozen=True)
 class NewsItem:
@@ -85,7 +87,9 @@ def _fetch_rss(url: str, category: str, timeout: int = 8, limit: int = 12) -> li
         },
     )
     with urlopen(request, timeout=timeout) as response:
-        xml_bytes = response.read()
+        xml_bytes = response.read(MAX_RSS_BYTES + 1)
+        if len(xml_bytes) > MAX_RSS_BYTES:
+            raise ValueError("News feed response was unexpectedly large.")
 
     root = ET.fromstring(xml_bytes)
     items: list[NewsItem] = []
@@ -102,7 +106,7 @@ def _fetch_rss(url: str, category: str, timeout: int = 8, limit: int = 12) -> li
             if len(maybe_source) < 80:
                 title, source = maybe_title, maybe_source
 
-        if not title or not link:
+        if not title or not link.startswith(("https://", "http://")):
             continue
 
         items.append(
