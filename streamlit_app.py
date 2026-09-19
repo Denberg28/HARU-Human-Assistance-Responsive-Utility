@@ -1231,25 +1231,25 @@ with hazard_tab:
             st.session_state.hazard_refresh_nonce
         )
 
-    pagasa_col, phivolcs_col = st.columns(2, gap="large")
+    pagasa_col, right_col = st.columns(2, gap="large")
 
     with pagasa_col:
         st.markdown("### 🌧️ PAGASA")
         render_hazard_events(pagasa_items[:1])
 
-    with phivolcs_col:
+    with right_col:
         st.markdown("### 🌋 PHIVOLCS")
         render_hazard_events(phivolcs_items[:3])
 
-    if noah_items:
-        event = noah_items[0]
-        st.markdown("### 🗺️ UP NOAH")
-        st.caption(event.summary)
-        st.link_button(
-            "Open local hazard map",
-            event.url,
-            use_container_width=False,
-        )
+        if noah_items:
+            event = noah_items[0]
+            st.markdown("### 🗺️ UP NOAH")
+            st.caption(event.summary)
+            st.link_button(
+                "Open local hazard map",
+                event.url,
+                use_container_width=False,
+            )
 
     st.caption(
         "Situational awareness only. Follow official agency and local-government emergency instructions."
