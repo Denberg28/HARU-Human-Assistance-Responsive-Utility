@@ -207,6 +207,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
         speakResult: Boolean,
     ) {
         val command = viewModel.uiState.command.trim()
+        viewModel.recordLatestUser(command)
         val companionReply = handleCompanionCommand(command)
         if (companionReply != null) {
             viewModel.updateCommand("")
