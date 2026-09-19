@@ -11,7 +11,6 @@ import java.net.URL
 enum class OnlineProvider {
     ANTIGRAVITY,
     GEMINI,
-    LOCAL_ONLY,
 }
 
 data class GeminiModel(
@@ -21,7 +20,7 @@ data class GeminiModel(
 
 data class OnlineAiSettings(
     val provider: OnlineProvider = OnlineProvider.ANTIGRAVITY,
-    val geminiModel: GeminiModel = AndroidOnlineAiManager.DEFAULT_GEMINI_MODEL,
+    val geminiModel: GeminiModel = AndroidOnlineAiManager.FALLBACK_GEMINI_MODEL,
 )
 
 class AndroidOnlineAiManager(
@@ -33,38 +32,171 @@ class AndroidOnlineAiManager(
 
     init {
         credentials.delete("openrouter")
+        if (preferences.getString(KEY_PROVIDER, "") == "LOCAL_ONLY") {
+            preferences.edit()
+                .putString(KEY_PROVIDER, OnlineProvider.ANTIGRAVITY.name)
+                .apply()
+        }
     }
 
     fun settings(): OnlineAiSettings {
-        val storedProvider = preferences.getString("provider", "").orEmpty()
-        val provider = when (storedProvider) {
+        val provider = when (preferences.getString(KEY_PROVIDER, "")) {
             OnlineProvider.GEMINI.name,
             "GEMINI_FLASH_LITE" -> OnlineProvider.GEMINI
-            OnlineProvider.LOCAL_ONLY.name -> OnlineProvider.LOCAL_ONLY
             else -> OnlineProvider.ANTIGRAVITY
         }
 
-        val modelId = preferences
-            .getString(KEY_GEMINI_MODEL, DEFAULT_GEMINI_MODEL.id)
+        val catalog = geminiModels()
+        val storedId = preferences
+            .getString(KEY_GEMINI_MODEL, FALLBACK_GEMINI_MODEL.id)
             .orEmpty()
-        val model = GEMINI_MODELS.firstOrNull { it.id == modelId }
-            ?: DEFAULT_GEMINI_MODEL
+        val selected = catalog.firstOrNull { it.id == storedId }
+            ?: catalog.first()
 
-        return OnlineAiSettings(
-            provider = provider,
-            geminiModel = model,
-        )
+        return OnlineAiSettings(provider, selected)
     }
 
-    fun geminiModels(): List<GeminiModel> = GEMINI_MODELS
+    fun geminiModels(): List<GeminiModel> {
+        val raw = preferences.getString(KEY_GEMINI_CATALOG, "").orEmpty()
+        if (raw.isBlank()) return listOf(FALLBACK_GEMINI_MODEL)
+
+        return runCatching {
+            val array = JSONArray(raw)
+            buildList {
+                for (i in 0 until array.length()) {
+                    val item = array.optJSONObject(i) ?: continue
+                    val id = item.optString("id").trim()
+                    val label = item.optString("label").trim()
+                    if (id.startsWith("gemini-") && label.isNotBlank()) {
+                        add(GeminiModel(id, label))
+                    }
+                }
+            }
+        }.getOrDefault(emptyList())
+            .ifEmpty { listOf(FALLBACK_GEMINI_MODEL) }
+    }
+
+    suspend fun refreshGeminiModels(): List<GeminiModel> =
+        withContext(Dispatchers.IO) {
+            val key = credentials.get("gemini")
+            require(key.isNotBlank()) {
+                "Save a Gemini API key before refreshing models."
+            }
+
+            val connection = URL(MODELS_URL).openConnection() as HttpURLConnection
+            connection.requestMethod = "GET"
+            connection.connectTimeout = 15_000
+            connection.readTimeout = 20_000
+            connection.useCaches = false
+            connection.setRequestProperty("Accept", "application/json")
+            connection.setRequestProperty("Cache-Control", "no-cache")
+            connection.setRequestProperty("x-goog-api-key", key)
+            connection.setRequestProperty("User-Agent", "HARU-Android/0.3")
+
+            try {
+                val code = connection.responseCode
+                val raw = (if (code in 200..299) {
+                    connection.inputStream
+                } else {
+                    connection.errorStream
+                })?.bufferedReader(Charsets.UTF_8)
+                    ?.use { it.readText().take(2_000_000) }
+                    .orEmpty()
+
+                if (code !in 200..299) {
+                    val detail = runCatching {
+                        JSONObject(raw)
+                            .optJSONObject("error")
+                            ?.optString("message")
+                    }.getOrNull().orEmpty()
+                    error(
+                        detail.ifBlank {
+                            "Gemini model refresh failed (HTTP $code)."
+                        }
+                    )
+                }
+
+                val models = JSONObject(raw).optJSONArray("models") ?: JSONArray()
+                val refreshed = buildList {
+                    for (i in 0 until models.length()) {
+                        val item = models.optJSONObject(i) ?: continue
+                        val id = item.optString("name")
+                            .removePrefix("models/")
+                            .trim()
+
+                        if (!id.startsWith("gemini-")) continue
+                        if (
+                            id.contains("embedding", true) ||
+                            id.contains("image", true) ||
+                            id.contains("veo", true) ||
+                            id.contains("deprecated", true) ||
+                            id.contains("legacy", true)
+                        ) {
+                            continue
+                        }
+
+                        val methods =
+                            item.optJSONArray("supportedGenerationMethods") ?: JSONArray()
+                        var supportsGenerate = false
+                        for (j in 0 until methods.length()) {
+                            if (methods.optString(j) == "generateContent") {
+                                supportsGenerate = true
+                                break
+                            }
+                        }
+                        if (!supportsGenerate) continue
+
+                        val label = item.optString("displayName")
+                            .trim()
+                            .ifBlank { humanize(id) }
+
+                        add(GeminiModel(id, label))
+                    }
+                }
+                    .distinctBy { it.id }
+                    .sortedWith(
+                        compareByDescending<GeminiModel> { versionScore(it.id) }
+                            .thenBy { it.label }
+                    )
+
+                require(refreshed.isNotEmpty()) {
+                    "Google returned no current Gemini text models."
+                }
+
+                val array = JSONArray()
+                refreshed.forEach { model ->
+                    array.put(
+                        JSONObject()
+                            .put("id", model.id)
+                            .put("label", model.label)
+                    )
+                }
+                preferences.edit()
+                    .putString(KEY_GEMINI_CATALOG, array.toString())
+                    .apply()
+
+                val selectedId = preferences
+                    .getString(KEY_GEMINI_MODEL, "")
+                    .orEmpty()
+                if (refreshed.none { it.id == selectedId }) {
+                    preferences.edit()
+                        .putString(KEY_GEMINI_MODEL, preferred(refreshed).id)
+                        .apply()
+                }
+
+                refreshed
+            } finally {
+                connection.disconnect()
+            }
+        }
 
     fun saveProvider(provider: OnlineProvider) {
-        preferences.edit().putString("provider", provider.name).apply()
+        preferences.edit().putString(KEY_PROVIDER, provider.name).apply()
     }
 
     fun saveGeminiModel(model: GeminiModel) {
-        require(GEMINI_MODELS.any { it.id == model.id }) {
-            "Unsupported Gemini model."
+        require(geminiModels().any { it.id == model.id }) {
+            "Refresh Gemini models before selecting this model."
         }
         preferences.edit().putString(KEY_GEMINI_MODEL, model.id).apply()
     }
@@ -73,7 +205,8 @@ class AndroidOnlineAiManager(
         credentials.put("gemini", value)
     }
 
-    fun hasGeminiKey(): Boolean = credentials.get("gemini").isNotBlank()
+    fun hasGeminiKey(): Boolean =
+        credentials.get("gemini").isNotBlank()
 
     suspend fun ask(
         provider: OnlineProvider,
@@ -81,13 +214,10 @@ class AndroidOnlineAiManager(
         systemPrompt: String,
     ): String = withContext(Dispatchers.IO) {
         when (provider) {
-            OnlineProvider.ANTIGRAVITY -> askAntigravity(prompt, systemPrompt)
-            OnlineProvider.GEMINI -> askGemini(
-                settings().geminiModel.id,
-                prompt,
-                systemPrompt,
-            )
-            OnlineProvider.LOCAL_ONLY -> error("Local-only mode selected.")
+            OnlineProvider.ANTIGRAVITY ->
+                askAntigravity(prompt, systemPrompt)
+            OnlineProvider.GEMINI ->
+                askGemini(settings().geminiModel.id, prompt, systemPrompt)
         }
     }
 
@@ -98,11 +228,19 @@ class AndroidOnlineAiManager(
             "You are HARU's connection test. Reply very briefly.",
         )
 
-    private fun askAntigravity(prompt: String, systemPrompt: String): String {
+    private fun askAntigravity(
+        prompt: String,
+        systemPrompt: String,
+    ): String {
         val key = credentials.get("gemini")
         require(key.isNotBlank()) { "Gemini API key is required." }
 
-        val input = if (systemPrompt.isBlank()) prompt else "$systemPrompt\n\nUser: $prompt"
+        val input = if (systemPrompt.isBlank()) {
+            prompt
+        } else {
+            "$systemPrompt\n\nUser: $prompt"
+        }
+
         val payload = JSONObject()
             .put("agent", "antigravity-preview-09-2026")
             .put("input", input)
@@ -111,7 +249,7 @@ class AndroidOnlineAiManager(
                 "agent_config",
                 JSONObject()
                     .put("type", "antigravity")
-                    .put("model", "gemini-3.5-flash-lite")
+                    .put("model", settings().geminiModel.id)
                     .put("max_total_tokens", 12000)
             )
             .put(
@@ -140,8 +278,10 @@ class AndroidOnlineAiManager(
             for (j in 0 until content.length()) {
                 val item = content.optJSONObject(j) ?: continue
                 if (item.optString("type") == "text") {
-                    val text = item.optString("text").trim()
-                    if (text.isNotBlank()) parts += text
+                    item.optString("text")
+                        .trim()
+                        .takeIf { it.isNotBlank() }
+                        ?.let(parts::add)
                 }
             }
         }
@@ -179,7 +319,9 @@ class AndroidOnlineAiManager(
                 "systemInstruction",
                 JSONObject().put(
                     "parts",
-                    JSONArray().put(JSONObject().put("text", systemPrompt))
+                    JSONArray().put(
+                        JSONObject().put("text", systemPrompt)
+                    )
                 )
             )
         }
@@ -189,18 +331,26 @@ class AndroidOnlineAiManager(
                 modelId + ":generateContent",
             payload,
             mapOf("x-goog-api-key" to key),
+            timeoutMs = 45_000,
         )
 
-        val candidate = response.optJSONArray("candidates")?.optJSONObject(0)
+        val candidate = response
+            .optJSONArray("candidates")
+            ?.optJSONObject(0)
             ?: error("Gemini returned no candidate.")
-        val parts = candidate.optJSONObject("content")
+
+        val parts = candidate
+            .optJSONObject("content")
             ?.optJSONArray("parts")
             ?: JSONArray()
 
         val text = buildString {
             for (i in 0 until parts.length()) {
-                val part = parts.optJSONObject(i) ?: continue
-                val value = part.optString("text").trim()
+                val value = parts
+                    .optJSONObject(i)
+                    ?.optString("text")
+                    ?.trim()
+                    .orEmpty()
                 if (value.isNotBlank()) {
                     if (isNotEmpty()) append('\n')
                     append(value)
@@ -216,7 +366,7 @@ class AndroidOnlineAiManager(
         url: String,
         payload: JSONObject,
         headers: Map<String, String>,
-        timeoutMs: Int = 45_000,
+        timeoutMs: Int,
     ): JSONObject {
         val connection = URL(url).openConnection() as HttpURLConnection
         connection.requestMethod = "POST"
@@ -225,7 +375,7 @@ class AndroidOnlineAiManager(
         connection.doOutput = true
         connection.setRequestProperty("Content-Type", "application/json")
         connection.setRequestProperty("Accept", "application/json")
-        connection.setRequestProperty("User-Agent", "HARU-Android/0.2.2")
+        connection.setRequestProperty("User-Agent", "HARU-Android/0.3")
         headers.forEach { (name, value) ->
             connection.setRequestProperty(name, value)
         }
@@ -236,21 +386,31 @@ class AndroidOnlineAiManager(
             }
 
             val code = connection.responseCode
-            val stream = if (code in 200..299) connection.inputStream else connection.errorStream
-            val raw = stream?.bufferedReader(Charsets.UTF_8)?.use { reader ->
-                reader.readText().take(4_000_000)
-            }.orEmpty()
+            val raw = (if (code in 200..299) {
+                connection.inputStream
+            } else {
+                connection.errorStream
+            })?.bufferedReader(Charsets.UTF_8)
+                ?.use { it.readText().take(4_000_000) }
+                .orEmpty()
 
             if (code !in 200..299) {
                 val detail = runCatching {
-                    JSONObject(raw).optJSONObject("error")?.optString("message")
+                    JSONObject(raw)
+                        .optJSONObject("error")
+                        ?.optString("message")
                 }.getOrNull().orEmpty()
+
                 error(
                     when (code) {
                         401, 403 -> "Authentication was rejected."
                         429 -> "Provider quota or rate limit reached."
-                        in 500..599 -> "AI provider is temporarily unavailable."
-                        else -> detail.ifBlank { "Provider request failed (HTTP $code)." }
+                        in 500..599 ->
+                            "AI provider is temporarily unavailable."
+                        else ->
+                            detail.ifBlank {
+                                "Provider request failed (HTTP $code)."
+                            }
                     }
                 )
             }
@@ -261,23 +421,47 @@ class AndroidOnlineAiManager(
         }
     }
 
+    private fun preferred(models: List<GeminiModel>): GeminiModel =
+        models.firstOrNull {
+            it.id.contains("flash-lite", ignoreCase = true)
+        }
+            ?: models.firstOrNull {
+                it.id.contains("flash", ignoreCase = true)
+            }
+            ?: models.first()
+
+    private fun versionScore(id: String): Long =
+        Regex("\\d+")
+            .findAll(id)
+            .mapNotNull { it.value.toLongOrNull() }
+            .take(3)
+            .fold(0L) { acc, value ->
+                acc * 1000L + value.coerceAtMost(999L)
+            }
+
+    private fun humanize(id: String): String =
+        "Gemini " +
+            id.removePrefix("gemini-")
+                .split('-')
+                .joinToString(" ") { part ->
+                    if (part.toDoubleOrNull() != null) {
+                        part
+                    } else {
+                        part.replaceFirstChar { it.uppercase() }
+                    }
+                }
+
     companion object {
+        private const val KEY_PROVIDER = "provider"
         private const val KEY_GEMINI_MODEL = "gemini_model"
+        private const val KEY_GEMINI_CATALOG = "gemini_catalog"
+        private const val MODELS_URL =
+            "https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000"
 
-        val GEMINI_MODELS = listOf(
-            GeminiModel("gemini-3.8-flash", "Gemini 3.8 Flash"),
-            GeminiModel("gemini-3.7-flash", "Gemini 3.7 Flash"),
-            GeminiModel("gemini-3.6-flash", "Gemini 3.6 Flash"),
-            GeminiModel("gemini-3.5-flash", "Gemini 3.5 Flash"),
-            GeminiModel("gemini-3.5-flash-lite", "Gemini 3.5 Flash-Lite"),
-            GeminiModel("gemini-3.1-flash-lite", "Gemini 3.1 Flash-Lite"),
-            GeminiModel("gemini-3.1-pro-preview", "Gemini 3.1 Pro Preview"),
-            GeminiModel("gemini-2.5-pro", "Gemini 2.5 Pro"),
-            GeminiModel("gemini-2.5-flash", "Gemini 2.5 Flash"),
-            GeminiModel("gemini-2.5-flash-lite", "Gemini 2.5 Flash-Lite"),
-        )
-
-        val DEFAULT_GEMINI_MODEL =
-            GEMINI_MODELS.first { it.id == "gemini-3.5-flash-lite" }
+        val FALLBACK_GEMINI_MODEL =
+            GeminiModel(
+                "gemini-3.5-flash-lite",
+                "Gemini 3.5 Flash-Lite",
+            )
     }
 }
