@@ -383,6 +383,13 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
         startActivity(intent)
     }
 
+    override fun onResume() {
+        super.onResume()
+        if (::companionStore.isInitialized) {
+            companionSnapshot = companionStore.load()
+        }
+    }
+
     override fun onListening() {
         activeViewModel?.setListening()
     }
