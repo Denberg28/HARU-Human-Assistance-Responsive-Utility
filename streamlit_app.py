@@ -814,19 +814,40 @@ def fetch_news_bundle(region: str, interests: tuple[str, ...], nonce: int):
 
 
 def render_news_items(items, limit: int = 6):
+    """Render compact news entries with one lightweight action link."""
     if not items:
-        st.info("No stories are available right now.")
+        st.caption("No stories available right now.")
         return
 
-    for index, item in enumerate(items[:limit]):
-        st.markdown(f"**{item.title}**")
-        st.caption(f"{item.source} · {friendly_time(item)}")
+    for item in items[:limit]:
+        safe_title = html.escape(str(item.title))
+        safe_source = html.escape(str(item.source or "News"))
+        time_text = html.escape(friendly_time(item))
+
         if item.link.startswith(("https://", "http://")):
-            st.link_button("Open story", item.link, use_container_width=False)
+            safe_link = html.escape(item.link, quote=True)
+            st.markdown(
+                f"""
+                <div class="news-entry">
+                  <div class="news-title">{safe_title}</div>
+                  <div class="news-meta">
+                    {safe_source} · {time_text} ·
+                    <a href="{safe_link}" target="_blank" rel="noopener noreferrer">Open ↗</a>
+                  </div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
         else:
-            st.caption("Story link unavailable.")
-        if index < min(limit, len(items)) - 1:
-            st.divider()
+            st.markdown(
+                f"""
+                <div class="news-entry">
+                  <div class="news-title">{safe_title}</div>
+                  <div class="news-meta">{safe_source} · {time_text}</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
 
 
 
@@ -1045,6 +1066,29 @@ st.markdown(
           font-size:.94rem;
           line-height:1.45;
           overflow-wrap:anywhere;
+      }
+      .news-entry {
+          padding:.35rem 0 .45rem;
+          border-bottom:1px solid rgba(127,127,127,.12);
+      }
+      .news-title {
+          font-size:.9rem;
+          font-weight:600;
+          line-height:1.3;
+          margin-bottom:.08rem;
+      }
+      .news-meta {
+          font-size:.72rem;
+          line-height:1.25;
+          opacity:.58;
+      }
+      .news-meta a {
+          color:inherit;
+          text-decoration:none;
+          font-weight:600;
+      }
+      .news-meta a:hover {
+          text-decoration:underline;
       }
       .footer {
           text-align:center;
@@ -1880,4 +1924,4 @@ if os.environ.get("HARU_DEBUG", "").strip() == "1":
                 st.write(f"**You:** {q}")
                 st.write(f"**HARU:** {a}")
 
-st.markdown("<div class=\"footer\">HARU Lab v3.7 • concise hazard advisories</div>", unsafe_allow_html=True)
+st.markdown("<div class=\"footer\">HARU Lab v3.8 • compact news entries</div>", unsafe_allow_html=True)
