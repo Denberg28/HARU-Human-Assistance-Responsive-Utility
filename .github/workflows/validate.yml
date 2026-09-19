@@ -27,7 +27,10 @@ jobs:
 
       - name: Compile Python runtime
         run: |
-          python -m compileall -q streamlit_app.py ai_runtime.py credential_store.py news_service.py
+          python -m compileall -q streamlit_app.py ai_runtime.py credential_store.py news_service.py tests
+
+      - name: Run offline unit tests
+        run: python -m unittest discover -s tests -v
 
       - name: Check forbidden secret files and stale media references
         shell: bash
