@@ -75,6 +75,9 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
                     voiceStatus = voiceStatus,
                     localAiStatus = localAiStatus,
                     localAiBusy = localAiBusy,
+                    onSubmitClick = {
+                        submitWithLocalAi(haruViewModel, speakResult = false)
+                    },
                     onMicClick = { requestVoiceRecognition() },
                     onSpeakClick = {
                         voiceController.speak(haruViewModel.uiState.message)
@@ -87,6 +90,35 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
                     onDeleteLocalModel = ::deleteLocalModel,
                     onOpenModelLibrary = ::openModelLibrary,
                 )
+            }
+        }
+    }
+
+    private fun submitWithLocalAi(
+        viewModel: HaruViewModel,
+        speakResult: Boolean,
+    ) {
+        val activeModel = localAiStatus.activeModel
+        val prompt = viewModel.submitOrPrepareLocalAi(activeModel.isNotBlank()) ?: run {
+            if (speakResult) {
+                voiceController.speak(viewModel.uiState.message)
+            }
+            return
+        }
+
+        lifecycleScope.launch {
+            try {
+                val reply = localAiManager.generate(activeModel, prompt)
+                viewModel.completeLocalAi(reply, success = true)
+                if (speakResult) {
+                    voiceController.speak(reply)
+                }
+            } catch (exc: Exception) {
+                val message = exc.message ?: "Local AI inference failed."
+                viewModel.completeLocalAi(message, success = false)
+                if (speakResult) {
+                    voiceController.speak(message)
+                }
             }
         }
     }
@@ -214,8 +246,8 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
 
     override fun onTranscript(text: String) {
         val viewModel = activeViewModel ?: return
-        viewModel.submitVoice(text)
-        voiceController.speak(viewModel.uiState.message)
+        viewModel.updateCommand(text)
+        submitWithLocalAi(viewModel, speakResult = true)
     }
 
     override fun onVoiceError(message: String) {
