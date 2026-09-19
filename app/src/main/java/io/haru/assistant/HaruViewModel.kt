@@ -19,6 +19,13 @@ class HaruViewModel(
         uiState = uiState.copy(command = value)
     }
 
+    fun recordLatestUser(value: String) {
+        val clean = value.trim()
+        if (clean.isNotBlank()) {
+            uiState = uiState.copy(latestUserMessage = clean)
+        }
+    }
+
     fun setListening() {
         uiState = uiState.copy(
             mood = HaruMood.LISTENING,
@@ -37,6 +44,7 @@ class HaruViewModel(
 
     fun submit() {
         val command = uiState.command
+        recordLatestUser(command)
         uiState = uiState.copy(mood = HaruMood.THINKING, isBusy = true)
 
         val result = router.route(command)
@@ -50,6 +58,7 @@ class HaruViewModel(
 
     fun prepareAiPrompt(): String? {
         val command = uiState.command.trim()
+        recordLatestUser(command)
         if (command.isBlank()) {
             submit()
             return null
