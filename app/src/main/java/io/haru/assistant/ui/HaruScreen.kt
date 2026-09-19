@@ -15,6 +15,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -25,10 +26,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import io.haru.assistant.HaruViewModel
+import io.haru.assistant.core.HaruMood
 
 @Composable
 fun HaruScreen(
     viewModel: HaruViewModel,
+    onMicClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val state = viewModel.uiState
@@ -94,7 +97,14 @@ fun HaruScreen(
                     Text("Send")
                 }
                 Spacer(Modifier.width(12.dp))
-                Button(
+                OutlinedButton(
+                    onClick = onMicClick,
+                    enabled = !state.isBusy || state.mood == HaruMood.LISTENING
+                ) {
+                    Text(if (state.mood == HaruMood.LISTENING) "Listening…" else "Mic")
+                }
+                Spacer(Modifier.width(12.dp))
+                OutlinedButton(
                     onClick = {
                         viewModel.updateCommand("help")
                         viewModel.submit()
@@ -107,7 +117,7 @@ fun HaruScreen(
 
             Spacer(Modifier.height(8.dp))
             Text(
-                text = "v0.1 • local-first",
+                text = "v0.1 • local-first • tap-to-talk",
                 style = MaterialTheme.typography.labelSmall
             )
         }
