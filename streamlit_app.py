@@ -1,4 +1,5 @@
 from datetime import datetime
+from pathlib import Path
 import ast
 import hashlib
 import html
@@ -38,6 +39,12 @@ st.set_page_config(
     layout="centered",
     initial_sidebar_state="collapsed",
 )
+
+ROOT_DIR = Path(__file__).resolve().parent
+ASSET_DIR = ROOT_DIR / "assets"
+HARU_ANIMATION = ASSET_DIR / "haru_animation.gif"
+HARU_THEME = ASSET_DIR / "haru_cute_theme.wav"
+
 
 SECRET_NAME_BY_PROVIDER = {
     "Google Gemini API": "GEMINI_API_KEY",
@@ -93,6 +100,7 @@ DEFAULTS = {
     "explicit_interests": {},
     "local_notes": [],
     "local_tasks": [],
+    "music_enabled": False,
     "ai_mode": "Off",
     "ai_provider": "Disabled",
     "ai_model": "",
@@ -651,6 +659,39 @@ def active_model_display_name() -> str:
     return label
 
 
+def render_haru_mascot(mood: str) -> None:
+    """Render animated HARU when generated assets are available."""
+    if HARU_ANIMATION.exists():
+        left, center, right = st.columns([1.15, 1.7, 1.15])
+        with center:
+            st.image(str(HARU_ANIMATION), use_container_width=True)
+    else:
+        # Safe fallback while GitHub Actions is generating the media assets.
+        st.markdown(face_html(mood), unsafe_allow_html=True)
+
+
+def render_haru_theme_control() -> None:
+    """Optional original HARU theme; off by default to avoid surprise audio."""
+    if not HARU_THEME.exists():
+        return
+
+    enabled = st.toggle(
+        "♪ HARU theme",
+        value=st.session_state.music_enabled,
+        key="haru_music_toggle",
+        help="Play HARU's original cute background theme. Music is off by default.",
+    )
+    st.session_state.music_enabled = enabled
+
+    if enabled:
+        st.audio(
+            HARU_THEME.read_bytes(),
+            format="audio/wav",
+            autoplay=True,
+            loop=True,
+        )
+
+
 def face_html(mood: str):
     palette = {
         "IDLE": "#263238",
@@ -838,6 +879,14 @@ st.markdown(
       button, input, textarea, select {
           box-shadow:none !important;
       }
+      .stImage img {
+          border-radius: 22px;
+          filter: drop-shadow(0 8px 20px rgba(37, 91, 105, .10));
+      }
+      div[data-testid="stAudio"] {
+          margin-top: .15rem;
+          margin-bottom: .35rem;
+      }
       .footer {
           text-align:center;
           opacity:.45;
@@ -866,8 +915,9 @@ st.markdown('<div class="haru-sub">Human Assistance & Responsive Utility</div>',
 assistant_tab, news_tab = st.tabs(["Assistant", "News"])
 
 with assistant_tab:
-    st.markdown(face_html(st.session_state.mood), unsafe_allow_html=True)
+    render_haru_mascot(st.session_state.mood)
     st.markdown(f'<div class="status">{st.session_state.mood}</div>', unsafe_allow_html=True)
+    render_haru_theme_control()
     safe_reply = html.escape(str(st.session_state.message)).replace("\n", "<br>")
     st.markdown(f'<div class="reply">{safe_reply}</div>', unsafe_allow_html=True)
 
@@ -1529,4 +1579,4 @@ with st.expander("Developer panel"):
             st.write(f"**You:** {q}")
             st.write(f"**HARU:** {a}")
 
-st.markdown("<div class=\"footer\">HARU Lab v2.2 • focused Gemini + OpenRouter online AI</div>", unsafe_allow_html=True)
+st.markdown("<div class=\"footer\">HARU Lab v2.3 • animated mascot + original theme</div>", unsafe_allow_html=True)
