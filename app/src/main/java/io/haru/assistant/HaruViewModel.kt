@@ -19,6 +19,22 @@ class HaruViewModel(
         uiState = uiState.copy(command = value)
     }
 
+    fun setListening() {
+        uiState = uiState.copy(
+            mood = HaruMood.LISTENING,
+            message = "Listening…",
+            isBusy = true
+        )
+    }
+
+    fun cancelListening(message: String = "Ready when you are.") {
+        uiState = uiState.copy(
+            mood = HaruMood.IDLE,
+            message = message,
+            isBusy = false
+        )
+    }
+
     fun submit() {
         val command = uiState.command
         uiState = uiState.copy(mood = HaruMood.THINKING, isBusy = true)
@@ -30,5 +46,10 @@ class HaruViewModel(
             command = "",
             isBusy = false
         )
+    }
+
+    fun submitVoice(command: String) {
+        updateCommand(command)
+        submit()
     }
 }
