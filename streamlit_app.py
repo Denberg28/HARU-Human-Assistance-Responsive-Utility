@@ -2,6 +2,7 @@ from datetime import datetime
 import ast
 import html
 import operator
+import os
 import re
 
 import streamlit as st
@@ -418,6 +419,11 @@ def route_command(command: str):
         "CONFUSED",
         "HARU Local didn't match that request. Type “help” to see offline commands, or connect a local/online AI model for open-ended questions.",
     )
+
+
+def is_cloud_haru() -> bool:
+    cwd = os.getcwd().replace("\\", "/").lower()
+    return cwd.startswith("/mount/src/") or "streamlit" in os.environ.get("HOSTNAME", "").lower()
 
 
 def choose_ollama_model(models: list[str]) -> str:
@@ -1028,84 +1034,105 @@ with st.expander("AI selector"):
         if provider == "Ollama":
             st.session_state.ai_endpoint = st.session_state.ai_endpoint or "http://localhost:11434"
 
-            if st.button(
-                "Connect Ollama on this PC",
-                type="primary",
-                use_container_width=True,
-                key="ollama_quick_connect",
-            ):
-                try:
-                    names = list_ollama_models(st.session_state.ai_endpoint)
-                    st.session_state["ollama_models"] = names
-
-                    if not names:
-                        st.session_state.ai_connection_state = "FAILED"
-                        st.session_state.ai_connection_message = (
-                            "Ollama is reachable, but no models are installed. Run: ollama pull qwen3:4b"
-                        )
-                        st.session_state.ai_status = "No Ollama models installed."
-                        st.rerun()
-
-                    chosen = choose_ollama_model(names)
-                    st.session_state.ai_model = chosen
-                    candidate = draft_ai_config()
-                    candidate.provider = "Ollama"
-                    candidate.mode = "Local"
-                    candidate.model = chosen
-                    candidate.endpoint = st.session_state.ai_endpoint
-
-                    result = test_ai(candidate)
-                    st.session_state.ai_applied_mode = "Local"
-                    st.session_state.ai_applied_provider = "Ollama"
-                    st.session_state.ai_applied_model = chosen
-                    st.session_state.ai_applied_endpoint = st.session_state.ai_endpoint
-                    st.session_state.ai_applied_api_key = ""
-                    st.session_state.ai_applied_signature = ai_config_signature(candidate)
-                    st.session_state.ai_connection_state = "CONNECTED"
-                    st.session_state.ai_runtime_degraded = False
-                    st.session_state.ai_runtime_degraded_reason = ""
-                    st.session_state.ai_connection_message = f"Ollama connected. {chosen} is now HARU."
-                    st.session_state.ai_status = result
-                    st.rerun()
-                except AiRuntimeError as exc:
-                    st.session_state.ai_connection_state = "FAILED"
-                    st.session_state.ai_connection_message = (
-                        "HARU cannot reach Ollama on this machine. "
-                        "If this page is Streamlit Cloud, run HARU locally using run_haru_local.bat."
-                    )
-                    st.session_state.ai_status = str(exc)
-                    st.rerun()
-
-            discovered = st.session_state.get("ollama_models", [])
-            if discovered:
-                current = (
-                    st.session_state.ai_model
-                    if st.session_state.ai_model in discovered
-                    else choose_ollama_model(discovered)
+            if is_cloud_haru():
+                st.warning(
+                    "This HARU is running on Streamlit Cloud, so localhost points to the cloud server—not your Windows PC. "
+                    "Your Ollama installation is working, but this cloud copy cannot reach it."
                 )
-                selected_model = st.selectbox(
-                    "Installed model",
-                    discovered,
-                    index=discovered.index(current),
-                    help="HARU auto-selects a good default. Change this only if you prefer another installed model.",
+                st.code(".\\run_haru_local.bat", language="powershell")
+                st.caption(
+                    "Run the launcher from a local copy of the HARU repository. "
+                    "Then open http://localhost:8501 and choose Local → Ollama."
                 )
-                st.session_state.ai_model = selected_model
-                st.caption(f"Using: {selected_model}")
-
-            with st.expander("Advanced Ollama settings"):
-                st.session_state.ai_endpoint = st.text_input(
-                    "Ollama endpoint",
-                    value=st.session_state.ai_endpoint,
-                    help="Default is http://localhost:11434. Change only for a remote Ollama server.",
-                )
-                if st.button("Refresh installed models", use_container_width=True):
+            else:
+                if st.button(
+                    "Connect Ollama on this PC",
+                    type="primary",
+                    use_container_width=True,
+                    key="ollama_quick_connect",
+                ):
                     try:
                         names = list_ollama_models(st.session_state.ai_endpoint)
                         st.session_state["ollama_models"] = names
-                        st.session_state.ai_status = f"Found {len(names)} model(s)."
+
+                        if not names:
+                            st.session_state.ai_connection_state = "FAILED"
+                            st.session_state.ai_connection_message = (
+                                "Ollama is reachable, but no models are installed."
+                            )
+                            st.session_state.ai_status = "No Ollama models installed."
+                            st.rerun()
+
+                        chosen = choose_ollama_model(names)
+                        st.session_state.ai_model = chosen
+                        candidate = AiConfig(
+                            mode="Local",
+                            provider="Ollama",
+                            model=chosen,
+                            endpoint=st.session_state.ai_endpoint,
+                            api_key="",
+                            timeout_s=25,
+                        )
+
+                        result = test_ai(candidate)
+                        st.session_state.ai_applied_mode = "Local"
+                        st.session_state.ai_applied_provider = "Ollama"
+                        st.session_state.ai_applied_model = chosen
+                        st.session_state.ai_applied_endpoint = st.session_state.ai_endpoint
+                        st.session_state.ai_applied_api_key = ""
+                        st.session_state.ai_applied_signature = ai_config_signature(candidate)
+                        st.session_state.ai_connection_state = "CONNECTED"
+                        st.session_state.ai_runtime_degraded = False
+                        st.session_state.ai_runtime_degraded_reason = ""
+                        st.session_state.ai_connection_message = f"Ollama connected. {chosen} is now HARU."
+                        st.session_state.ai_status = result
                         st.rerun()
                     except AiRuntimeError as exc:
-                        st.session_state.ai_status = f"Ollama discovery failed: {exc}"
+                        st.session_state.ai_connection_state = "FAILED"
+                        st.session_state.ai_connection_message = (
+                            "HARU could not reach Ollama at http://localhost:11434. "
+                            "Confirm Ollama is running, then try again."
+                        )
+                        st.session_state.ai_status = str(exc)
+                        st.rerun()
+
+                discovered = st.session_state.get("ollama_models", [])
+                if not discovered:
+                    try:
+                        discovered = list_ollama_models(st.session_state.ai_endpoint, timeout_s=2)
+                        st.session_state["ollama_models"] = discovered
+                    except AiRuntimeError:
+                        discovered = []
+
+                if discovered:
+                    current = (
+                        st.session_state.ai_model
+                        if st.session_state.ai_model in discovered
+                        else choose_ollama_model(discovered)
+                    )
+                    selected_model = st.selectbox(
+                        "Installed model",
+                        discovered,
+                        index=discovered.index(current),
+                        help="HARU detected these models from Ollama. qwen3:8b is suitable if already installed.",
+                    )
+                    st.session_state.ai_model = selected_model
+                    st.success(f"Ollama detected · {len(discovered)} model(s) available")
+
+                with st.expander("Advanced Ollama settings"):
+                    st.session_state.ai_endpoint = st.text_input(
+                        "Ollama endpoint",
+                        value=st.session_state.ai_endpoint,
+                        help="Default: http://localhost:11434",
+                    )
+                    if st.button("Refresh installed models", use_container_width=True):
+                        try:
+                            names = list_ollama_models(st.session_state.ai_endpoint)
+                            st.session_state["ollama_models"] = names
+                            st.session_state.ai_status = f"Found {len(names)} model(s)."
+                            st.rerun()
+                        except AiRuntimeError as exc:
+                            st.session_state.ai_status = f"Ollama discovery failed: {exc}"
 
         elif provider in {"Local OpenAI-compatible", "Cloud OpenAI-compatible"}:
             st.session_state.ai_endpoint = st.text_input(
@@ -1190,64 +1217,96 @@ with st.expander("AI selector"):
                 "web-search capability; HARU local tools remain available for device-specific and deterministic tasks."
             )
 
-        apply_col, test_col, clear_col = st.columns([1.35, 1, 1])
-        with apply_col:
-            if st.button("Apply & connect", type="primary", use_container_width=True):
-                candidate = draft_ai_config()
-                st.session_state.ai_connection_state = "CONNECTING"
-                st.session_state.ai_connection_message = (
-                    f"Testing {candidate.provider} · {candidate.model or 'no model selected'}…"
-                )
-                try:
-                    result = test_ai(candidate)
-                    st.session_state.ai_applied_mode = candidate.mode
-                    st.session_state.ai_applied_provider = candidate.provider
-                    st.session_state.ai_applied_model = candidate.model
-                    st.session_state.ai_applied_endpoint = candidate.endpoint
-                    st.session_state.ai_applied_api_key = candidate.api_key
-                    st.session_state.ai_applied_signature = ai_config_signature(candidate)
-                    st.session_state.ai_connection_state = "CONNECTED"
-                    st.session_state.ai_runtime_degraded = False
-                    st.session_state.ai_runtime_degraded_reason = ""
+        if provider != "Ollama":
+            apply_col, test_col, clear_col = st.columns([1.35, 1, 1])
+            with apply_col:
+                if st.button("Apply & connect", type="primary", use_container_width=True):
+                    candidate = draft_ai_config()
+                    st.session_state.ai_connection_state = "CONNECTING"
                     st.session_state.ai_connection_message = (
-                        f"Connected. {candidate.provider} · {candidate.model} is now HARU's active brain."
+                        f"Testing {candidate.provider} · {candidate.model or 'no model selected'}…"
                     )
-                    st.session_state.ai_status = result
+                    try:
+                        result = test_ai(candidate)
+                        st.session_state.ai_applied_mode = candidate.mode
+                        st.session_state.ai_applied_provider = candidate.provider
+                        st.session_state.ai_applied_model = candidate.model
+                        st.session_state.ai_applied_endpoint = candidate.endpoint
+                        st.session_state.ai_applied_api_key = candidate.api_key
+                        st.session_state.ai_applied_signature = ai_config_signature(candidate)
+                        st.session_state.ai_connection_state = "CONNECTED"
+                        st.session_state.ai_runtime_degraded = False
+                        st.session_state.ai_runtime_degraded_reason = ""
+                        st.session_state.ai_connection_message = (
+                            f"Connected. {candidate.provider} · {candidate.model} is now HARU's active brain."
+                        )
+                        st.session_state.ai_status = result
+                        st.rerun()
+                    except AiRuntimeError as exc:
+                        st.session_state.ai_connection_state = "FAILED"
+                        st.session_state.ai_connection_message = str(exc)
+                        st.session_state.ai_status = f"Connection failed: {exc}"
+                        st.rerun()
+    
+            with test_col:
+                if st.button("Retest", use_container_width=True):
+                    config = current_ai_config()
+                    try:
+                        result = test_ai(config)
+                        st.session_state.ai_connection_state = "CONNECTED"
+                        st.session_state.ai_runtime_degraded = False
+                        st.session_state.ai_runtime_degraded_reason = ""
+                        st.session_state.ai_connection_message = (
+                            f"Connected. {config.provider} · {config.model} is HARU's active brain."
+                        )
+                        st.session_state.ai_status = result
+                        st.rerun()
+                    except AiRuntimeError as exc:
+                        st.session_state.ai_connection_state = "FAILED"
+                        st.session_state.ai_connection_message = str(exc)
+                        st.session_state.ai_status = f"Connection failed: {exc}"
+                        st.rerun()
+    
+            with clear_col:
+                if st.button("Clear key", use_container_width=True):
+                    st.session_state.ai_api_key = ""
+                    st.session_state.ai_applied_api_key = ""
+                    st.session_state.ai_applied_signature = ""
+                    st.session_state.ai_connection_state = "UNTESTED"
+                    st.session_state.ai_connection_message = "API key cleared. Apply a configuration again."
+                    st.session_state.ai_status = "API key cleared for this session."
                     st.rerun()
-                except AiRuntimeError as exc:
-                    st.session_state.ai_connection_state = "FAILED"
-                    st.session_state.ai_connection_message = str(exc)
-                    st.session_state.ai_status = f"Connection failed: {exc}"
+    
+        elif not is_cloud_haru() and st.session_state.get("ai_applied_provider") == "Ollama":
+            test_col, disconnect_col = st.columns(2)
+            with test_col:
+                if st.button("Retest Ollama", use_container_width=True):
+                    try:
+                        config = current_ai_config()
+                        result = test_ai(config)
+                        st.session_state.ai_connection_state = "CONNECTED"
+                        st.session_state.ai_runtime_degraded = False
+                        st.session_state.ai_runtime_degraded_reason = ""
+                        st.session_state.ai_connection_message = (
+                            f"Ollama connected. {config.model} is HARU."
+                        )
+                        st.session_state.ai_status = result
+                        st.rerun()
+                    except AiRuntimeError as exc:
+                        st.session_state.ai_connection_state = "FAILED"
+                        st.session_state.ai_connection_message = str(exc)
+                        st.session_state.ai_status = str(exc)
+                        st.rerun()
+            with disconnect_col:
+                if st.button("Disconnect Ollama", use_container_width=True):
+                    st.session_state.ai_applied_signature = ""
+                    st.session_state.ai_applied_mode = "Off"
+                    st.session_state.ai_applied_provider = "Disabled"
+                    st.session_state.ai_applied_model = ""
+                    st.session_state.ai_applied_endpoint = ""
+                    st.session_state.ai_connection_state = "UNTESTED"
+                    st.session_state.ai_connection_message = "Ollama disconnected."
                     st.rerun()
-
-        with test_col:
-            if st.button("Retest", use_container_width=True):
-                config = current_ai_config()
-                try:
-                    result = test_ai(config)
-                    st.session_state.ai_connection_state = "CONNECTED"
-                    st.session_state.ai_runtime_degraded = False
-                    st.session_state.ai_runtime_degraded_reason = ""
-                    st.session_state.ai_connection_message = (
-                        f"Connected. {config.provider} · {config.model} is HARU's active brain."
-                    )
-                    st.session_state.ai_status = result
-                    st.rerun()
-                except AiRuntimeError as exc:
-                    st.session_state.ai_connection_state = "FAILED"
-                    st.session_state.ai_connection_message = str(exc)
-                    st.session_state.ai_status = f"Connection failed: {exc}"
-                    st.rerun()
-
-        with clear_col:
-            if st.button("Clear key", use_container_width=True):
-                st.session_state.ai_api_key = ""
-                st.session_state.ai_applied_api_key = ""
-                st.session_state.ai_applied_signature = ""
-                st.session_state.ai_connection_state = "UNTESTED"
-                st.session_state.ai_connection_message = "API key cleared. Apply a configuration again."
-                st.session_state.ai_status = "API key cleared for this session."
-                st.rerun()
 
         st.caption(f"Diagnostic response: {st.session_state.ai_status}")
 
@@ -1270,4 +1329,4 @@ with st.expander("Developer panel"):
             st.write(f"**You:** {q}")
             st.write(f"**HARU:** {a}")
 
-st.markdown("<div class=\"footer\">HARU Lab v1.5 • one-click Ollama local AI</div>", unsafe_allow_html=True)
+st.markdown("<div class=\"footer\">HARU Lab v1.6 • cloud-aware Ollama connection</div>", unsafe_allow_html=True)
