@@ -89,7 +89,6 @@ class AndroidLocalAiManager(
 
             if (target.exists()) target.delete()
             require(temp.renameTo(target)) { "Could not finalize imported model." }
-            validateModel(target)
             target.name
         } catch (exc: Exception) {
             temp.delete()
@@ -124,28 +123,42 @@ class AndroidLocalAiManager(
 
         try {
             connection.connect()
+            require(connection.url.protocol.equals("https", ignoreCase = true)) {
+                "Download redirected to a non-HTTPS location."
+            }
             require(connection.responseCode in 200..299) {
                 "Model download failed with HTTP " + connection.responseCode + "."
             }
 
+            val stat = StatFs(context.filesDir.absolutePath)
+            val reserveBytes = 512L * 1024L * 1024L
+            val maxWritable = (stat.availableBytes - reserveBytes).coerceAtLeast(0L)
             val expected = connection.contentLengthLong
             if (expected > 0) {
-                val stat = StatFs(context.filesDir.absolutePath)
-                require(stat.availableBytes > expected + 512L * 1024L * 1024L) {
+                require(expected <= maxWritable) {
                     "Not enough free storage for this model."
                 }
             }
 
             connection.inputStream.buffered().use { input ->
                 temp.outputStream().buffered().use { output ->
-                    input.copyTo(output, bufferSize = 1024 * 1024)
+                    val buffer = ByteArray(1024 * 1024)
+                    var total = 0L
+                    while (true) {
+                        val read = input.read(buffer)
+                        if (read < 0) break
+                        total += read
+                        require(total <= maxWritable) {
+                            "Model download stopped before storage was exhausted."
+                        }
+                        output.write(buffer, 0, read)
+                    }
                 }
             }
 
             require(temp.length() > 1_000_000L) { "Downloaded model is unexpectedly small." }
             if (target.exists()) target.delete()
             require(temp.renameTo(target)) { "Could not finalize downloaded model." }
-            validateModel(target)
             target.name
         } catch (exc: Exception) {
             temp.delete()
