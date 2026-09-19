@@ -1,5 +1,6 @@
 from datetime import datetime
 import ast
+import hashlib
 import html
 import operator
 import os
@@ -32,6 +33,39 @@ st.set_page_config(
     layout="centered",
     initial_sidebar_state="collapsed",
 )
+
+SECRET_NAME_BY_PROVIDER = {
+    "OpenAI API": "OPENAI_API_KEY",
+    "Google Gemini API": "GEMINI_API_KEY",
+    "Anthropic Claude API": "ANTHROPIC_API_KEY",
+    "OpenRouter API": "OPENROUTER_API_KEY",
+    "Cloud OpenAI-compatible": "CLOUD_OPENAI_API_KEY",
+}
+
+
+def server_secret_for_provider(provider: str) -> str:
+    name = SECRET_NAME_BY_PROVIDER.get(provider, "")
+    if not name:
+        return ""
+
+    env_value = os.environ.get(name, "").strip()
+    if env_value:
+        return env_value
+
+    try:
+        value = str(st.secrets.get(name, "")).strip()
+    except Exception:
+        value = ""
+    return value
+
+
+def resolved_api_key(provider: str, session_key: str = "") -> str:
+    return server_secret_for_provider(provider) or (session_key or "").strip()
+
+
+def api_key_source(provider: str) -> str:
+    return "server secret" if server_secret_for_provider(provider) else "session only"
+
 
 DEFAULTS = {
     "mood": "IDLE",
@@ -472,21 +506,29 @@ def draft_ai_config() -> AiConfig:
         provider=st.session_state.get("ai_provider", "Disabled"),
         model=st.session_state.get("ai_model", ""),
         endpoint=st.session_state.get("ai_endpoint", ""),
-        api_key=st.session_state.get("ai_api_key", ""),
+        api_key=resolved_api_key(
+            st.session_state.get("ai_provider", "Disabled"),
+            st.session_state.get("ai_api_key", ""),
+        ),
         timeout_s=25,
     )
 
 
 def ai_config_signature(config: AiConfig) -> str:
-    # API key intentionally excluded from display but included in the signature
-    # so replacing a key requires Apply again.
+    # Never keep the raw API key inside the configuration signature.
+    # Only a one-way fingerprint is used to detect key/config changes.
+    key_fingerprint = (
+        hashlib.sha256(config.api_key.encode("utf-8")).hexdigest()
+        if config.api_key
+        else ""
+    )
     return "|".join(
         [
             config.mode,
             config.provider,
             config.model.strip(),
             config.endpoint.strip(),
-            config.api_key,
+            key_fingerprint,
         ]
     )
 
@@ -498,7 +540,10 @@ def current_ai_config() -> AiConfig:
             provider=st.session_state.get("ai_applied_provider", "Disabled"),
             model=st.session_state.get("ai_applied_model", ""),
             endpoint=st.session_state.get("ai_applied_endpoint", ""),
-            api_key=st.session_state.get("ai_applied_api_key", ""),
+            api_key=resolved_api_key(
+                st.session_state.get("ai_applied_provider", "Disabled"),
+                st.session_state.get("ai_applied_api_key", ""),
+            ),
             timeout_s=25,
         )
     return draft_ai_config()
@@ -1140,13 +1185,18 @@ with st.expander("AI selector"):
         elif provider == "OpenRouter API":
             st.session_state.ai_endpoint = "https://openrouter.ai/api"
 
-            st.session_state.ai_api_key = st.text_input(
-                "OpenRouter API key",
-                value=st.session_state.ai_api_key,
-                type="password",
-                placeholder="sk-or-v1-…",
-                help="Stored only in this Streamlit session and never committed to GitHub.",
-            )
+            openrouter_server_key = server_secret_for_provider("OpenRouter API")
+            if openrouter_server_key:
+                st.success("OpenRouter key loaded securely from server secrets.")
+                st.session_state.ai_api_key = ""
+            else:
+                st.session_state.ai_api_key = st.text_input(
+                    "OpenRouter API key",
+                    value=st.session_state.ai_api_key,
+                    type="password",
+                    placeholder="sk-or-v1-…",
+                    help="Session only. For best security, store OPENROUTER_API_KEY in Streamlit Secrets.",
+                )
 
             openrouter_mode = st.radio(
                 "Model access",
@@ -1296,12 +1346,20 @@ with st.expander("AI selector"):
                 )
 
         if provider in {"OpenAI API", "Google Gemini API", "Anthropic Claude API", "Cloud OpenAI-compatible"}:
-            st.session_state.ai_api_key = st.text_input(
-                "API key",
-                value=st.session_state.ai_api_key,
-                type="password",
-                help="Held only in the current Streamlit session. Do not commit API keys to GitHub.",
-            )
+            provider_server_key = server_secret_for_provider(provider)
+            if provider_server_key:
+                st.success(f"{provider} key loaded securely from server secrets.")
+                st.session_state.ai_api_key = ""
+            else:
+                st.session_state.ai_api_key = st.text_input(
+                    "API key",
+                    value=st.session_state.ai_api_key,
+                    type="password",
+                    help=(
+                        "Session only. For best security, store the provider key in Streamlit Secrets "
+                        "instead of typing it into the page."
+                    ),
+                )
         elif provider == "OpenRouter API":
             # OpenRouter renders its dedicated key field above. Preserve that
             # session value so Apply & connect can authenticate successfully.
@@ -1330,7 +1388,9 @@ with st.expander("AI selector"):
                         st.session_state.ai_applied_provider = candidate.provider
                         st.session_state.ai_applied_model = candidate.model
                         st.session_state.ai_applied_endpoint = candidate.endpoint
-                        st.session_state.ai_applied_api_key = candidate.api_key
+                        st.session_state.ai_applied_api_key = (
+                        "" if server_secret_for_provider(candidate.provider) else candidate.api_key
+                    )
                         st.session_state.ai_applied_signature = ai_config_signature(candidate)
                         st.session_state.ai_connection_state = "CONNECTED"
                         st.session_state.ai_runtime_degraded = False
@@ -1406,7 +1466,9 @@ with st.expander("AI selector"):
                     st.session_state.ai_connection_message = "Ollama disconnected."
                     st.rerun()
 
-        st.caption(f"Diagnostic response: {st.session_state.ai_status}")
+        st.caption(
+            f"Connection status: {st.session_state.ai_status} · Key storage: {api_key_source(provider)}"
+        )
 
 
 with st.expander("Developer panel"):
@@ -1427,4 +1489,4 @@ with st.expander("Developer panel"):
             st.write(f"**You:** {q}")
             st.write(f"**HARU:** {a}")
 
-st.markdown("<div class=\"footer\">HARU Lab v1.9 • fixed OpenRouter free authentication</div>", unsafe_allow_html=True)
+st.markdown("<div class=\"footer\">HARU Lab v2.0 • hardened API-key security</div>", unsafe_allow_html=True)
