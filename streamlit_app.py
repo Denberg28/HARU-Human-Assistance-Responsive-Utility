@@ -245,8 +245,9 @@ def local_tool_result(command: str):
         re.IGNORECASE,
     )
     if note_match:
-        note = note_match.group(1).strip()
+        note = note_match.group(1).strip()[:500]
         st.session_state.local_notes.append(note)
+        st.session_state.local_notes = st.session_state.local_notes[-100:]
         return "HAPPY", f"Noted: {note}"
 
     # Tasks / to-do list
@@ -279,8 +280,9 @@ def local_tool_result(command: str):
         re.IGNORECASE,
     )
     if task_match:
-        task = task_match.group(1).strip()
+        task = task_match.group(1).strip()[:500]
         st.session_state.local_tasks.append({"text": task, "done": False})
+        st.session_state.local_tasks = st.session_state.local_tasks[-100:]
         return "HAPPY", f"Added task: {task}"
 
     # Percentages
@@ -394,10 +396,18 @@ def route_command(command: str):
         history_text = ""
         if recent_history:
             lines = []
-            for question, answer in recent_history:
-                lines.append(f"User: {question}")
-                lines.append(f"HARU: {answer}")
-            history_text = "\n".join(lines)
+            budget = 8000
+            used = 0
+            for question, answer in reversed(recent_history):
+                pair = (
+                    f"User: {str(question)[:1500]}\n"
+                    f"HARU: {str(answer)[:2500]}"
+                )
+                if used + len(pair) > budget:
+                    break
+                lines.append(pair)
+                used += len(pair)
+            history_text = "\n".join(reversed(lines))
 
         tool_context = ""
         if tool_result is not None:
@@ -1053,7 +1063,12 @@ with assistant_tab:
             reply = "HARU hit an unexpected runtime error. Please try the request again."
         st.session_state.mood = mood
         st.session_state.message = reply
-        st.session_state.history.append((pending_command, reply))
+        history_reply = (
+            reply
+            if len(reply) <= 8000
+            else reply[:8000] + "\n…"
+        )
+        st.session_state.history.append((pending_command, history_reply))
         if len(st.session_state.history) > 100:
             st.session_state.history = st.session_state.history[-100:]
         st.session_state.pending_command = ""
@@ -1182,6 +1197,8 @@ with st.expander("AI selector"):
         st.session_state.ai_applied_provider = "Disabled"
         st.session_state.ai_applied_model = ""
         st.session_state.ai_applied_endpoint = ""
+        st.session_state.gemini_api_key = ""
+        st.session_state.openrouter_api_key = ""
         st.info("AI is disabled. HARU uses only local deterministic skills.")
     else:
         if ai_mode == "Local":
@@ -1690,22 +1707,23 @@ with st.expander("AI selector"):
             )
 
 
-with st.expander("Developer panel"):
-    st.markdown("#### HARU face")
-    mood_options = ["IDLE", "LISTENING", "THINKING", "WORKING", "HAPPY", "CONFUSED", "ALERT", "SLEEPY"]
-    selected_mood = st.selectbox(
-        "Preview expression",
-        mood_options,
-        index=mood_options.index(st.session_state.mood),
-    )
-    if st.button("Apply mood"):
-        st.session_state.mood = selected_mood
-        st.rerun()
+if os.environ.get("HARU_DEBUG", "").strip() == "1":
+    with st.expander("Developer panel"):
+        st.markdown("#### HARU face")
+        mood_options = ["IDLE", "LISTENING", "THINKING", "WORKING", "HAPPY", "CONFUSED", "ALERT", "SLEEPY"]
+        selected_mood = st.selectbox(
+            "Preview expression",
+            mood_options,
+            index=mood_options.index(st.session_state.mood),
+        )
+        if st.button("Apply mood"):
+            st.session_state.mood = selected_mood
+            st.rerun()
 
-    if st.session_state.history:
-        st.caption("Recent commands")
-        for q, a in reversed(st.session_state.history[-5:]):
-            st.write(f"**You:** {q}")
-            st.write(f"**HARU:** {a}")
+        if st.session_state.history:
+            st.caption("Recent commands")
+            for q, a in reversed(st.session_state.history[-5:]):
+                st.write(f"**You:** {q}")
+                st.write(f"**HARU:** {a}")
 
-st.markdown("<div class=\"footer\">HARU Lab v3.2 • compact single-composer chat</div>", unsafe_allow_html=True)
+st.markdown("<div class=\"footer\">HARU Lab v3.3 • packaging candidate</div>", unsafe_allow_html=True)
