@@ -43,6 +43,14 @@ from location_share import (
     encode_location_share,
     purge_expired_locations,
 )
+from companion_store import (
+    CompanionStore,
+    due_reminders,
+    new_reminder,
+    parse_relative_reminder,
+    upcoming_reminders,
+    utc_now_ts,
+)
 
 st.set_page_config(
     page_title="HARU",
@@ -128,6 +136,8 @@ DEFAULTS = {
     "explicit_interests": {},
     "local_notes": [],
     "local_tasks": [],
+    "local_reminders": [],
+    "companion_loaded": False,
     "ai_mode": "Off",
     "ai_provider": "Disabled",
     "ai_model": "",
@@ -148,6 +158,29 @@ DEFAULTS = {
 for key, value in DEFAULTS.items():
     if key not in st.session_state:
         st.session_state[key] = value.copy() if isinstance(value, (list, dict)) else value
+
+COMPANION_STORE = CompanionStore()
+
+if not st.session_state.companion_loaded:
+    if not is_cloud_haru():
+        persisted = COMPANION_STORE.load()
+        st.session_state.local_notes = persisted["notes"]
+        st.session_state.local_tasks = persisted["tasks"]
+        st.session_state.local_reminders = persisted["reminders"]
+    st.session_state.companion_loaded = True
+
+
+def persist_companion_state() -> None:
+    if is_cloud_haru():
+        return
+    COMPANION_STORE.save(
+        {
+            "notes": st.session_state.local_notes,
+            "tasks": st.session_state.local_tasks,
+            "reminders": st.session_state.local_reminders,
+        }
+    )
+
 
 
 def _safe_calc(expression: str) -> float:
@@ -269,6 +302,7 @@ def local_tool_result(command: str):
 
     if low in {"clear notes", "delete all notes"}:
         st.session_state.local_notes = []
+        persist_companion_state()
         return "HAPPY", "All HARU Local notes cleared."
 
     note_match = re.match(
@@ -280,6 +314,7 @@ def local_tool_result(command: str):
         note = note_match.group(1).strip()[:500]
         st.session_state.local_notes.append(note)
         st.session_state.local_notes = st.session_state.local_notes[-100:]
+        persist_companion_state()
         return "HAPPY", f"Noted: {note}"
 
     # Tasks / to-do list
@@ -295,6 +330,7 @@ def local_tool_result(command: str):
 
     if low in {"clear tasks", "delete all tasks", "clear todo", "clear to-do"}:
         st.session_state.local_tasks = []
+        persist_companion_state()
         return "HAPPY", "All HARU Local tasks cleared."
 
     done_match = re.match(r"^(?:done|complete|finish)\s+(?:task\s+)?(\d+)$", low)
@@ -303,6 +339,7 @@ def local_tool_result(command: str):
         tasks = st.session_state.local_tasks
         if 0 <= index < len(tasks):
             tasks[index]["done"] = True
+            persist_companion_state()
             return "HAPPY", f"Completed task {index + 1}: {tasks[index]['text']}"
         return "CONFUSED", "That task number doesn't exist."
 
@@ -315,7 +352,42 @@ def local_tool_result(command: str):
         task = task_match.group(1).strip()[:500]
         st.session_state.local_tasks.append({"text": task, "done": False})
         st.session_state.local_tasks = st.session_state.local_tasks[-100:]
+        persist_companion_state()
         return "HAPPY", f"Added task: {task}"
+
+    # Reminders
+    if low in {"show reminders", "list reminders", "my reminders"}:
+        reminders = upcoming_reminders(st.session_state.local_reminders)
+        if not reminders:
+            return "HAPPY", "You have no upcoming reminders."
+        lines = []
+        for index, item in enumerate(reminders, start=1):
+            due = datetime.fromtimestamp(
+                int(item["due_at"]),
+                tz=timezone.utc,
+            ).astimezone()
+            lines.append(
+                f"{index}. {item['text']} — {due.strftime('%b %d, %I:%M %p').replace(' 0', ' ')}"
+            )
+        return "HAPPY", "Upcoming reminders:\n" + "\n".join(lines)
+
+    if low in {"clear reminders", "delete all reminders"}:
+        st.session_state.local_reminders = []
+        persist_companion_state()
+        return "HAPPY", "All reminders cleared."
+
+    reminder = parse_relative_reminder(clean)
+    if reminder is not None:
+        reminder_text, due_at = reminder
+        st.session_state.local_reminders.append(new_reminder(reminder_text, due_at))
+        st.session_state.local_reminders = st.session_state.local_reminders[-100:]
+        persist_companion_state()
+        due = datetime.fromtimestamp(due_at, tz=timezone.utc).astimezone()
+        return (
+            "HAPPY",
+            f"I'll remind you to {reminder_text} at "
+            f"{due.strftime('%b %d, %I:%M %p').replace(' 0', ' ')}.",
+        )
 
     # Percentages
     percent_match = re.fullmatch(
@@ -384,6 +456,7 @@ def local_tool_result(command: str):
             "HAPPY",
             f"HARU Local is ready. Notes: {len(st.session_state.local_notes)}. "
             f"Tasks: {len(st.session_state.local_tasks)}. "
+            f"Reminders: {len(upcoming_reminders(st.session_state.local_reminders, limit=100))}. "
             "No external AI is required for these tools.",
         )
 
@@ -391,7 +464,7 @@ def local_tool_result(command: str):
         return (
             "HAPPY",
             "HARU Local can work offline with: time/date, safe calculations, percentages, "
-            "length/mass/temperature conversions, notes, task lists, command history, status, and news-tab routing. "
+            "length/mass/temperature conversions, notes, task lists, reminders, command history, status, and news routing. "
             "Examples: “remember buy propellers”, “show notes”, “add task charge batteries”, "
             "“done 1”, “15% of 240”, “convert 10 km to miles”, or “25 C to F”. "
             "For open-ended knowledge and reasoning, connect Gemma/Ollama or an online AI in AI selector.",
@@ -1140,6 +1213,33 @@ with assistant_tab:
 
     render_haru_mascot(display_mood)
     st.markdown(f'<div class="status">{display_mood}</div>', unsafe_allow_html=True)
+
+    due_now = due_reminders(st.session_state.local_reminders)
+    if due_now:
+        for item in due_now[:3]:
+            st.warning(f"⏰ {item['text']}")
+            item["delivered"] = True
+        persist_companion_state()
+
+    open_tasks = [task for task in st.session_state.local_tasks if not task.get("done")]
+    upcoming = upcoming_reminders(st.session_state.local_reminders, limit=2)
+    if open_tasks or upcoming:
+        with st.container(border=True):
+            st.markdown("**Today**")
+            if open_tasks:
+                preview = " · ".join(task["text"] for task in open_tasks[:2])
+                st.caption(f"Tasks: {preview}" + (" …" if len(open_tasks) > 2 else ""))
+            for item in upcoming:
+                due = datetime.fromtimestamp(
+                    int(item["due_at"]),
+                    tz=timezone.utc,
+                ).astimezone()
+                st.caption(
+                    "⏰ "
+                    + item["text"]
+                    + " · "
+                    + due.strftime("%I:%M %p").lstrip("0")
+                )
 
     if pending_command:
         render_latest_user_entry(pending_command)
@@ -2084,4 +2184,4 @@ if os.environ.get("HARU_DEBUG", "").strip() == "1":
                 st.write(f"**You:** {q}")
                 st.write(f"**HARU:** {a}")
 
-st.markdown("<div class=\"footer\">HARU Lab v4.0 • sanitized trusted locations</div>", unsafe_allow_html=True)
+st.markdown("<div class=\"footer\">HARU Lab v4.1 • companion core</div>", unsafe_allow_html=True)
