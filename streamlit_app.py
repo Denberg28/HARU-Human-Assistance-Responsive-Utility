@@ -387,34 +387,118 @@ def render_news_items(items, section_key: str, limit: int = 6):
 st.markdown(
     """
     <style>
-      .block-container { max-width: 760px; padding-top: 1.5rem; }
+      .block-container {
+          max-width: 760px;
+          padding-top: 2.15rem;
+          padding-bottom: 1.25rem;
+      }
       .haru-title {
-          text-align:center; font-size:2.2rem; font-weight:800; margin-bottom:.1rem;
-          display:flex; align-items:center; justify-content:center; gap:.55rem; flex-wrap:wrap;
+          text-align:center;
+          font-size:2rem;
+          font-weight:800;
+          line-height:1.25;
+          padding-top:.15rem;
+          margin:0 0 .05rem 0;
+          display:flex;
+          align-items:center;
+          justify-content:center;
+          gap:.45rem;
+          flex-wrap:wrap;
+          overflow:visible;
       }
       .model-badge {
-          display:inline-flex; align-items:center;
-          font-size:.78rem; font-weight:700;
-          padding:.28rem .55rem; border-radius:999px;
+          display:inline-flex;
+          align-items:center;
+          font-size:.72rem;
+          font-weight:700;
+          line-height:1.15;
+          padding:.24rem .5rem;
+          border-radius:999px;
           background:rgba(127,127,127,.12);
           border:1px solid rgba(127,127,127,.22);
           letter-spacing:.01rem;
       }
-      .haru-sub { text-align:center; opacity:.62; margin-bottom:1rem; }
-      .haru-wrap { display:flex; justify-content:center; margin: 1rem 0 1.2rem; }
-      .haru-face {
-          width:220px; height:220px; border:8px solid;
-          border-radius:50%; display:flex; flex-direction:column;
-          align-items:center; justify-content:center;
-          box-shadow:0 8px 30px rgba(0,0,0,.08);
-          animation: breathe 2.2s ease-in-out infinite alternate;
+      .haru-sub {
+          text-align:center;
+          opacity:.62;
+          font-size:.9rem;
+          margin:.15rem 0 .45rem 0;
       }
-      .eyes { font-size:2.2rem; font-weight:800; letter-spacing:.4rem; line-height:1; }
-      .mouth { font-size:2.6rem; margin-top:1rem; line-height:1; }
-      @keyframes breathe { from { transform:scale(.985); } to { transform:scale(1.015); } }
-      .status { text-align:center; font-size:.8rem; font-weight:700; letter-spacing:.12rem; opacity:.65; margin-top:.25rem; }
-      .reply { padding:1rem 1.1rem; border-radius:16px; background:rgba(127,127,127,.08); margin-bottom:1rem; font-size:1.05rem; }
-      .footer { text-align:center; opacity:.5; font-size:.78rem; margin-top:1rem; }
+      .haru-wrap {
+          display:flex;
+          justify-content:center;
+          margin:.45rem 0 .55rem;
+      }
+      .haru-face {
+          width:182px;
+          height:182px;
+          border:7px solid;
+          border-radius:50%;
+          display:flex;
+          flex-direction:column;
+          align-items:center;
+          justify-content:center;
+          box-shadow:0 6px 22px rgba(0,0,0,.07);
+          animation:breathe 2.2s ease-in-out infinite alternate;
+      }
+      .eyes {
+          font-size:1.9rem;
+          font-weight:800;
+          letter-spacing:.35rem;
+          line-height:1;
+      }
+      .mouth {
+          font-size:2.25rem;
+          margin-top:.7rem;
+          line-height:1;
+      }
+      @keyframes breathe { from { transform:scale(.99); } to { transform:scale(1.01); } }
+      .status {
+          text-align:center;
+          font-size:.72rem;
+          font-weight:700;
+          letter-spacing:.11rem;
+          opacity:.62;
+          margin:.05rem 0 .25rem 0;
+      }
+      .reply {
+          padding:.75rem .95rem;
+          border-radius:14px;
+          background:rgba(127,127,127,.08);
+          margin-bottom:.55rem;
+          font-size:.98rem;
+          line-height:1.45;
+      }
+      div[data-testid="stForm"] {
+          padding:.75rem .85rem .8rem .85rem;
+          border-radius:12px;
+      }
+      div[data-testid="stForm"] [data-testid="stTextInput"] {
+          margin-bottom:.25rem;
+      }
+      .stTabs [data-baseweb="tab-list"] {
+          gap:.35rem;
+      }
+      .stTabs [data-baseweb="tab"] {
+          padding-top:.45rem;
+          padding-bottom:.45rem;
+      }
+      div[data-testid="stExpander"] {
+          margin-top:.35rem;
+      }
+      .footer {
+          text-align:center;
+          opacity:.45;
+          font-size:.72rem;
+          margin-top:.6rem;
+      }
+      @media (max-width: 640px) {
+          .block-container { padding-top: 2.4rem; }
+          .haru-title { font-size:1.8rem; }
+          .haru-face { width:165px; height:165px; border-width:6px; }
+          .eyes { font-size:1.75rem; }
+          .mouth { font-size:2rem; }
+      }
     </style>
     """,
     unsafe_allow_html=True,
@@ -828,4 +912,4 @@ with st.expander("Developer panel"):
             st.write(f"**You:** {q}")
             st.write(f"**HARU:** {a}")
 
-st.markdown("<div class=\"footer\">HARU Lab v0.7 • active model shown in HARU header</div>", unsafe_allow_html=True)
+st.markdown("<div class=\"footer\">HARU Lab v0.8 • compact adaptive interface</div>", unsafe_allow_html=True)
