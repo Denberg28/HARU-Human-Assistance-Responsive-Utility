@@ -92,7 +92,9 @@ fun HaruScreen(
     newsBundle: AndroidNewsBundle,
     hazardBundle: AndroidHazardBundle,
     trustedLocations: List<TrustedLocation>,
+    currentDeviceLocation: TrustedLocation?,
     locationShareCode: String,
+    mapLocationStatus: String,
     onSubmitClick: () -> Unit,
     onMicClick: () -> Unit,
     onSpeakClick: () -> Unit,
@@ -106,6 +108,7 @@ fun HaruScreen(
     onRefreshNews: () -> Unit,
     onRefreshHazards: () -> Unit,
     onOpenUrl: (String) -> Unit,
+    onLocateMe: () -> Unit,
     onCreateLocationShare: (String, Int) -> Unit,
     onImportLocationShare: (String) -> Unit,
     onClearTrustedLocations: () -> Unit,
@@ -193,7 +196,10 @@ fun HaruScreen(
                 )
                 else -> MapPane(
                     locations = trustedLocations,
+                    currentDeviceLocation = currentDeviceLocation,
                     shareCode = locationShareCode,
+                    mapLocationStatus = mapLocationStatus,
+                    onLocateMe = onLocateMe,
                     onCreateShare = onCreateLocationShare,
                     onImportShare = onImportLocationShare,
                     onClear = onClearTrustedLocations,
@@ -526,7 +532,10 @@ private fun HazardEntry(
 @Composable
 private fun MapPane(
     locations: List<TrustedLocation>,
+    currentDeviceLocation: TrustedLocation?,
     shareCode: String,
+    mapLocationStatus: String,
+    onLocateMe: () -> Unit,
     onCreateShare: (String, Int) -> Unit,
     onImportShare: (String) -> Unit,
     onClear: () -> Unit,
@@ -548,7 +557,45 @@ private fun MapPane(
         )
 
         Spacer(Modifier.height(8.dp))
-        TrustedLocationsMap(locations)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Button(
+                onClick = onLocateMe,
+                modifier = Modifier.weight(1f),
+            ) {
+                Text("📍 My GPS")
+            }
+
+            OutlinedButton(
+                onClick = {
+                    currentDeviceLocation?.let { item ->
+                        onOpenUrl(
+                            "https://www.google.com/maps/search/?api=1&query=" +
+                                item.latitude + "," + item.longitude
+                        )
+                    }
+                },
+                enabled = currentDeviceLocation != null,
+                modifier = Modifier.weight(1f),
+            ) {
+                Text("Google Maps ↗")
+            }
+        }
+
+        if (mapLocationStatus.isNotBlank()) {
+            Text(
+                mapLocationStatus,
+                style = MaterialTheme.typography.labelSmall,
+            )
+        }
+
+        Spacer(Modifier.height(6.dp))
+        TrustedLocationsMap(
+            locations = locations,
+            currentDeviceLocation = currentDeviceLocation,
+        )
         Text(
             "Map data © OpenStreetMap contributors · tiles/style by OpenFreeMap",
             style = MaterialTheme.typography.labelSmall,
@@ -664,9 +711,14 @@ private fun MapPane(
 @Composable
 private fun TrustedLocationsMap(
     locations: List<TrustedLocation>,
+    currentDeviceLocation: TrustedLocation?,
 ) {
     val context = LocalContext.current
-    val mapKey = locations.joinToString("|") {
+    val allLocations = buildList {
+        currentDeviceLocation?.let(::add)
+        addAll(locations)
+    }
+    val mapKey = allLocations.joinToString("|") {
         it.id + ":" + it.latitude + ":" + it.longitude
     }
     var mapController by remember(mapKey) {
@@ -706,7 +758,8 @@ private fun TrustedLocationsMap(
                 map.setMaxZoomPreference(20.0)
 
                 map.setStyle(OPENFREE_MAP_STYLE) {
-                    val focus = locations.lastOrNull()
+                    val focus =
+                        currentDeviceLocation ?: locations.lastOrNull()
                     val target = if (focus != null) {
                         LatLng(focus.latitude, focus.longitude)
                     } else {
@@ -715,11 +768,17 @@ private fun TrustedLocationsMap(
 
                     map.cameraPosition = CameraPosition.Builder()
                         .target(target)
-                        .zoom(if (focus != null) 13.0 else 4.7)
+                        .zoom(
+                            when {
+                                currentDeviceLocation != null -> 15.0
+                                focus != null -> 13.0
+                                else -> 4.7
+                            }
+                        )
                         .build()
 
                     @Suppress("DEPRECATION")
-                    locations.takeLast(20).forEach { item ->
+                    allLocations.takeLast(21).forEach { item ->
                         map.addMarker(
                             MarkerOptions()
                                 .position(
@@ -730,9 +789,15 @@ private fun TrustedLocationsMap(
                                 )
                                 .title(item.name)
                                 .snippet(
-                                    item.accuracyM?.let {
-                                        "Accuracy ±" + it.toInt() + " m"
-                                    } ?: "Trusted location"
+                                    if (item.id == "haru-current-device") {
+                                        item.accuracyM?.let {
+                                            "Current GPS · ±" + it.toInt() + " m"
+                                        } ?: "Current GPS location"
+                                    } else {
+                                        item.accuracyM?.let {
+                                            "Accuracy ±" + it.toInt() + " m"
+                                        } ?: "Trusted location"
+                                    }
                                 )
                         )
                     }
