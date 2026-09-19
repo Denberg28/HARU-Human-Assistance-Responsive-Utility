@@ -1302,6 +1302,10 @@ with st.expander("AI selector"):
                 type="password",
                 help="Held only in the current Streamlit session. Do not commit API keys to GitHub.",
             )
+        elif provider == "OpenRouter API":
+            # OpenRouter renders its dedicated key field above. Preserve that
+            # session value so Apply & connect can authenticate successfully.
+            pass
         else:
             st.session_state.ai_api_key = ""
 
@@ -1423,4 +1427,4 @@ with st.expander("Developer panel"):
             st.write(f"**You:** {q}")
             st.write(f"**HARU:** {a}")
 
-st.markdown("<div class=\"footer\">HARU Lab v1.8 • simplified OpenRouter free mode</div>", unsafe_allow_html=True)
+st.markdown("<div class=\"footer\">HARU Lab v1.9 • fixed OpenRouter free authentication</div>", unsafe_allow_html=True)
