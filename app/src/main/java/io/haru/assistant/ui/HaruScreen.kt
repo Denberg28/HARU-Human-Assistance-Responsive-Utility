@@ -87,6 +87,8 @@ fun HaruScreen(
     onlineStatus: String,
     hasGeminiKey: Boolean,
     appVersion: String,
+    updateStatus: String,
+    updateUrl: String,
     newsBundle: AndroidNewsBundle,
     hazardBundle: AndroidHazardBundle,
     trustedLocations: List<TrustedLocation>,
@@ -99,6 +101,8 @@ fun HaruScreen(
     onRefreshGeminiModels: () -> Unit,
     onSaveGeminiKey: (String) -> Unit,
     onTestOnlineAi: () -> Unit,
+    onCheckUpdate: () -> Unit,
+    onOpenUpdate: (String) -> Unit,
     onRefreshNews: () -> Unit,
     onRefreshHazards: () -> Unit,
     onOpenUrl: (String) -> Unit,
@@ -109,6 +113,7 @@ fun HaruScreen(
 ) {
     var selectedTab by remember { mutableIntStateOf(0) }
     var showOnlineAi by remember { mutableStateOf(false) }
+    var showUpdate by remember { mutableStateOf(false) }
     val tabs = listOf("Assistant", "News", "Hazard Advisories", "Map")
 
     Surface(modifier = modifier.fillMaxSize()) {
@@ -174,6 +179,7 @@ fun HaruScreen(
                     onSpeakClick = onSpeakClick,
                     appVersion = appVersion,
                     onOpenOnlineAi = { showOnlineAi = true },
+                    onOpenUpdate = { showUpdate = true },
                 )
                 1 -> NewsPane(
                     bundle = newsBundle,
@@ -195,6 +201,17 @@ fun HaruScreen(
                 )
             }
         }
+    }
+
+    if (showUpdate) {
+        AppUpdateDialog(
+            appVersion = appVersion,
+            status = updateStatus,
+            updateUrl = updateUrl,
+            onDismiss = { showUpdate = false },
+            onCheck = onCheckUpdate,
+            onOpenUpdate = onOpenUpdate,
+        )
     }
 
     if (showOnlineAi) {
@@ -227,6 +244,7 @@ private fun AssistantPane(
     onSpeakClick: () -> Unit,
     appVersion: String,
     onOpenOnlineAi: () -> Unit,
+    onOpenUpdate: () -> Unit,
 ) {
     val state = viewModel.uiState
 
@@ -278,10 +296,9 @@ private fun AssistantPane(
                 style = MaterialTheme.typography.labelSmall,
             )
         }
-        Text(
-            "HARU v$appVersion",
-            style = MaterialTheme.typography.labelSmall,
-        )
+        TextButton(onClick = onOpenUpdate) {
+            Text("HARU v$appVersion · Check update")
+        }
 
         Spacer(Modifier.height(8.dp))
         Text(
@@ -792,6 +809,55 @@ private val PHILIPPINES_CENTER =
 
 private const val OPENFREE_MAP_STYLE =
     "https://tiles.openfreemap.org/styles/liberty"
+
+@Composable
+private fun AppUpdateDialog(
+    appVersion: String,
+    status: String,
+    updateUrl: String,
+    onDismiss: () -> Unit,
+    onCheck: () -> Unit,
+    onOpenUpdate: (String) -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("HARU update") },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("Done") }
+        },
+        text = {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                Text("Installed: v$appVersion", fontWeight = FontWeight.SemiBold)
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    status.ifBlank { "Check GitHub for the latest standalone HARU APK." },
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                Spacer(Modifier.height(10.dp))
+                Button(
+                    onClick = onCheck,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text("Check update")
+                }
+                if (updateUrl.isNotBlank()) {
+                    Spacer(Modifier.height(6.dp))
+                    OutlinedButton(
+                        onClick = { onOpenUpdate(updateUrl) },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text("Open GitHub APK")
+                    }
+                }
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    "HARU only checks for a newer release and opens the GitHub APK link. Android handles the installer.",
+                    style = MaterialTheme.typography.labelSmall,
+                )
+            }
+        },
+    )
+}
 
 @Composable
 private fun OnlineAiDialog(
