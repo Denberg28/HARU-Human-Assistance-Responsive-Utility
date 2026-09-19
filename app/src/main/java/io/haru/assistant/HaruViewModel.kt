@@ -84,15 +84,7 @@ class HaruViewModel(
         return command
     }
 
-    fun submitOrPrepareLocalAi(hasLocalAi: Boolean): String? {
-        if (!hasLocalAi) {
-            submit()
-            return null
-        }
-        return prepareAiPrompt()
-    }
-
-    fun completeLocalAi(message: String, success: Boolean = true) {
+    fun completeAi(message: String, success: Boolean = true) {
         uiState = uiState.copy(
             mood = if (success) HaruMood.HAPPY else HaruMood.CONFUSED,
             message = message,
@@ -100,8 +92,4 @@ class HaruViewModel(
         )
     }
 
-    fun submitVoice(command: String) {
-        updateCommand(command)
-        submit()
-    }
 }
