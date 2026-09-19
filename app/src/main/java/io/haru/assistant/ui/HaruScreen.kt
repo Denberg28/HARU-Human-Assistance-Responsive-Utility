@@ -32,7 +32,6 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -67,8 +66,6 @@ import io.haru.assistant.content.AndroidHazardItem
 import io.haru.assistant.content.AndroidNewsBundle
 import io.haru.assistant.content.AndroidNewsItem
 import io.haru.assistant.core.HaruMood
-import io.haru.assistant.localai.LocalAiStatus
-import io.haru.assistant.localai.LocalModelOption
 import io.haru.assistant.location.TrustedLocation
 import io.haru.assistant.onlineai.GeminiModel
 import io.haru.assistant.onlineai.OnlineProvider
@@ -80,13 +77,6 @@ import java.util.Date
 fun HaruScreen(
     viewModel: HaruViewModel,
     voiceStatus: HaruVoiceController.VoiceRuntimeStatus,
-    localAiStatus: LocalAiStatus,
-    localAiBusy: Boolean,
-    localModelOptions: List<LocalModelOption>,
-    localAiDownloadProgress: Float?,
-    localAiDownloadLabel: String,
-    localAiDownloadState: String,
-    localAiDownloadModelId: String,
     todayLines: List<String>,
     onlineProvider: OnlineProvider,
     selectedGeminiModel: GeminiModel,
@@ -103,18 +93,13 @@ fun HaruScreen(
     onSubmitClick: () -> Unit,
     onMicClick: () -> Unit,
     onSpeakClick: () -> Unit,
-    onDownloadLocalModel: (LocalModelOption) -> Unit,
-    onPauseLocalModelDownload: () -> Unit,
-    onResumeLocalModelDownload: () -> Unit,
-    onCancelLocalModelDownload: () -> Unit,
-    onValidateLocalModel: (String) -> Unit,
-    onDeleteLocalModel: (String) -> Unit,
     onSelectOnlineProvider: (OnlineProvider) -> Unit,
     onSelectGeminiModel: (GeminiModel) -> Unit,
+    onRefreshGeminiModels: () -> Unit,
     onSaveGeminiKey: (String) -> Unit,
     onTestOnlineAi: () -> Unit,
     onCheckUpdate: () -> Unit,
-    onOpenUpdate: (String) -> Unit,
+    onInstallUpdate: (String) -> Unit,
     onRefreshNews: () -> Unit,
     onRefreshHazards: () -> Unit,
     onOpenUrl: (String) -> Unit,
@@ -124,7 +109,6 @@ fun HaruScreen(
     modifier: Modifier = Modifier,
 ) {
     var selectedTab by remember { mutableIntStateOf(0) }
-    var showLocalAi by remember { mutableStateOf(false) }
     var showOnlineAi by remember { mutableStateOf(false) }
     var showUpdate by remember { mutableStateOf(false) }
     val tabs = listOf("Assistant", "News", "Hazard Advisories", "Map")
@@ -184,7 +168,6 @@ fun HaruScreen(
                 0 -> AssistantPane(
                     viewModel = viewModel,
                     voiceStatus = voiceStatus,
-                    localAiStatus = localAiStatus,
                     todayLines = todayLines,
                     onlineProvider = onlineProvider,
                     onlineStatus = onlineStatus,
@@ -192,7 +175,6 @@ fun HaruScreen(
                     onMicClick = onMicClick,
                     onSpeakClick = onSpeakClick,
                     appVersion = appVersion,
-                    onOpenLocalAi = { showLocalAi = true },
                     onOpenOnlineAi = { showOnlineAi = true },
                     onOpenUpdate = { showUpdate = true },
                 )
@@ -218,25 +200,6 @@ fun HaruScreen(
         }
     }
 
-    if (showLocalAi) {
-        LocalAiSetupDialog(
-            status = localAiStatus,
-            busy = localAiBusy,
-            options = localModelOptions,
-            downloadProgress = localAiDownloadProgress,
-            downloadLabel = localAiDownloadLabel,
-            downloadState = localAiDownloadState,
-            downloadModelId = localAiDownloadModelId,
-            onDismiss = { if (!localAiBusy) showLocalAi = false },
-            onDownload = onDownloadLocalModel,
-            onPauseDownload = onPauseLocalModelDownload,
-            onResumeDownload = onResumeLocalModelDownload,
-            onCancelDownload = onCancelLocalModelDownload,
-            onValidate = onValidateLocalModel,
-            onDelete = onDeleteLocalModel,
-        )
-    }
-
     if (showOnlineAi) {
         OnlineAiDialog(
             provider = onlineProvider,
@@ -247,6 +210,7 @@ fun HaruScreen(
             onDismiss = { showOnlineAi = false },
             onSelectProvider = onSelectOnlineProvider,
             onSelectGeminiModel = onSelectGeminiModel,
+            onRefreshGeminiModels = onRefreshGeminiModels,
             onSaveGeminiKey = onSaveGeminiKey,
             onTest = onTestOnlineAi,
         )
@@ -259,7 +223,7 @@ fun HaruScreen(
             updateUrl = updateUrl,
             onDismiss = { showUpdate = false },
             onCheck = onCheckUpdate,
-            onOpenUpdate = onOpenUpdate,
+            onInstallUpdate = onInstallUpdate,
         )
     }
 }
@@ -268,7 +232,6 @@ fun HaruScreen(
 private fun AssistantPane(
     viewModel: HaruViewModel,
     voiceStatus: HaruVoiceController.VoiceRuntimeStatus,
-    localAiStatus: LocalAiStatus,
     todayLines: List<String>,
     onlineProvider: OnlineProvider,
     onlineStatus: String,
@@ -276,7 +239,6 @@ private fun AssistantPane(
     onMicClick: () -> Unit,
     onSpeakClick: () -> Unit,
     appVersion: String,
-    onOpenLocalAi: () -> Unit,
     onOpenOnlineAi: () -> Unit,
     onOpenUpdate: () -> Unit,
 ) {
@@ -318,25 +280,11 @@ private fun AssistantPane(
         }
 
         Spacer(Modifier.height(10.dp))
-        Row(
+        OutlinedButton(
+            onClick = onOpenOnlineAi,
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            OutlinedButton(
-                onClick = onOpenOnlineAi,
-                modifier = Modifier.weight(1f),
-            ) {
-                Text(providerLabel(onlineProvider))
-            }
-            OutlinedButton(
-                onClick = onOpenLocalAi,
-                modifier = Modifier.weight(1f),
-            ) {
-                Text(
-                    if (localAiStatus.activeModel.isBlank()) "Local AI"
-                    else "Local ✓"
-                )
-            }
+            Text("AI · " + providerLabel(onlineProvider))
         }
         if (onlineStatus.isNotBlank()) {
             Text(
@@ -513,19 +461,21 @@ private fun HazardPane(
         Spacer(Modifier.height(8.dp))
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(Modifier.padding(12.dp)) {
-                Text("🛰️ Live PAGASA PANaHON", fontWeight = FontWeight.SemiBold)
+                Text("PAGASA Weather Viewer", fontWeight = FontWeight.SemiBold)
                 Text(
-                    "Interactive PAGASA radar, satellite, warning, rainfall, and weather layers.",
+                    "Official PAGASA weather page. This replaces the less reliable PANaHON embed.",
                     style = MaterialTheme.typography.bodySmall,
                 )
                 Spacer(Modifier.height(8.dp))
-                PagasaLiveMap()
+                PagasaWeatherViewer()
                 Spacer(Modifier.height(6.dp))
                 OutlinedButton(
-                    onClick = { onOpenUrl("https://www.panahon.gov.ph/") },
+                    onClick = {
+                        onOpenUrl("https://bagong.pagasa.dost.gov.ph/weather")
+                    },
                     modifier = Modifier.fillMaxWidth(),
                 ) {
-                    Text("Open in browser ↗")
+                    Text("Open official PAGASA page ↗")
                 }
             }
         }
@@ -686,12 +636,13 @@ private fun MapPane(
                     TextButton(
                         onClick = {
                             onOpenUrl(
-                                "https://www.google.com/maps/search/?api=1&query=" +
-                                    item.latitude + "," + item.longitude
+                                "https://www.openstreetmap.org/?mlat=" +
+                                    item.latitude + "&mlon=" + item.longitude +
+                                    "#map=14/" + item.latitude + "/" + item.longitude
                             )
                         }
                     ) {
-                        Text("Google Maps ↗")
+                        Text("OpenStreetMap ↗")
                     }
                 }
             }
@@ -700,16 +651,15 @@ private fun MapPane(
 }
 
 @Composable
-private fun PagasaLiveMap() {
+private fun PagasaWeatherViewer() {
     BrowserWebView(
-        url = "https://panahon.gov.ph/",
+        url = "https://bagong.pagasa.dost.gov.ph/weather",
         allowedHostSuffixes = setOf(
-            "panahon.gov.ph",
             "pagasa.dost.gov.ph",
         ),
         modifier = Modifier
             .fillMaxWidth()
-            .height(360.dp),
+            .height(340.dp),
     )
 }
 
@@ -717,82 +667,30 @@ private fun PagasaLiveMap() {
 private fun TrustedLocationsMap(locations: List<TrustedLocation>) {
     val focus = locations.lastOrNull()
     val mapUrl = if (focus != null) {
-        "https://maps.google.com/maps?q=" +
-            focus.latitude + "," + focus.longitude +
-            "&z=13&output=embed"
+        val delta = 0.025
+        val west = focus.longitude - delta
+        val south = focus.latitude - delta
+        val east = focus.longitude + delta
+        val north = focus.latitude + delta
+        "https://www.openstreetmap.org/export/embed.html?bbox=" +
+            west + "%2C" + south + "%2C" + east + "%2C" + north +
+            "&layer=mapnik&marker=" + focus.latitude + "%2C" + focus.longitude
     } else {
-        "https://maps.google.com/maps?q=Philippines&z=5&output=embed"
+        "https://www.openstreetmap.org/export/embed.html" +
+            "?bbox=116.5%2C4.0%2C127.0%2C21.5&layer=mapnik"
     }
 
     Card(modifier = Modifier.fillMaxWidth()) {
-        GoogleMapsIframe(
-            mapUrl = mapUrl,
+        BrowserWebView(
+            url = mapUrl,
+            allowedHostSuffixes = setOf(
+                "openstreetmap.org",
+            ),
             modifier = Modifier
                 .fillMaxWidth()
                 .height(280.dp),
         )
     }
-}
-
-@Composable
-private fun GoogleMapsIframe(
-    mapUrl: String,
-    modifier: Modifier = Modifier,
-) {
-    val context = LocalContext.current
-    val escapedUrl = mapUrl
-        .replace("&", "&amp;")
-        .replace("\"", "&quot;")
-    val html = """
-        <!doctype html>
-        <html>
-          <head>
-            <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <style>
-              html,body{margin:0;padding:0;width:100%;height:100%;overflow:hidden;background:#f7f7f7}
-              iframe{width:100%;height:100%;border:0}
-            </style>
-          </head>
-          <body>
-            <iframe src="$escapedUrl" title="Google Maps" loading="eager"
-              allowfullscreen referrerpolicy="no-referrer-when-downgrade"></iframe>
-          </body>
-        </html>
-    """.trimIndent()
-
-    val webView = remember(context) {
-        WebView(context).apply {
-            configureInteractiveWebView()
-        }
-    }
-
-    DisposableEffect(webView) {
-        onDispose {
-            webView.stopLoading()
-            webView.onPause()
-            webView.loadUrl("about:blank")
-            webView.removeAllViews()
-            webView.destroy()
-        }
-    }
-
-    AndroidView(
-        modifier = modifier,
-        factory = { webView },
-        update = {
-            if (it.tag != mapUrl) {
-                it.tag = mapUrl
-                it.onResume()
-                it.loadDataWithBaseURL(
-                    "https://maps.google.com/",
-                    html,
-                    "text/html",
-                    "UTF-8",
-                    null,
-                )
-            }
-        },
-    )
 }
 
 @Composable
@@ -817,7 +715,10 @@ private fun BrowserWebView(
                     request: android.webkit.WebResourceRequest?,
                 ): Boolean {
                     val uri = request?.url ?: return true
-                    if (!uri.scheme.equals("https", ignoreCase = true)) return true
+                    if (!uri.scheme.equals("https", ignoreCase = true)) {
+                        return true
+                    }
+
                     val host = uri.host?.lowercase().orEmpty()
                     return allowedHostSuffixes.none { suffix ->
                         host == suffix || host.endsWith("." + suffix)
@@ -881,6 +782,7 @@ private fun OnlineAiDialog(
     onDismiss: () -> Unit,
     onSelectProvider: (OnlineProvider) -> Unit,
     onSelectGeminiModel: (GeminiModel) -> Unit,
+    onRefreshGeminiModels: () -> Unit,
     onSaveGeminiKey: (String) -> Unit,
     onTest: () -> Unit,
 ) {
@@ -903,7 +805,6 @@ private fun OnlineAiDialog(
                 listOf(
                     OnlineProvider.ANTIGRAVITY,
                     OnlineProvider.GEMINI,
-                    OnlineProvider.LOCAL_ONLY,
                 ).forEach { option ->
                     OutlinedButton(
                         onClick = { onSelectProvider(option) },
@@ -943,6 +844,19 @@ private fun OnlineAiDialog(
                     }
                 }
 
+                Spacer(Modifier.height(6.dp))
+                OutlinedButton(
+                    onClick = onRefreshGeminiModels,
+                    enabled = hasGeminiKey,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text("Refresh Gemini models")
+                }
+                Text(
+                    "Refresh discovers newly released models and removes models no longer returned by Google.",
+                    style = MaterialTheme.typography.labelSmall,
+                )
+
                 Spacer(Modifier.height(10.dp))
                 Text(
                     "Gemini API key" + if (hasGeminiKey) " · saved securely" else "",
@@ -978,7 +892,7 @@ private fun OnlineAiDialog(
                     Text(status, style = MaterialTheme.typography.bodySmall)
                 }
                 Text(
-                    "Antigravity remains the default. OpenRouter has been removed.",
+                    "Antigravity remains the default. Gemini models refresh from Google's live catalog.",
                     style = MaterialTheme.typography.labelSmall,
                 )
             }
@@ -993,7 +907,7 @@ private fun AppUpdateDialog(
     updateUrl: String,
     onDismiss: () -> Unit,
     onCheck: () -> Unit,
-    onOpenUpdate: (String) -> Unit,
+    onInstallUpdate: (String) -> Unit,
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -1019,307 +933,15 @@ private fun AppUpdateDialog(
                 if (updateUrl.isNotBlank()) {
                     Spacer(Modifier.height(6.dp))
                     Button(
-                        onClick = { onOpenUpdate(updateUrl) },
+                        onClick = { onInstallUpdate(updateUrl) },
                         modifier = Modifier.fillMaxWidth(),
                     ) {
-                        Text("Download latest APK")
+                        Text("Download & install update")
                     }
                 }
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    "Install the APK over HARU without uninstalling it. Normal Android updates keep " +
-                        "HARU's app-private local AI model and companion data.",
-                    style = MaterialTheme.typography.labelSmall,
-                )
-            }
-        },
-    )
-}
-
-@Composable
-private fun LocalAiSetupDialog(
-    status: LocalAiStatus,
-    busy: Boolean,
-    options: List<LocalModelOption>,
-    downloadProgress: Float?,
-    downloadLabel: String,
-    downloadState: String,
-    downloadModelId: String,
-    onDismiss: () -> Unit,
-    onDownload: (LocalModelOption) -> Unit,
-    onPauseDownload: () -> Unit,
-    onResumeDownload: () -> Unit,
-    onCancelDownload: () -> Unit,
-    onValidate: (String) -> Unit,
-    onDelete: (String) -> Unit,
-) {
-    val downloadActive = downloadState in listOf("DOWNLOADING", "QUEUED")
-    val downloadPaused = downloadState in listOf("PAUSED", "FAILED")
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        confirmButton = {
-            TextButton(
-                onClick = onDismiss,
-                enabled = !busy,
-            ) {
-                Text("Done")
-            }
-        },
-        title = { Text("Local AI") },
-        text = {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .verticalScroll(rememberScrollState()),
-            ) {
-                Text(
-                    status.ramGb.toString() + " GB RAM • " +
-                        status.freeStorageGb.toString() + " GB free",
-                    style = MaterialTheme.typography.bodySmall,
-                )
-                Text(
-                    "HARU recommends " + status.recommendedTier + " for this phone.",
-                    style = MaterialTheme.typography.bodySmall,
-                    fontWeight = FontWeight.SemiBold,
-                )
-
-                if (busy || downloadLabel.isNotBlank()) {
-                    Spacer(Modifier.height(10.dp))
-
-                    when {
-                        downloadProgress != null -> LinearProgressIndicator(
-                            progress = { downloadProgress.coerceIn(0f, 1f) },
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                        downloadActive -> LinearProgressIndicator(
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                    }
-
-                    if (downloadLabel.isNotBlank()) {
-                        Spacer(Modifier.height(4.dp))
-                        Text(
-                            downloadLabel,
-                            style = MaterialTheme.typography.labelSmall,
-                        )
-                    }
-
-                    if (downloadActive || downloadPaused) {
-                        Spacer(Modifier.height(6.dp))
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        ) {
-                            if (downloadActive) {
-                                OutlinedButton(
-                                    onClick = onPauseDownload,
-                                    modifier = Modifier.weight(1f),
-                                ) {
-                                    Text("Pause")
-                                }
-                            } else {
-                                Button(
-                                    onClick = onResumeDownload,
-                                    modifier = Modifier.weight(1f),
-                                ) {
-                                    Text("Resume")
-                                }
-                            }
-
-                            TextButton(onClick = onCancelDownload) {
-                                Text("Cancel")
-                            }
-                        }
-
-                        Text(
-                            "Background download continues while you use HARU or another app.",
-                            style = MaterialTheme.typography.labelSmall,
-                        )
-                    }
-                }
-
-                Spacer(Modifier.height(12.dp))
-                Text(
-                    "Available models",
-                    fontWeight = FontWeight.SemiBold,
-                )
-
-                options.forEach { option ->
-                    val installed = status.installedModels.contains(option.fileName)
-                    val active = status.activeModel == option.fileName
-                    val recommended = status.recommendedModelId == option.id
-                    val fits =
-                        status.ramGb >= option.minRamGb &&
-                            status.freeStorageGb >= option.minFreeStorageGb
-                    val thisDownload =
-                        downloadModelId == option.id &&
-                            downloadState in listOf(
-                                "DOWNLOADING",
-                                "QUEUED",
-                                "PAUSED",
-                                "FAILED",
-                            )
-
-                    Card(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 4.dp),
-                    ) {
-                        Column(Modifier.padding(12.dp)) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Text(
-                                    option.name,
-                                    fontWeight = FontWeight.SemiBold,
-                                )
-                                Text(
-                                    when {
-                                        active -> "ACTIVE"
-                                        recommended -> "BEST FIT"
-                                        installed -> "DOWNLOADED"
-                                        thisDownload -> downloadState
-                                        else -> ""
-                                    },
-                                    style = MaterialTheme.typography.labelSmall,
-                                    fontWeight = FontWeight.Bold,
-                                )
-                            }
-
-                            Text(
-                                option.description,
-                                style = MaterialTheme.typography.bodySmall,
-                            )
-                            Text(
-                                "Needs about " + option.minRamGb + " GB RAM · " +
-                                    option.minFreeStorageGb + " GB free",
-                                style = MaterialTheme.typography.labelSmall,
-                            )
-
-                            Spacer(Modifier.height(6.dp))
-
-                            when {
-                                active -> Text(
-                                    "Loaded and ready for local use.",
-                                    style = MaterialTheme.typography.labelSmall,
-                                )
-
-                                installed -> Text(
-                                    "Downloaded. Load it from the section below.",
-                                    style = MaterialTheme.typography.labelSmall,
-                                )
-
-                                thisDownload -> Text(
-                                    when (downloadState) {
-                                        "PAUSED" -> "Paused. Use Resume above."
-                                        "FAILED" -> "Interrupted. Use Resume above to retry."
-                                        else -> "Downloading in the background."
-                                    },
-                                    style = MaterialTheme.typography.labelSmall,
-                                )
-
-                                else -> {
-                                    Button(
-                                        onClick = { onDownload(option) },
-                                        enabled = !busy && fits && !downloadActive,
-                                        modifier = Modifier.fillMaxWidth(),
-                                    ) {
-                                        Text(
-                                            if (recommended) "Download best model"
-                                            else "Download"
-                                        )
-                                    }
-
-                                    if (!fits) {
-                                        Text(
-                                            "Not recommended for current RAM/storage.",
-                                            style = MaterialTheme.typography.labelSmall,
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                if (status.installedModels.isNotEmpty()) {
-                    Spacer(Modifier.height(14.dp))
-                    HorizontalDivider()
-                    Spacer(Modifier.height(10.dp))
-
-                    Text(
-                        "Downloaded models",
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                    Text(
-                        "Load a downloaded model locally or remove it from this phone.",
-                        style = MaterialTheme.typography.labelSmall,
-                    )
-                    Spacer(Modifier.height(6.dp))
-
-                    status.installedModels.forEach { fileName ->
-                        val active = status.activeModel == fileName
-                        val displayName = options.firstOrNull {
-                            it.fileName == fileName
-                        }?.name ?: fileName
-
-                        Card(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 3.dp),
-                        ) {
-                            Column(Modifier.padding(10.dp)) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically,
-                                ) {
-                                    Text(
-                                        displayName,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        fontWeight = FontWeight.SemiBold,
-                                    )
-                                    if (active) {
-                                        Text(
-                                            "ACTIVE",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            fontWeight = FontWeight.Bold,
-                                        )
-                                    }
-                                }
-
-                                Spacer(Modifier.height(4.dp))
-
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                ) {
-                                    Button(
-                                        onClick = { onValidate(fileName) },
-                                        enabled = !busy && !active,
-                                        modifier = Modifier.weight(1f),
-                                    ) {
-                                        Text(if (active) "Loaded" else "Load model")
-                                    }
-
-                                    TextButton(
-                                        onClick = { onDelete(fileName) },
-                                        enabled = !busy,
-                                    ) {
-                                        Text("Remove")
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                Spacer(Modifier.height(6.dp))
-                Text(
-                    "Model files stay on this phone. HARU keeps online AI available separately.",
+                    "HARU downloads the signed update and opens Android's installer. Install over the current app to preserve your data.",
                     style = MaterialTheme.typography.labelSmall,
                 )
             }
@@ -1431,7 +1053,6 @@ private fun providerLabel(provider: OnlineProvider): String =
     when (provider) {
         OnlineProvider.ANTIGRAVITY -> "Antigravity"
         OnlineProvider.GEMINI -> "Gemini"
-        OnlineProvider.LOCAL_ONLY -> "Local only"
     }
 
 private fun Modifier.sizeCompat(size: androidx.compose.ui.unit.Dp): Modifier =
