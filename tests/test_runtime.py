@@ -1,10 +1,18 @@
 import os
+import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
 
 os.environ["HARU_LOCATION_SHARE_SECRET"] = "haru-test-location-secret"
 
 from ai_runtime import _interaction_output_text
+from companion_store import (
+    CompanionStore,
+    due_reminders,
+    new_reminder,
+    parse_relative_reminder,
+    upcoming_reminders,
+)
 from hazard_service import _page_text
 from location_share import (
     decode_location_share,
@@ -41,6 +49,53 @@ class RuntimeTests(unittest.TestCase):
         result = deduplicate([older, newer])
         self.assertEqual(len(result), 1)
         self.assertEqual(result[0].link, "https://b.example/2")
+
+    def test_companion_relative_reminder_parser(self):
+        base = 1_700_000_000
+        parsed = parse_relative_reminder(
+            "remind me in 30 minutes to charge batteries",
+            now_ts=base,
+        )
+        self.assertIsNotNone(parsed)
+        text, due_at = parsed
+        self.assertEqual(text, "charge batteries")
+        self.assertEqual(due_at, base + 30 * 60)
+
+    def test_companion_relative_reminder_rejects_over_30_days(self):
+        self.assertIsNone(
+            parse_relative_reminder(
+                "remind me in 31 days to test",
+                now_ts=1_700_000_000,
+            )
+        )
+
+    def test_companion_due_and_upcoming_reminders(self):
+        now = 1_700_000_000
+        past = new_reminder("past", now - 10)
+        future = new_reminder("future", now + 60)
+        self.assertEqual(
+            [item["text"] for item in due_reminders([past, future], now_ts=now)],
+            ["past"],
+        )
+        self.assertEqual(
+            [item["text"] for item in upcoming_reminders([past, future], now_ts=now)],
+            ["future"],
+        )
+
+    def test_companion_store_round_trip(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = os.path.join(temp_dir, "companion.json")
+            store = CompanionStore(path)
+            state = {
+                "notes": ["  inspect   battery  "],
+                "tasks": [{"text": "check props", "done": False}],
+                "reminders": [new_reminder("charge radio", 1_800_000_000)],
+            }
+            store.save(state)
+            loaded = store.load()
+            self.assertEqual(loaded["notes"], ["inspect battery"])
+            self.assertEqual(loaded["tasks"][0]["text"], "check props")
+            self.assertEqual(loaded["reminders"][0]["text"], "charge radio")
 
     def test_hazard_text_extractor_ignores_style_script_and_svg(self):
         raw = """
