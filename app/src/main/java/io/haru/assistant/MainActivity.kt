@@ -29,6 +29,7 @@ import io.haru.assistant.content.AndroidNewsBundle
 import io.haru.assistant.content.AndroidNewsService
 import io.haru.assistant.localai.AndroidLocalAiManager
 import io.haru.assistant.localai.LocalAiStatus
+import io.haru.assistant.localai.LocalModelOption
 import io.haru.assistant.location.TrustedLocation
 import io.haru.assistant.location.TrustedLocationManager
 import io.haru.assistant.onlineai.AndroidOnlineAiManager
@@ -61,6 +62,8 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
     )
     private var localAiStatus by mutableStateOf(LocalAiStatus())
     private var localAiBusy by mutableStateOf(false)
+    private var localAiDownloadProgress by mutableStateOf<Float?>(null)
+    private var localAiDownloadLabel by mutableStateOf("")
     private var companionSnapshot by mutableStateOf(CompanionSnapshot())
 
     private var onlineProvider by mutableStateOf(OnlineProvider.ANTIGRAVITY)
@@ -105,13 +108,6 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
             }
         }
 
-    private val localModelPicker =
-        registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-            if (uri != null) {
-                importLocalModel(uri)
-            }
-        }
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -146,6 +142,9 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
                     voiceStatus = voiceStatus,
                     localAiStatus = localAiStatus,
                     localAiBusy = localAiBusy,
+                    localModelOptions = localAiManager.curatedModels(),
+                    localAiDownloadProgress = localAiDownloadProgress,
+                    localAiDownloadLabel = localAiDownloadLabel,
                     todayLines = companionSnapshot.todayLines(),
                     onlineProvider = onlineProvider,
                     onlineStatus = onlineStatus,
@@ -162,13 +161,9 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
                     onSpeakClick = {
                         voiceController.speak(haruViewModel.uiState.message)
                     },
-                    onImportLocalModel = {
-                        localModelPicker.launch(arrayOf("*/*"))
-                    },
-                    onDownloadLocalModel = ::downloadLocalModel,
+                    onDownloadLocalModel = ::downloadCuratedLocalModel,
                     onValidateLocalModel = ::validateLocalModel,
                     onDeleteLocalModel = ::deleteLocalModel,
-                    onOpenModelLibrary = ::openModelLibrary,
                     onSelectOnlineProvider = ::selectOnlineProvider,
                     onSaveGeminiKey = ::saveGeminiKey,
                     onSaveOpenRouterKey = ::saveOpenRouterKey,
@@ -552,59 +547,76 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
         )
     }
 
-    private fun importLocalModel(uri: Uri) {
+    private fun downloadCuratedLocalModel(option: LocalModelOption) {
         if (localAiBusy) return
-        localAiBusy = true
-        localAiStatus = localAiStatus.copy(
-            state = "WORKING",
-            message = "Importing local model…",
-        )
 
-        lifecycleScope.launch {
-            try {
-                val name = localAiManager.importModel(uri)
-                localAiStatus = localAiManager.inspect().copy(
-                    activeModel = "",
-                    state = "SETUP",
-                    message = name + " imported. Tap Validate before using it.",
-                )
-            } catch (exc: Exception) {
-                refreshLocalAiStatus(
-                    message = exc.message ?: "Model import failed.",
-                    state = "ERROR",
-                )
-            } finally {
-                localAiBusy = false
-            }
+        val alreadyInstalled = localAiStatus.installedModels.contains(option.fileName)
+        if (alreadyInstalled) {
+            validateLocalModel(option.fileName)
+            return
         }
-    }
 
-    private fun downloadLocalModel(url: String) {
-        if (localAiBusy || url.isBlank()) return
         localAiBusy = true
+        localAiDownloadProgress = 0f
+        localAiDownloadLabel = "Starting " + option.name + " download…"
         localAiStatus = localAiStatus.copy(
             state = "WORKING",
-            message = "Downloading model securely…",
+            message = "Downloading " + option.name + "…",
         )
 
         lifecycleScope.launch {
             try {
-                val name = localAiManager.downloadModel(url)
-                localAiStatus = localAiManager.inspect().copy(
-                    activeModel = "",
-                    state = "SETUP",
-                    message = name + " downloaded. Tap Validate before using it.",
+                val name = localAiManager.downloadModel(option.downloadUrl) { downloaded, total ->
+                    runOnUiThread {
+                        val downloadedMb = downloaded / (1024f * 1024f)
+                        localAiDownloadProgress = if (total != null && total > 0) {
+                            (downloaded.toFloat() / total.toFloat()).coerceIn(0f, 1f)
+                        } else {
+                            null
+                        }
+                        localAiDownloadLabel = if (total != null && total > 0) {
+                            val totalMb = total / (1024f * 1024f)
+                            String.format(
+                                java.util.Locale.US,
+                                "%.0f / %.0f MB · %.0f%%",
+                                downloadedMb,
+                                totalMb,
+                                localAiDownloadProgress!! * 100f,
+                            )
+                        } else {
+                            String.format(
+                                java.util.Locale.US,
+                                "%.0f MB downloaded",
+                                downloadedMb,
+                            )
+                        }
+                    }
+                }
+
+                runOnUiThread {
+                    localAiDownloadLabel = "Validating " + option.name + "…"
+                    localAiDownloadProgress = 1f
+                }
+
+                val validated = localAiManager.validateInstalledModel(name)
+                localAiStatus = localAiManager.inspect(validated).copy(
+                    activeModel = validated,
+                    state = "READY",
+                    message = option.name + " is installed and active.",
                 )
+                localAiDownloadLabel = option.name + " ready."
             } catch (exc: Exception) {
                 refreshLocalAiStatus(
                     message = exc.message ?: "Model download failed.",
                     state = "ERROR",
                 )
+                localAiDownloadLabel = exc.message ?: "Download failed."
             } finally {
                 localAiBusy = false
             }
         }
     }
+
 
     private fun validateLocalModel(name: String) {
         if (localAiBusy || name.isBlank()) return
@@ -642,9 +654,6 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
         )
     }
 
-    private fun openModelLibrary() {
-        openUrl("https://huggingface.co/litert-community")
-    }
 
     override fun onResume() {
         super.onResume()
