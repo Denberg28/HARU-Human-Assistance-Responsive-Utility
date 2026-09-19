@@ -974,6 +974,7 @@ with st.expander("AI selector"):
                 "OpenAI API",
                 "Google Gemini API",
                 "Anthropic Claude API",
+                "OpenRouter API",
                 "Cloud OpenAI-compatible",
             ]
             if st.session_state.ai_provider not in provider_options:
@@ -986,6 +987,7 @@ with st.expander("AI selector"):
             "OpenAI API": "OpenAI API",
             "Google Gemini API": "Google Gemini API",
             "Anthropic Claude API": "Anthropic Claude API",
+            "OpenRouter API": "OpenRouter API",
             "Cloud OpenAI-compatible": "Cloud OpenAI-compatible",
         }
         provider = st.selectbox(
@@ -1028,6 +1030,7 @@ with st.expander("AI selector"):
         default_endpoints = {
             "Ollama": "http://localhost:11434",
             "Local OpenAI-compatible": "http://localhost:1234",
+            "OpenRouter API": "https://openrouter.ai/api",
             "Cloud OpenAI-compatible": "https://example.com",
         }
 
@@ -1133,6 +1136,55 @@ with st.expander("AI selector"):
                             st.rerun()
                         except AiRuntimeError as exc:
                             st.session_state.ai_status = f"Ollama discovery failed: {exc}"
+
+        elif provider == "OpenRouter API":
+            st.session_state.ai_endpoint = "https://openrouter.ai/api"
+
+            st.session_state.ai_api_key = st.text_input(
+                "OpenRouter API key",
+                value=st.session_state.ai_api_key,
+                type="password",
+                placeholder="sk-or-v1-…",
+                help="Stored only in this Streamlit session and never committed to GitHub.",
+            )
+
+            if st.button("Discover OpenRouter models", use_container_width=True):
+                try:
+                    names = list_openai_compatible_models(
+                        st.session_state.ai_endpoint,
+                        st.session_state.ai_api_key,
+                    )
+                    st.session_state["openrouter_models"] = names
+                    st.session_state.ai_status = (
+                        f"Found {len(names)} OpenRouter model(s)."
+                        if names else
+                        "OpenRouter returned no models."
+                    )
+                    st.rerun()
+                except AiRuntimeError as exc:
+                    st.session_state["openrouter_models"] = []
+                    st.session_state.ai_status = f"OpenRouter discovery failed: {exc}"
+
+            discovered = st.session_state.get("openrouter_models", [])
+            if discovered:
+                current = (
+                    st.session_state.ai_model
+                    if st.session_state.ai_model in discovered
+                    else discovered[0]
+                )
+                st.session_state.ai_model = st.selectbox(
+                    "OpenRouter model",
+                    discovered,
+                    index=discovered.index(current),
+                    help="Select any model available through your OpenRouter account.",
+                )
+            else:
+                st.session_state.ai_model = st.text_input(
+                    "OpenRouter model ID",
+                    value=st.session_state.ai_model,
+                    placeholder="e.g. openai/gpt-4.1-mini",
+                    help="Use Discover OpenRouter models to avoid typing model IDs manually.",
+                )
 
         elif provider in {"Local OpenAI-compatible", "Cloud OpenAI-compatible"}:
             st.session_state.ai_endpoint = st.text_input(
@@ -1329,4 +1381,4 @@ with st.expander("Developer panel"):
             st.write(f"**You:** {q}")
             st.write(f"**HARU:** {a}")
 
-st.markdown("<div class=\"footer\">HARU Lab v1.6 • cloud-aware Ollama connection</div>", unsafe_allow_html=True)
+st.markdown("<div class=\"footer\">HARU Lab v1.7 • OpenRouter API support</div>", unsafe_allow_html=True)
