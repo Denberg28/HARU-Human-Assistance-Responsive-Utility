@@ -50,10 +50,17 @@ class AndroidAppUpdateManager {
                     val release = releases.optJSONObject(i) ?: continue
                     if (release.optBoolean("draft") || release.optBoolean("prerelease")) continue
 
-                    val version = release.optString("tag_name").removePrefix("v").trim()
-                    if (version.isBlank()) continue
+                    val version =
+                        release.optString("tag_name")
+                            .removePrefix("v")
+                            .trim()
 
-                    val apk = findApk(release.optJSONArray("assets") ?: JSONArray())
+                    if (!VERSION_PATTERN.matches(version)) continue
+
+                    val apk = findApk(
+                        release.optJSONArray("assets") ?: JSONArray(),
+                        version,
+                    )
                     if (apk.isBlank()) continue
 
                     if (bestApk.isBlank() || isNewer(version, bestVersion)) {
@@ -78,12 +85,26 @@ class AndroidAppUpdateManager {
             }
         }
 
-    private fun findApk(assets: JSONArray): String {
+    private fun findApk(
+        assets: JSONArray,
+        version: String,
+    ): String {
+        val expectedName =
+            "HARU-v" + version + "-Standalone-arm64.apk"
+
         for (i in 0 until assets.length()) {
             val item = assets.optJSONObject(i) ?: continue
             val name = item.optString("name")
             val url = item.optString("browser_download_url")
-            if (name.endsWith(".apk", true) && url.startsWith("https://")) return url
+            if (name != expectedName) continue
+
+            val parsed = runCatching { URL(url) }.getOrNull() ?: continue
+            if (
+                parsed.protocol.equals("https", ignoreCase = true) &&
+                parsed.host.equals("github.com", ignoreCase = true)
+            ) {
+                return url
+            }
         }
         return ""
     }
@@ -106,6 +127,9 @@ class AndroidAppUpdateManager {
         }
 
     companion object {
+        private val VERSION_PATTERN =
+            Regex("^\\d+\\.\\d+\\.\\d+$")
+
         private const val RELEASES_API =
             "https://api.github.com/repos/Denberg28/" +
                 "HARU-Human-Assistance-Responsive-Utility/releases?per_page=20"
