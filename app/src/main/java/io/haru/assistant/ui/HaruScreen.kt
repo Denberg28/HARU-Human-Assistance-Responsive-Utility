@@ -94,7 +94,9 @@ fun HaruScreen(
     hazardBundle: AndroidHazardBundle,
     trustedLocations: List<TrustedLocation>,
     currentDeviceLocation: TrustedLocation?,
+    mapGpsActive: Boolean,
     locationShareCode: String,
+    locationShareMapUrl: String,
     mapLocationStatus: String,
     onSubmitClick: () -> Unit,
     onMicClick: () -> Unit,
@@ -111,6 +113,7 @@ fun HaruScreen(
     onOpenUrl: (String) -> Unit,
     onLocateMe: () -> Unit,
     onCreateLocationShare: (String, Int) -> Unit,
+    onShareLocation: () -> Unit,
     onImportLocationShare: (String) -> Unit,
     onClearTrustedLocations: () -> Unit,
     modifier: Modifier = Modifier,
@@ -203,10 +206,13 @@ fun HaruScreen(
                     else -> MapPane(
                         locations = trustedLocations,
                         currentDeviceLocation = currentDeviceLocation,
+                        mapGpsActive = mapGpsActive,
                         shareCode = locationShareCode,
+                        shareMapUrl = locationShareMapUrl,
                         mapLocationStatus = mapLocationStatus,
                         onLocateMe = onLocateMe,
                         onCreateShare = onCreateLocationShare,
+                        onShareLocation = onShareLocation,
                         onImportShare = onImportLocationShare,
                         onClear = onClearTrustedLocations,
                         onOpenUrl = onOpenUrl,
@@ -309,11 +315,6 @@ private fun AssistantPane(
                 style = MaterialTheme.typography.labelSmall,
             )
         }
-        TextButton(onClick = onOpenUpdate) {
-            Text("HARU v$appVersion · Check update")
-        }
-
-        Spacer(Modifier.height(8.dp))
         Text(
             text = "Voice: " + voiceStatus.speechInput + " STT • " + voiceStatus.speechOutput,
             style = MaterialTheme.typography.labelSmall,
@@ -381,6 +382,10 @@ private fun AssistantPane(
             ) {
                 Text("Speak")
             }
+        }
+
+        TextButton(onClick = onOpenUpdate) {
+            Text("HARU v$appVersion · Check update")
         }
     }
 }
@@ -540,10 +545,13 @@ private fun HazardEntry(
 private fun MapPane(
     locations: List<TrustedLocation>,
     currentDeviceLocation: TrustedLocation?,
+    mapGpsActive: Boolean,
     shareCode: String,
+    shareMapUrl: String,
     mapLocationStatus: String,
     onLocateMe: () -> Unit,
     onCreateShare: (String, Int) -> Unit,
+    onShareLocation: () -> Unit,
     onImportShare: (String) -> Unit,
     onClear: () -> Unit,
     onOpenUrl: (String) -> Unit,
@@ -568,11 +576,20 @@ private fun MapPane(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Button(
-                onClick = onLocateMe,
-                modifier = Modifier.weight(1f),
-            ) {
-                Text("📍 My GPS")
+            if (mapGpsActive) {
+                Button(
+                    onClick = onLocateMe,
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text("📍 GPS ON")
+                }
+            } else {
+                OutlinedButton(
+                    onClick = onLocateMe,
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text("📍 My GPS")
+                }
             }
 
             OutlinedButton(
@@ -634,17 +651,46 @@ private fun MapPane(
                 value = shareCode,
                 onValueChange = {},
                 readOnly = true,
-                label = { Text("Share code") },
+                label = { Text("Share package") },
                 modifier = Modifier.fillMaxWidth(),
+            )
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Button(
+                    onClick = onShareLocation,
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text("Share")
+                }
+
+                OutlinedButton(
+                    onClick = {
+                        if (shareMapUrl.isNotBlank()) {
+                            onOpenUrl(shareMapUrl)
+                        }
+                    },
+                    enabled = shareMapUrl.isNotBlank(),
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text("Open map ↗")
+                }
+            }
+
+            Text(
+                "The shared text contains a normal Google Maps link plus a HARU code for optional in-app import.",
+                style = MaterialTheme.typography.labelSmall,
             )
         }
 
         Spacer(Modifier.height(12.dp))
-        Text("Find a loved one", fontWeight = FontWeight.SemiBold)
+        Text("Find a shared location", fontWeight = FontWeight.SemiBold)
         OutlinedTextField(
             value = incomingCode,
-            onValueChange = { incomingCode = it.take(4000) },
-            label = { Text("Paste share code") },
+            onValueChange = { incomingCode = it.take(8000) },
+            label = { Text("Paste HARU share or Google Maps link") },
             modifier = Modifier.fillMaxWidth(),
         )
         Button(
@@ -725,14 +771,15 @@ private fun TrustedLocationsMap(
         currentDeviceLocation?.let(::add)
         addAll(locations)
     }
-    val mapKey = allLocations.joinToString("|") {
+    val renderKey = allLocations.joinToString("|") {
         it.id + ":" + it.latitude + ":" + it.longitude
     }
-    var mapController by remember(mapKey) {
+
+    var mapController by remember {
         mutableStateOf<org.maplibre.android.maps.MapLibreMap?>(null)
     }
 
-    val mapView = remember(context, mapKey) {
+    val mapView = remember(context) {
         MapLibre.getInstance(context.applicationContext)
 
         MapView(context).apply {
@@ -750,64 +797,24 @@ private fun TrustedLocationsMap(
             }
 
             getMapAsync { map ->
-                mapController = map
-
                 map.uiSettings.apply {
                     setZoomGesturesEnabled(true)
                     setDoubleTapGesturesEnabled(true)
                     setQuickZoomGesturesEnabled(true)
                     setScrollGesturesEnabled(true)
                     setScaleVelocityAnimationEnabled(true)
-                    setRotateGesturesEnabled(false)
+                    setRotateGesturesEnabled(true)
                     setTiltGesturesEnabled(false)
+                    setCompassEnabled(true)
+                    setCompassFadeFacingNorth(false)
                 }
+
                 map.setMinZoomPreference(3.0)
                 map.setMaxZoomPreference(20.0)
 
                 map.setStyle(OPENFREE_MAP_STYLE) {
-                    val focus =
-                        currentDeviceLocation ?: locations.lastOrNull()
-                    val target = if (focus != null) {
-                        LatLng(focus.latitude, focus.longitude)
-                    } else {
-                        PHILIPPINES_CENTER
-                    }
-
-                    map.cameraPosition = CameraPosition.Builder()
-                        .target(target)
-                        .zoom(
-                            when {
-                                currentDeviceLocation != null -> 15.0
-                                focus != null -> 13.0
-                                else -> 4.7
-                            }
-                        )
-                        .build()
-
-                    @Suppress("DEPRECATION")
-                    allLocations.takeLast(21).forEach { item ->
-                        map.addMarker(
-                            MarkerOptions()
-                                .position(
-                                    LatLng(
-                                        item.latitude,
-                                        item.longitude,
-                                    )
-                                )
-                                .title(item.name)
-                                .snippet(
-                                    if (item.id == "haru-current-device") {
-                                        item.accuracyM?.let {
-                                            "Current GPS · ±" + it.toInt() + " m"
-                                        } ?: "Current GPS location"
-                                    } else {
-                                        item.accuracyM?.let {
-                                            "Accuracy ±" + it.toInt() + " m"
-                                        } ?: "Trusted location"
-                                    }
-                                )
-                        )
-                    }
+                    mapController = map
+                    tag = null
                 }
             }
 
@@ -834,6 +841,75 @@ private fun TrustedLocationsMap(
         ) {
             AndroidView(
                 factory = { mapView },
+                update = { view ->
+                    val map = mapController
+                    if (
+                        map != null &&
+                        map.style != null &&
+                        view.tag != renderKey
+                    ) {
+                        view.tag = renderKey
+                        map.clear()
+
+                        @Suppress("DEPRECATION")
+                        allLocations.takeLast(21).forEach { item ->
+                            map.addMarker(
+                                MarkerOptions()
+                                    .position(
+                                        LatLng(
+                                            item.latitude,
+                                            item.longitude,
+                                        )
+                                    )
+                                    .title(item.name)
+                                    .snippet(
+                                        if (
+                                            item.id ==
+                                            "haru-current-device"
+                                        ) {
+                                            item.accuracyM?.let {
+                                                "Current GPS · ±" +
+                                                    it.toInt() +
+                                                    " m"
+                                            } ?: "Current GPS location"
+                                        } else {
+                                            item.accuracyM?.let {
+                                                "Accuracy ±" +
+                                                    it.toInt() +
+                                                    " m"
+                                            } ?: "Shared location"
+                                        }
+                                    )
+                            )
+                        }
+
+                        val focus =
+                            currentDeviceLocation ?:
+                                locations.lastOrNull()
+
+                        if (focus != null) {
+                            map.easeCamera(
+                                CameraUpdateFactory.newLatLngZoom(
+                                    LatLng(
+                                        focus.latitude,
+                                        focus.longitude,
+                                    ),
+                                    if (
+                                        currentDeviceLocation != null
+                                    ) 16.0 else 14.0,
+                                ),
+                                220,
+                            )
+                        } else if (map.cameraPosition.zoom < 3.5) {
+                            map.moveCamera(
+                                CameraUpdateFactory.newLatLngZoom(
+                                    PHILIPPINES_CENTER,
+                                    4.7,
+                                )
+                            )
+                        }
+                    }
+                },
                 modifier = Modifier.fillMaxSize(),
             )
 
@@ -847,7 +923,7 @@ private fun TrustedLocationsMap(
                     onClick = {
                         mapController?.easeCamera(
                             CameraUpdateFactory.zoomBy(1.0),
-                            160,
+                            140,
                         )
                     },
                     enabled = mapController != null,
@@ -859,19 +935,28 @@ private fun TrustedLocationsMap(
                     onClick = {
                         mapController?.easeCamera(
                             CameraUpdateFactory.zoomBy(-1.0),
-                            160,
+                            140,
                         )
                     },
                     enabled = mapController != null,
                 ) {
                     Text("−")
                 }
+
+                OutlinedButton(
+                    onClick = {
+                        mapController?.resetNorth()
+                    },
+                    enabled = mapController != null,
+                ) {
+                    Text("N")
+                }
             }
         }
     }
 
     Text(
-        "Pinch to zoom · double-tap to zoom in · double-tap and drag for quick zoom.",
+        "Pinch/quick zoom enabled · rotate with two fingers · N resets north · MapLibre compass is enabled.",
         style = MaterialTheme.typography.labelSmall,
     )
 }
