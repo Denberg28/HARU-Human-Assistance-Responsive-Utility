@@ -32,6 +32,10 @@ from news_service import (
     top_interests,
     world_headlines,
 )
+from hazard_service import (
+    HazardEvent,
+    fetch_hazard_bundle,
+)
 
 st.set_page_config(
     page_title="HARU",
@@ -100,6 +104,7 @@ DEFAULTS = {
     "news_region": "Philippines",
     "news_last_seen": 0.0,
     "news_refresh_nonce": 0,
+    "hazard_refresh_nonce": 0,
     "explicit_interests": {},
     "local_notes": [],
     "local_tasks": [],
@@ -226,7 +231,13 @@ def local_tool_result(command: str):
     if low in {"news", "latest news", "brief me", "news briefing"}:
         return (
             "HAPPY",
-            "Open HARU's News tab for live local, international, and interest-aware headlines.",
+            "Open HARU's News tab for live local and international headlines.",
+        )
+
+    if low in {"hazards", "hazard", "disaster", "disaster update", "hazard update"}:
+        return (
+            "ALERT",
+            "Open HARU's Hazard / Disaster tab for current PAGASA, PHIVOLCS, and UP NOAH information.",
         )
 
     # Notes
@@ -817,11 +828,42 @@ def render_news_items(items, limit: int = 6):
             st.divider()
 
 
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def fetch_hazards_cached(nonce: int):
+    del nonce
+    return fetch_hazard_bundle()
+
+
+def render_hazard_events(events: list[HazardEvent]) -> None:
+    if not events:
+        st.info("No current item could be retrieved from this official source.")
+        return
+
+    for event in events:
+        severity_icon = {
+            "warning": "🔴",
+            "watch": "🟠",
+            "info": "🔵",
+        }.get(event.severity, "🔵")
+        st.markdown(f"**{severity_icon} {event.title}**")
+        meta = event.source
+        if event.issued:
+            meta += f" · {event.issued}"
+        st.caption(meta)
+        if event.summary:
+            st.write(event.summary)
+        if event.url.startswith(("https://", "http://")):
+            st.link_button("Official source", event.url, use_container_width=False)
+        st.divider()
+
+
 st.markdown(
     """
     <style>
       .block-container {
-          max-width: 760px;
+          max-width: 940px;
           padding-top: 2.15rem;
           padding-bottom: 1.25rem;
       }
@@ -1026,7 +1068,7 @@ st.markdown(
 )
 st.markdown('<div class="haru-sub">Human Assistance & Responsive Utility</div>', unsafe_allow_html=True)
 
-assistant_tab, news_tab = st.tabs(["Assistant", "News"])
+assistant_tab, news_tab, hazard_tab = st.tabs(["Assistant", "News", "Hazard / Disaster"])
 
 with assistant_tab:
     pending_command = str(st.session_state.get("pending_command", "")).strip()
@@ -1082,9 +1124,9 @@ with news_tab:
     top_left, top_right = st.columns([3, 1])
     with top_left:
         st.subheader("HARU News")
-        st.caption("General coverage remains visible. Interests only add stories; they do not replace the briefing.")
+        st.caption("Local and international headlines side by side.")
     with top_right:
-        if st.button("Refresh", use_container_width=True):
+        if st.button("Refresh news", use_container_width=True):
             st.session_state.news_refresh_nonce += 1
             st.cache_data.clear()
             st.rerun()
@@ -1099,7 +1141,6 @@ with news_tab:
             cleaned_region = re.sub(r"\s+", " ", region.strip())[:80]
             st.session_state.news_region = cleaned_region or "Philippines"
 
-        st.caption("Optional interests")
         interest_labels = {
             "technology": "Technology",
             "aerospace": "Aerospace / UAV",
@@ -1111,7 +1152,7 @@ with news_tab:
             "health": "Health",
         }
         selected = st.multiselect(
-            "Add topics you want HARU to watch",
+            "Optional interests",
             options=list(interest_labels),
             default=[k for k, v in st.session_state.explicit_interests.items() if v > 0],
             format_func=lambda x: interest_labels[x],
@@ -1131,12 +1172,8 @@ with news_tab:
     all_items = deduplicate(local_items + world_items + personalized_items)
     newest_ts = max((item.published_ts for item in all_items), default=0.0)
     unread = sum(1 for item in all_items if item.published_ts > st.session_state.news_last_seen)
-
     if unread > 0:
-        st.info(f"🔔 {unread} new stories since your last visit.")
-    else:
-        st.caption("No new stories since your last visit.")
-
+        st.caption(f"🔔 {unread} new stories since your last visit.")
     st.session_state.news_last_seen = max(st.session_state.news_last_seen, newest_ts)
 
     if news_errors:
@@ -1144,21 +1181,76 @@ with news_tab:
             for err in news_errors:
                 st.caption(err)
 
-    st.markdown("### 🇵🇭 Local first")
-    st.caption(f"Area: {st.session_state.news_region}")
-    render_news_items(local_items, 6)
+    local_col, world_col = st.columns(2, gap="large")
+    with local_col:
+        st.markdown("### 🇵🇭 Local")
+        st.caption(f"Area: {st.session_state.news_region}")
+        render_news_items(local_items, 7)
 
-    st.markdown("### 🌍 International")
-    render_news_items(world_items, 6)
+    with world_col:
+        st.markdown("### 🌍 International")
+        st.caption("Major world headlines")
+        render_news_items(world_items, 7)
 
-    st.markdown("### 🧭 General + your interests")
-    if interests:
-        st.caption("Based only on your HARU activity and topics you selected: " + ", ".join(i.replace("_", " ") for i in interests))
-        render_news_items(personalized_items, 6)
-    else:
-        st.caption("Use HARU normally or choose topics in News settings. General/local coverage will still remain visible.")
-        general = deduplicate(philippines_headlines(6) + world_items[:4]) if not local_items else deduplicate(local_items[:3] + world_items[:3])
-        render_news_items(general, 6)
+    if interests and personalized_items:
+        with st.expander("For you"):
+            st.caption(
+                "Additional stories based only on HARU activity and selected topics: "
+                + ", ".join(i.replace("_", " ") for i in interests)
+            )
+            render_news_items(personalized_items, 5)
+
+
+with hazard_tab:
+    header_left, header_right = st.columns([3, 1])
+    with header_left:
+        st.subheader("Hazard / Disaster")
+        st.caption(
+            "Official Philippine situational information from PAGASA, PHIVOLCS, and UP NOAH."
+        )
+    with header_right:
+        if st.button("Refresh hazards", use_container_width=True):
+            st.session_state.hazard_refresh_nonce += 1
+            st.cache_data.clear()
+            st.rerun()
+
+    st.info(
+        "For situational awareness only. Follow official agency and local-government evacuation or emergency instructions."
+    )
+
+    with st.spinner("Checking official hazard sources…"):
+        pagasa_items, phivolcs_items, noah_items, hazard_errors = fetch_hazards_cached(
+            st.session_state.hazard_refresh_nonce
+        )
+
+    weather_col, quake_col = st.columns(2, gap="large")
+    with weather_col:
+        st.markdown("### 🌧️ PAGASA")
+        st.caption("Weather, advisories, and tropical-cyclone information")
+        render_hazard_events(pagasa_items)
+
+    with quake_col:
+        st.markdown("### 🌋 PHIVOLCS")
+        st.caption("Latest Philippine earthquake information")
+        render_hazard_events(phivolcs_items)
+
+    st.markdown("### 🗺️ UP NOAH")
+    st.caption(
+        "Rainfall, typhoon-track, flood, landslide, and storm-surge hazard context. "
+        "NOAH layers are map/context products rather than emergency bulletins."
+    )
+    noah_cols = st.columns(min(3, max(1, len(noah_items))))
+    for index, event in enumerate(noah_items):
+        with noah_cols[index % len(noah_cols)]:
+            st.markdown(f"**{event.title}**")
+            st.caption(event.source)
+            st.write(event.summary)
+            st.link_button("Open NOAH", event.url, use_container_width=True)
+
+    if hazard_errors:
+        with st.expander("Source status"):
+            for err in hazard_errors:
+                st.caption(err)
 
 with st.expander("AI selector"):
     st.markdown("#### AI runtime")
@@ -1784,4 +1876,4 @@ if os.environ.get("HARU_DEBUG", "").strip() == "1":
                 st.write(f"**You:** {q}")
                 st.write(f"**HARU:** {a}")
 
-st.markdown("<div class=\"footer\">HARU Lab v3.4 • guided local AI setup</div>", unsafe_allow_html=True)
+st.markdown("<div class=\"footer\">HARU Lab v3.5 • news + hazard intelligence</div>", unsafe_allow_html=True)
