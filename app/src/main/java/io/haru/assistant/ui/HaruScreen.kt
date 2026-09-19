@@ -50,7 +50,6 @@ import io.haru.assistant.localai.LocalAiStatus
 import io.haru.assistant.location.TrustedLocation
 import io.haru.assistant.onlineai.OnlineProvider
 import io.haru.assistant.voice.HaruVoiceController
-import org.json.JSONObject
 import java.text.DateFormat
 import java.util.Date
 
@@ -157,6 +156,7 @@ fun HaruScreen(
                     onCreateShare = onCreateLocationShare,
                     onImportShare = onImportLocationShare,
                     onClear = onClearTrustedLocations,
+                    onOpenUrl = onOpenUrl,
                 )
             }
         }
@@ -405,20 +405,22 @@ private fun HazardPane(
         )
 
         Spacer(Modifier.height(8.dp))
-        Text("🛰️ Live PAGASA PANaHON", fontWeight = FontWeight.SemiBold)
-        AndroidView(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(300.dp),
-            factory = { context ->
-                WebView(context).apply {
-                    settings.javaScriptEnabled = true
-                    settings.domStorageEnabled = true
-                    webViewClient = WebViewClient()
-                    loadUrl("https://www.panahon.gov.ph/")
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(12.dp)) {
+                Text("🛰️ Live PAGASA PANaHON", fontWeight = FontWeight.SemiBold)
+                Text(
+                    "Open PAGASA’s live operational map for radar, satellite, warnings, rainfall, and weather layers.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                Spacer(Modifier.height(6.dp))
+                Button(
+                    onClick = { onOpenUrl("https://www.panahon.gov.ph/") },
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text("Open live PANaHON map")
                 }
-            },
-        )
+            }
+        }
 
         Spacer(Modifier.height(10.dp))
         Row(
@@ -472,6 +474,7 @@ private fun MapPane(
     onCreateShare: (String, Int) -> Unit,
     onImportShare: (String) -> Unit,
     onClear: () -> Unit,
+    onOpenUrl: (String) -> Unit,
 ) {
     var shareName by remember { mutableStateOf("") }
     var incomingCode by remember { mutableStateOf("") }
@@ -548,73 +551,89 @@ private fun MapPane(
         locations.forEach { item ->
             val expires = DateFormat.getTimeInstance(DateFormat.SHORT)
                 .format(Date(item.expiresAt))
-            Text(
-                "📍 " + item.name + " · expires " + expires,
-                style = MaterialTheme.typography.bodySmall,
-            )
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 3.dp),
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 10.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            "📍 " + item.name,
+                            style = MaterialTheme.typography.bodySmall,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        Text(
+                            "expires " + expires +
+                                (item.accuracyM?.let { " · ±" + it.toInt() + " m" } ?: ""),
+                            style = MaterialTheme.typography.labelSmall,
+                        )
+                    }
+                    TextButton(
+                        onClick = {
+                            onOpenUrl(
+                                "https://www.google.com/maps/search/?api=1&query=" +
+                                    item.latitude + "," + item.longitude
+                            )
+                        }
+                    ) {
+                        Text("Google Maps ↗")
+                    }
+                }
+            }
         }
     }
 }
 
 @Composable
 private fun TrustedLocationsMap(locations: List<TrustedLocation>) {
-    val markerJson = locations.joinToString(",") { item ->
-        JSONObject()
-            .put("name", item.name)
-            .put("lat", item.latitude)
-            .put("lon", item.longitude)
-            .toString()
+    val focus = locations.lastOrNull()
+    val mapUrl = if (focus != null) {
+        "https://www.google.com/maps?q=" +
+            focus.latitude + "," + focus.longitude +
+            "&z=13&output=embed"
+    } else {
+        "https://www.google.com/maps?q=Philippines&z=5&output=embed"
     }
-    val html = """
-        <!doctype html>
-        <html><head>
-        <meta name="viewport" content="width=device-width,initial-scale=1"/>
-        <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
-        <style>html,body,#map{height:100%;margin:0} body{background:#eef2f4}</style>
-        </head><body><div id="map"></div>
-        <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-        <script>
-        const map=L.map('map').setView([12.8797,121.7740],5);
-        L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{
-          maxZoom:19,attribution:'© OpenStreetMap'
-        }).addTo(map);
-        const points=[$markerJson];
-        const bounds=[];
-        points.forEach(p=>{
-          L.marker([p.lat,p.lon]).addTo(map).bindPopup(p.name);
-          bounds.push([p.lat,p.lon]);
-        });
-        if(bounds.length){map.fitBounds(bounds,{padding:[30,30],maxZoom:13});}
-        </script></body></html>
-    """.trimIndent()
 
-    AndroidView(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(300.dp),
-        factory = { context ->
-            WebView(context).apply {
-                settings.javaScriptEnabled = true
-                webViewClient = WebViewClient()
-                loadDataWithBaseURL(
-                    "https://haru.local/",
-                    html,
-                    "text/html",
-                    "UTF-8",
-                    null,
-                )
-            }
-        },
-        update = { webView ->
-            webView.loadDataWithBaseURL(
-                "https://haru.local/",
-                html,
-                "text/html",
-                "UTF-8",
-                null,
-            )
-        },
-    )
+    Card(modifier = Modifier.fillMaxWidth()) {
+        AndroidView(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(280.dp),
+            factory = { context ->
+                WebView(context).apply {
+                    settings.javaScriptEnabled = true
+                    settings.domStorageEnabled = false
+                    settings.allowFileAccess = false
+                    settings.allowContentAccess = false
+                    webViewClient = object : WebViewClient() {
+                        override fun shouldOverrideUrlLoading(
+                            view: WebView?,
+                            request: android.webkit.WebResourceRequest?,
+                        ): Boolean {
+                            val host = request?.url?.host.orEmpty()
+                            return !(host.endsWith("google.com") ||
+                                host.endsWith("googleusercontent.com") ||
+                                host.endsWith("gstatic.com"))
+                        }
+                    }
+                    loadUrl(mapUrl)
+                }
+            },
+            update = { webView ->
+                if (webView.url != mapUrl) {
+                    webView.loadUrl(mapUrl)
+                }
+            },
+        )
+    }
 }
 
 @Composable
