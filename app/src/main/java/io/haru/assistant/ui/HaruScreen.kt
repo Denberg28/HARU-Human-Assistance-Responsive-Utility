@@ -651,15 +651,17 @@ private fun MapPane(
 
 @Composable
 private fun PagasaLiveMap() {
-    SafeInteractiveWebView(
-        url = "https://www.panahon.gov.ph/",
+    // PANaHON is a full interactive web application. Load it as a top-level
+    // browser document instead of placing it inside another iframe.
+    BrowserWebView(
+        url = "https://panahon.gov.ph/",
         allowedHostSuffixes = setOf(
             "panahon.gov.ph",
             "pagasa.dost.gov.ph",
         ),
         modifier = Modifier
             .fillMaxWidth()
-            .height(320.dp),
+            .height(360.dp),
     )
 }
 
@@ -675,15 +677,8 @@ private fun TrustedLocationsMap(locations: List<TrustedLocation>) {
     }
 
     Card(modifier = Modifier.fillMaxWidth()) {
-        SafeInteractiveWebView(
-            url = mapUrl,
-            allowedHostSuffixes = setOf(
-                "google.com",
-                "google.com.ph",
-                "gstatic.com",
-                "googleusercontent.com",
-                "googleapis.com",
-            ),
+        GoogleMapsIframe(
+            mapUrl = mapUrl,
             modifier = Modifier
                 .fillMaxWidth()
                 .height(280.dp),
@@ -692,7 +687,68 @@ private fun TrustedLocationsMap(locations: List<TrustedLocation>) {
 }
 
 @Composable
-private fun SafeInteractiveWebView(
+private fun GoogleMapsIframe(
+    mapUrl: String,
+    modifier: Modifier = Modifier,
+) {
+    val escapedUrl = mapUrl
+        .replace("&", "&amp;")
+        .replace(""", "&quot;")
+
+    val html = """
+        <!doctype html>
+        <html>
+          <head>
+            <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+            <style>
+              html, body { margin:0; padding:0; width:100%; height:100%; overflow:hidden; background:#f7f7f7; }
+              iframe { width:100%; height:100%; border:0; }
+            </style>
+          </head>
+          <body>
+            <iframe
+              src="$escapedUrl"
+              title="Google Maps"
+              loading="eager"
+              allowfullscreen
+              referrerpolicy="no-referrer-when-downgrade">
+            </iframe>
+          </body>
+        </html>
+    """.trimIndent()
+
+    AndroidView(
+        modifier = modifier,
+        factory = { context ->
+            WebView(context).apply {
+                configureMapWebView()
+                tag = mapUrl
+                loadDataWithBaseURL(
+                    "https://maps.google.com/",
+                    html,
+                    "text/html",
+                    "UTF-8",
+                    null,
+                )
+            }
+        },
+        update = { webView ->
+            if (webView.tag != mapUrl) {
+                webView.tag = mapUrl
+                webView.loadDataWithBaseURL(
+                    "https://maps.google.com/",
+                    html,
+                    "text/html",
+                    "UTF-8",
+                    null,
+                )
+            }
+        },
+    )
+}
+
+@Composable
+private fun BrowserWebView(
     url: String,
     allowedHostSuffixes: Set<String>,
     modifier: Modifier = Modifier,
@@ -701,18 +757,14 @@ private fun SafeInteractiveWebView(
         modifier = modifier,
         factory = { context ->
             WebView(context).apply {
-                settings.apply {
-                    javaScriptEnabled = true
-                    domStorageEnabled = true
-                    allowFileAccess = false
-                    allowContentAccess = false
-                    javaScriptCanOpenWindowsAutomatically = false
-                    setSupportMultipleWindows(false)
-                    mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
-                    builtInZoomControls = true
-                    displayZoomControls = false
-                    setGeolocationEnabled(false)
-                }
+                configureMapWebView()
+
+                // Some interactive map sites degrade or reject the Android WebView
+                // marker. Use the normal mobile Chromium UA while retaining the
+                // app's HTTPS-only navigation policy.
+                settings.userAgentString =
+                    WebSettings.getDefaultUserAgent(context).replace("; wv", "")
+
                 webViewClient = object : WebViewClient() {
                     override fun shouldOverrideUrlLoading(
                         view: WebView?,
@@ -720,25 +772,45 @@ private fun SafeInteractiveWebView(
                     ): Boolean {
                         val uri = request?.url ?: return true
                         if (!uri.scheme.equals("https", ignoreCase = true)) return true
+
                         val host = uri.host?.lowercase().orEmpty()
                         return allowedHostSuffixes.none { suffix ->
                             host == suffix || host.endsWith("." + suffix)
                         }
                     }
                 }
+
                 tag = url
                 loadUrl(url)
             }
         },
         update = { webView ->
-            // Compare with the requested URL, not webView.url. Google/PAGASA
-            // may redirect internally; comparing webView.url caused reload loops.
             if (webView.tag != url) {
                 webView.tag = url
                 webView.loadUrl(url)
             }
         },
     )
+}
+
+private fun WebView.configureMapWebView() {
+    settings.apply {
+        javaScriptEnabled = true
+        domStorageEnabled = true
+        allowFileAccess = false
+        allowContentAccess = false
+        javaScriptCanOpenWindowsAutomatically = false
+        setSupportMultipleWindows(false)
+        mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
+        builtInZoomControls = true
+        displayZoomControls = false
+        setSupportZoom(true)
+        useWideViewPort = true
+        loadWithOverviewMode = true
+        cacheMode = WebSettings.LOAD_DEFAULT
+        setGeolocationEnabled(false)
+    }
+    webChromeClient = android.webkit.WebChromeClient()
 }
 
 @Composable
