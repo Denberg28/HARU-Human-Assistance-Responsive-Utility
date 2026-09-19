@@ -2,6 +2,8 @@ package io.haru.assistant
 
 import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
 import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -11,19 +13,26 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.lifecycleScope
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
+import io.haru.assistant.companion.AndroidCompanionStore
+import io.haru.assistant.companion.CompanionSnapshot
+import io.haru.assistant.companion.ReminderScheduler
 import io.haru.assistant.localai.AndroidLocalAiManager
 import io.haru.assistant.localai.LocalAiStatus
 import io.haru.assistant.ui.HaruScreen
 import io.haru.assistant.ui.HaruTheme
 import io.haru.assistant.voice.HaruVoiceController
 import kotlinx.coroutines.launch
+import java.text.DateFormat
+import java.util.Date
 
 class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
 
     private var activeViewModel: HaruViewModel? = null
     private lateinit var voiceController: HaruVoiceController
     private lateinit var localAiManager: AndroidLocalAiManager
+    private lateinit var companionStore: AndroidCompanionStore
     private var pendingVoiceStart = false
 
     private var voiceStatus by mutableStateOf(
@@ -32,6 +41,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
 
     private var localAiStatus by mutableStateOf(LocalAiStatus())
     private var localAiBusy by mutableStateOf(false)
+    private var companionSnapshot by mutableStateOf(CompanionSnapshot())
 
     private val audioPermissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -45,6 +55,9 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
                 )
             }
         }
+
+    private val notificationPermissionLauncher =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
 
     private val localModelPicker =
         registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -63,6 +76,8 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
         voiceController.initialize()
 
         localAiManager = AndroidLocalAiManager(applicationContext)
+        companionStore = AndroidCompanionStore(applicationContext)
+        companionSnapshot = companionStore.load()
         refreshLocalAiStatus()
 
         setContent {
@@ -75,6 +90,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
                     voiceStatus = voiceStatus,
                     localAiStatus = localAiStatus,
                     localAiBusy = localAiBusy,
+                    todayLines = companionSnapshot.todayLines(),
                     onSubmitClick = {
                         submitWithLocalAi(haruViewModel, speakResult = false)
                     },
@@ -98,6 +114,17 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
         viewModel: HaruViewModel,
         speakResult: Boolean,
     ) {
+        val command = viewModel.uiState.command.trim()
+        val companionReply = handleCompanionCommand(command)
+        if (companionReply != null) {
+            viewModel.updateCommand("")
+            viewModel.completeLocalAi(companionReply, success = true)
+            if (speakResult) {
+                voiceController.speak(companionReply)
+            }
+            return
+        }
+
         val activeModel = localAiStatus.activeModel
         val prompt = viewModel.submitOrPrepareLocalAi(activeModel.isNotBlank()) ?: run {
             if (speakResult) {
@@ -120,6 +147,122 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
                     voiceController.speak(message)
                 }
             }
+        }
+    }
+
+    private fun handleCompanionCommand(command: String): String? {
+        if (command.isBlank()) return null
+        val clean = command.trim()
+        val low = clean.lowercase()
+
+        when (low) {
+            "show notes", "list notes", "my notes" -> {
+                val notes = companionSnapshot.notes
+                return if (notes.isEmpty()) {
+                    "You have no saved notes."
+                } else {
+                    "Notes:\n" + notes.mapIndexed { index, note ->
+                        (index + 1).toString() + ". " + note
+                    }.joinToString("\n")
+                }
+            }
+            "clear notes", "delete all notes" -> {
+                companionSnapshot = companionStore.clearNotes()
+                return "All notes cleared."
+            }
+            "show tasks", "list tasks", "my tasks" -> {
+                val tasks = companionSnapshot.tasks
+                return if (tasks.isEmpty()) {
+                    "Your task list is empty."
+                } else {
+                    "Tasks:\n" + tasks.mapIndexed { index, task ->
+                        val mark = if (task.done) "✓" else "○"
+                        (index + 1).toString() + ". " + mark + " " + task.text
+                    }.joinToString("\n")
+                }
+            }
+            "clear tasks", "delete all tasks" -> {
+                companionSnapshot = companionStore.clearTasks()
+                return "All tasks cleared."
+            }
+            "show reminders", "list reminders", "my reminders" -> {
+                val reminders = companionSnapshot.reminders
+                    .filter { it.dueAt > System.currentTimeMillis() }
+                    .sortedBy { it.dueAt }
+                return if (reminders.isEmpty()) {
+                    "You have no upcoming reminders."
+                } else {
+                    "Reminders:\n" + reminders.mapIndexed { index, reminder ->
+                        (index + 1).toString() + ". " + reminder.text + " — " +
+                            DateFormat.getDateTimeInstance(
+                                DateFormat.MEDIUM,
+                                DateFormat.SHORT,
+                            ).format(Date(reminder.dueAt))
+                    }.joinToString("\n")
+                }
+            }
+            "clear reminders", "delete all reminders" -> {
+                companionSnapshot.reminders.forEach {
+                    ReminderScheduler.cancel(this, it.id)
+                }
+                companionSnapshot = companionStore.clearReminders()
+                return "All reminders cleared."
+            }
+        }
+
+        Regex("(?i)^(?:remember that|remember|note|save note)\\s+(.+)$")
+            .matchEntire(clean)
+            ?.let { match ->
+                companionSnapshot = companionStore.addNote(match.groupValues[1])
+                return "Noted: " + match.groupValues[1].trim()
+            }
+
+        Regex("(?i)^(?:add task|todo|to-do|add to tasks)\\s+(.+)$")
+            .matchEntire(clean)
+            ?.let { match ->
+                companionSnapshot = companionStore.addTask(match.groupValues[1])
+                return "Added task: " + match.groupValues[1].trim()
+            }
+
+        Regex("(?i)^(?:done|complete|finish)\\s+(?:task\\s+)?(\\d+)$")
+            .matchEntire(clean)
+            ?.let { match ->
+                val index = match.groupValues[1].toIntOrNull()?.minus(1) ?: return null
+                if (index !in companionSnapshot.tasks.indices) {
+                    return "That task number doesn't exist."
+                }
+                val taskText = companionSnapshot.tasks[index].text
+                companionSnapshot = companionStore.completeTask(index)
+                return "Completed: " + taskText
+            }
+
+        companionStore.parseRelativeReminder(clean)?.let { (text, dueAt) ->
+            val reminder = companionStore.addReminder(text, dueAt)
+            companionSnapshot = companionStore.load()
+            ReminderScheduler.schedule(this, reminder)
+            requestNotificationPermissionIfNeeded()
+
+            val whenText = DateFormat.getDateTimeInstance(
+                DateFormat.MEDIUM,
+                DateFormat.SHORT,
+            ).format(Date(dueAt))
+            return "Reminder set for " + whenText + ": " + text
+        }
+
+        return null
+    }
+
+    private fun requestNotificationPermissionIfNeeded() {
+        if (
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(
+                this,
+                Manifest.permission.POST_NOTIFICATIONS,
+            ) != PackageManager.PERMISSION_GRANTED
+        ) {
+            notificationPermissionLauncher.launch(
+                Manifest.permission.POST_NOTIFICATIONS
+            )
         }
     }
 
