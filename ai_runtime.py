@@ -18,7 +18,18 @@ class AiConfig:
 
 
 class AiRuntimeError(RuntimeError):
-    pass
+    def __init__(
+        self,
+        message: str,
+        *,
+        status_code: int | None = None,
+        kind: str = "provider_error",
+        retryable: bool = False,
+    ):
+        super().__init__(message)
+        self.status_code = status_code
+        self.kind = kind
+        self.retryable = retryable
 
 
 def _json_request(url: str, *, payload=None, headers=None, timeout=25, method=None):
@@ -33,14 +44,64 @@ def _json_request(url: str, *, payload=None, headers=None, timeout=25, method=No
             return json.loads(raw) if raw else {}
     except HTTPError as exc:
         try:
-            detail = exc.read().decode("utf-8")[:500]
+            raw_detail = exc.read().decode("utf-8")
+            parsed = json.loads(raw_detail) if raw_detail else {}
         except Exception:
-            detail = ""
-        raise AiRuntimeError(f"Provider returned HTTP {exc.code}. {detail}".strip()) from None
+            parsed = {}
+
+        provider_message = ""
+        if isinstance(parsed, dict):
+            error = parsed.get("error") or {}
+            if isinstance(error, dict):
+                provider_message = str(error.get("message") or "").strip()
+
+        if exc.code == 429:
+            raise AiRuntimeError(
+                "Provider quota or rate limit reached. Try again later, change model, or switch provider.",
+                status_code=429,
+                kind="quota",
+                retryable=True,
+            ) from None
+        if exc.code in {401, 403}:
+            raise AiRuntimeError(
+                "Authentication was rejected. Check the API key and provider access.",
+                status_code=exc.code,
+                kind="auth",
+            ) from None
+        if exc.code == 404:
+            raise AiRuntimeError(
+                "The selected model or API endpoint was not found.",
+                status_code=404,
+                kind="model_not_found",
+            ) from None
+        if 500 <= exc.code <= 599:
+            raise AiRuntimeError(
+                "The AI provider is temporarily unavailable. Try again shortly.",
+                status_code=exc.code,
+                kind="provider_unavailable",
+                retryable=True,
+            ) from None
+
+        message = provider_message or f"Provider request failed with HTTP {exc.code}."
+        if len(message) > 220:
+            message = message[:217] + "..."
+        raise AiRuntimeError(
+            message,
+            status_code=exc.code,
+            kind="provider_error",
+        ) from None
     except URLError as exc:
-        raise AiRuntimeError(f"Could not reach provider: {exc.reason}") from None
+        raise AiRuntimeError(
+            f"Could not reach provider: {exc.reason}",
+            kind="network",
+            retryable=True,
+        ) from None
     except TimeoutError:
-        raise AiRuntimeError("Provider connection timed out.") from None
+        raise AiRuntimeError(
+            "Provider connection timed out.",
+            kind="timeout",
+            retryable=True,
+        ) from None
     except json.JSONDecodeError:
         raise AiRuntimeError("Provider returned an unreadable response.") from None
 
