@@ -1,5 +1,4 @@
 from datetime import datetime
-from pathlib import Path
 import ast
 import hashlib
 import html
@@ -378,6 +377,8 @@ def route_command(command: str):
     clean = command.strip()
     if not clean:
         return "CONFUSED", "Type or say a command first."
+    if len(clean) > 12000:
+        return "ALERT", "That request is too large for HARU's free-first mode. Keep it under 12,000 characters."
 
     # HARU shell mode:
     # - Connected provider is the primary agent.
