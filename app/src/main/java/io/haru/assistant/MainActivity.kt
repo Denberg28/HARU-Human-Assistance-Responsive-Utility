@@ -1,25 +1,38 @@
 package io.haru.assistant
 
 import android.Manifest
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.os.Build
+import android.location.Location
+import android.location.LocationListener
+import android.location.LocationManager
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
+import android.os.Looper
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import androidx.lifecycle.lifecycleScope
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.haru.assistant.companion.AndroidCompanionStore
 import io.haru.assistant.companion.CompanionSnapshot
 import io.haru.assistant.companion.ReminderScheduler
+import io.haru.assistant.content.AndroidHazardBundle
+import io.haru.assistant.content.AndroidHazardService
+import io.haru.assistant.content.AndroidNewsBundle
+import io.haru.assistant.content.AndroidNewsService
 import io.haru.assistant.localai.AndroidLocalAiManager
 import io.haru.assistant.localai.LocalAiStatus
+import io.haru.assistant.location.TrustedLocation
+import io.haru.assistant.location.TrustedLocationManager
+import io.haru.assistant.onlineai.AndroidOnlineAiManager
+import io.haru.assistant.onlineai.OnlineProvider
 import io.haru.assistant.ui.HaruScreen
 import io.haru.assistant.ui.HaruTheme
 import io.haru.assistant.voice.HaruVoiceController
@@ -30,18 +43,36 @@ import java.util.Date
 class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
 
     private var activeViewModel: HaruViewModel? = null
+
     private lateinit var voiceController: HaruVoiceController
     private lateinit var localAiManager: AndroidLocalAiManager
+    private lateinit var onlineAiManager: AndroidOnlineAiManager
     private lateinit var companionStore: AndroidCompanionStore
+    private lateinit var newsService: AndroidNewsService
+    private lateinit var hazardService: AndroidHazardService
+    private lateinit var trustedLocationManager: TrustedLocationManager
+
     private var pendingVoiceStart = false
+    private var pendingShareName = "Loved one"
+    private var pendingShareMinutes = 60
 
     private var voiceStatus by mutableStateOf(
         HaruVoiceController.VoiceRuntimeStatus()
     )
-
     private var localAiStatus by mutableStateOf(LocalAiStatus())
     private var localAiBusy by mutableStateOf(false)
     private var companionSnapshot by mutableStateOf(CompanionSnapshot())
+
+    private var onlineProvider by mutableStateOf(OnlineProvider.ANTIGRAVITY)
+    private var onlineStatus by mutableStateOf("Antigravity is the online default.")
+    private var hasGeminiKey by mutableStateOf(false)
+    private var hasOpenRouterKey by mutableStateOf(false)
+
+    private var newsBundle by mutableStateOf(AndroidNewsBundle())
+    private var hazardBundle by mutableStateOf(AndroidHazardBundle())
+
+    private var trustedLocations by mutableStateOf(emptyList<TrustedLocation>())
+    private var locationShareCode by mutableStateOf("")
 
     private val audioPermissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -58,6 +89,21 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
 
     private val notificationPermissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
+
+    private val locationPermissionLauncher =
+        registerForActivityResult(
+            ActivityResultContracts.RequestMultiplePermissions()
+        ) { permissions ->
+            val granted =
+                permissions[Manifest.permission.ACCESS_FINE_LOCATION] == true ||
+                    permissions[Manifest.permission.ACCESS_COARSE_LOCATION] == true
+            if (granted) {
+                captureLocationForShare()
+            } else {
+                locationShareCode = ""
+                onlineStatus = "Location permission is needed to create a share."
+            }
+        }
 
     private val localModelPicker =
         registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -76,9 +122,19 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
         voiceController.initialize()
 
         localAiManager = AndroidLocalAiManager(applicationContext)
+        onlineAiManager = AndroidOnlineAiManager(applicationContext)
         companionStore = AndroidCompanionStore(applicationContext)
+        newsService = AndroidNewsService()
+        hazardService = AndroidHazardService()
+        trustedLocationManager = TrustedLocationManager(applicationContext)
+
         companionSnapshot = companionStore.load()
+        onlineProvider = onlineAiManager.settings().provider
+        refreshOnlineKeyState()
+        trustedLocations = trustedLocationManager.load()
         refreshLocalAiStatus()
+        refreshNews()
+        refreshHazards()
 
         setContent {
             HaruTheme {
@@ -91,8 +147,16 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
                     localAiStatus = localAiStatus,
                     localAiBusy = localAiBusy,
                     todayLines = companionSnapshot.todayLines(),
+                    onlineProvider = onlineProvider,
+                    onlineStatus = onlineStatus,
+                    hasGeminiKey = hasGeminiKey,
+                    hasOpenRouterKey = hasOpenRouterKey,
+                    newsBundle = newsBundle,
+                    hazardBundle = hazardBundle,
+                    trustedLocations = trustedLocations,
+                    locationShareCode = locationShareCode,
                     onSubmitClick = {
-                        submitWithLocalAi(haruViewModel, speakResult = false)
+                        submitWithAi(haruViewModel, speakResult = false)
                     },
                     onMicClick = { requestVoiceRecognition() },
                     onSpeakClick = {
@@ -105,12 +169,22 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
                     onValidateLocalModel = ::validateLocalModel,
                     onDeleteLocalModel = ::deleteLocalModel,
                     onOpenModelLibrary = ::openModelLibrary,
+                    onSelectOnlineProvider = ::selectOnlineProvider,
+                    onSaveGeminiKey = ::saveGeminiKey,
+                    onSaveOpenRouterKey = ::saveOpenRouterKey,
+                    onTestOnlineAi = ::testOnlineAi,
+                    onRefreshNews = ::refreshNews,
+                    onRefreshHazards = ::refreshHazards,
+                    onOpenUrl = ::openUrl,
+                    onCreateLocationShare = ::requestLocationShare,
+                    onImportLocationShare = ::importLocationShare,
+                    onClearTrustedLocations = ::clearTrustedLocations,
                 )
             }
         }
     }
 
-    private fun submitWithLocalAi(
+    private fun submitWithAi(
         viewModel: HaruViewModel,
         speakResult: Boolean,
     ) {
@@ -125,8 +199,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
             return
         }
 
-        val activeModel = localAiStatus.activeModel
-        val prompt = viewModel.submitOrPrepareLocalAi(activeModel.isNotBlank()) ?: run {
+        val prompt = viewModel.prepareAiPrompt() ?: run {
             if (speakResult) {
                 voiceController.speak(viewModel.uiState.message)
             }
@@ -134,20 +207,214 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
         }
 
         lifecycleScope.launch {
+            val activeModel = localAiStatus.activeModel
             try {
-                val reply = localAiManager.generate(activeModel, prompt)
+                val reply = if (onlineProvider == OnlineProvider.LOCAL_ONLY) {
+                    require(activeModel.isNotBlank()) {
+                        "No validated local AI model is active."
+                    }
+                    localAiManager.generate(activeModel, prompt)
+                } else {
+                    try {
+                        val response = onlineAiManager.ask(
+                            onlineProvider,
+                            prompt,
+                            SYSTEM_PROMPT,
+                        )
+                        onlineStatus = providerName(onlineProvider) + " connected."
+                        response
+                    } catch (onlineError: Exception) {
+                        if (activeModel.isBlank()) throw onlineError
+                        onlineStatus =
+                            "Online AI unavailable; HARU used the local model."
+                        localAiManager.generate(activeModel, prompt)
+                    }
+                }
+
                 viewModel.completeLocalAi(reply, success = true)
                 if (speakResult) {
                     voiceController.speak(reply)
                 }
             } catch (exc: Exception) {
-                val message = exc.message ?: "Local AI inference failed."
+                val message = exc.message ?: "HARU could not complete that request."
                 viewModel.completeLocalAi(message, success = false)
                 if (speakResult) {
                     voiceController.speak(message)
                 }
             }
         }
+    }
+
+    private fun selectOnlineProvider(provider: OnlineProvider) {
+        onlineProvider = provider
+        onlineAiManager.saveProvider(provider)
+        onlineStatus = providerName(provider) + " selected."
+    }
+
+    private fun saveGeminiKey(value: String) {
+        if (value.isBlank()) return
+        onlineAiManager.saveGeminiKey(value)
+        refreshOnlineKeyState()
+        onlineStatus = "Gemini key saved securely on this phone."
+    }
+
+    private fun saveOpenRouterKey(value: String) {
+        if (value.isBlank()) return
+        onlineAiManager.saveOpenRouterKey(value)
+        refreshOnlineKeyState()
+        onlineStatus = "OpenRouter key saved securely on this phone."
+    }
+
+    private fun refreshOnlineKeyState() {
+        hasGeminiKey = onlineAiManager.hasGeminiKey()
+        hasOpenRouterKey = onlineAiManager.hasOpenRouterKey()
+    }
+
+    private fun testOnlineAi() {
+        if (onlineProvider == OnlineProvider.LOCAL_ONLY) {
+            onlineStatus = if (localAiStatus.activeModel.isBlank()) {
+                "No validated local model is active."
+            } else {
+                "Local AI is ready."
+            }
+            return
+        }
+
+        onlineStatus = "Testing " + providerName(onlineProvider) + "…"
+        lifecycleScope.launch {
+            onlineStatus = try {
+                val result = onlineAiManager.test(onlineProvider)
+                providerName(onlineProvider) + " connected · " + result.take(80)
+            } catch (exc: Exception) {
+                exc.message ?: "Connection test failed."
+            }
+        }
+    }
+
+    private fun refreshNews() {
+        lifecycleScope.launch {
+            newsBundle = newsService.fetch("Philippines")
+        }
+    }
+
+    private fun refreshHazards() {
+        lifecycleScope.launch {
+            hazardBundle = hazardService.fetch()
+        }
+    }
+
+    private fun openUrl(url: String) {
+        if (!url.startsWith("https://")) return
+        runCatching {
+            startActivity(
+                Intent(Intent.ACTION_VIEW, Uri.parse(url))
+            )
+        }
+    }
+
+    private fun requestLocationShare(name: String, minutes: Int) {
+        pendingShareName = name.trim().take(40).ifBlank { "Loved one" }
+        pendingShareMinutes = minutes.coerceIn(15, 24 * 60)
+
+        if (hasLocationPermission()) {
+            captureLocationForShare()
+        } else {
+            locationPermissionLauncher.launch(
+                arrayOf(
+                    Manifest.permission.ACCESS_FINE_LOCATION,
+                    Manifest.permission.ACCESS_COARSE_LOCATION,
+                )
+            )
+        }
+    }
+
+    private fun hasLocationPermission(): Boolean =
+        ContextCompat.checkSelfPermission(
+            this,
+            Manifest.permission.ACCESS_FINE_LOCATION,
+        ) == PackageManager.PERMISSION_GRANTED ||
+            ContextCompat.checkSelfPermission(
+                this,
+                Manifest.permission.ACCESS_COARSE_LOCATION,
+            ) == PackageManager.PERMISSION_GRANTED
+
+    private fun captureLocationForShare() {
+        if (!hasLocationPermission()) return
+
+        val manager = getSystemService(Context.LOCATION_SERVICE) as LocationManager
+        val providers = listOf(
+            LocationManager.NETWORK_PROVIDER,
+            LocationManager.GPS_PROVIDER,
+        ).filter { provider ->
+            runCatching { manager.isProviderEnabled(provider) }.getOrDefault(false)
+        }
+
+        if (providers.isEmpty()) {
+            onlineStatus = "Turn on phone location services to create a share."
+            return
+        }
+
+        val lastLocation = providers
+            .mapNotNull { provider ->
+                runCatching { manager.getLastKnownLocation(provider) }.getOrNull()
+            }
+            .maxByOrNull { it.time }
+
+        if (lastLocation != null) {
+            finishLocationShare(lastLocation)
+            return
+        }
+
+        val listener = object : LocationListener {
+            override fun onLocationChanged(location: Location) {
+                manager.removeUpdates(this)
+                finishLocationShare(location)
+            }
+
+            override fun onProviderDisabled(provider: String) = Unit
+            override fun onProviderEnabled(provider: String) = Unit
+        }
+
+        runCatching {
+            manager.requestSingleUpdate(
+                providers.first(),
+                listener,
+                Looper.getMainLooper(),
+            )
+        }.onFailure {
+            onlineStatus = "HARU could not obtain a phone location."
+        }
+    }
+
+    private fun finishLocationShare(location: Location) {
+        locationShareCode = runCatching {
+            trustedLocationManager.createShareCode(
+                name = pendingShareName,
+                latitude = location.latitude,
+                longitude = location.longitude,
+                accuracyM = location.accuracy.toDouble(),
+                expiresMinutes = pendingShareMinutes,
+            )
+        }.getOrElse {
+            onlineStatus = it.message ?: "Could not create location share."
+            ""
+        }
+    }
+
+    private fun importLocationShare(code: String) {
+        if (code.isBlank()) return
+        runCatching {
+            trustedLocationManager.importShareCode(code)
+        }.onSuccess {
+            trustedLocations = trustedLocationManager.load()
+        }.onFailure {
+            onlineStatus = it.message ?: "Could not import location share."
+        }
+    }
+
+    private fun clearTrustedLocations() {
+        trustedLocationManager.clear()
+        trustedLocations = emptyList()
     }
 
     private fun handleCompanionCommand(command: String): String? {
@@ -290,7 +557,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
         localAiBusy = true
         localAiStatus = localAiStatus.copy(
             state = "WORKING",
-            message = "Importing and validating local model…",
+            message = "Importing local model…",
         )
 
         lifecycleScope.launch {
@@ -376,17 +643,16 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
     }
 
     private fun openModelLibrary() {
-        val intent = Intent(
-            Intent.ACTION_VIEW,
-            Uri.parse("https://huggingface.co/litert-community")
-        )
-        startActivity(intent)
+        openUrl("https://huggingface.co/litert-community")
     }
 
     override fun onResume() {
         super.onResume()
         if (::companionStore.isInitialized) {
             companionSnapshot = companionStore.load()
+        }
+        if (::trustedLocationManager.isInitialized) {
+            trustedLocations = trustedLocationManager.load()
         }
     }
 
@@ -397,7 +663,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
     override fun onTranscript(text: String) {
         val viewModel = activeViewModel ?: return
         viewModel.updateCommand(text)
-        submitWithLocalAi(viewModel, speakResult = true)
+        submitWithAi(viewModel, speakResult = true)
     }
 
     override fun onVoiceError(message: String) {
@@ -411,5 +677,20 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
     override fun onDestroy() {
         voiceController.shutdown()
         super.onDestroy()
+    }
+
+    private fun providerName(provider: OnlineProvider): String =
+        when (provider) {
+            OnlineProvider.ANTIGRAVITY -> "Antigravity"
+            OnlineProvider.GEMINI_FLASH_LITE -> "Gemini Flash-Lite"
+            OnlineProvider.OPENROUTER_FREE -> "OpenRouter Free"
+            OnlineProvider.LOCAL_ONLY -> "Local AI"
+        }
+
+    companion object {
+        private const val SYSTEM_PROMPT =
+            "You are HARU, a concise and practical personal companion. " +
+                "Use local device tools for notes, tasks, reminders, voice, hazards, news, and trusted locations. " +
+                "Do not claim actions you did not perform."
     }
 }
