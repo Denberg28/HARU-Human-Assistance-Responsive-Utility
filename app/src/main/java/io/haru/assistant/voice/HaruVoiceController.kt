@@ -6,22 +6,21 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import android.speech.tts.TextToSpeech
+import android.speech.tts.UtteranceProgressListener
 import androidx.core.content.ContextCompat
 import java.util.Locale
 
 /**
- * Provider-agnostic HARU voice layer.
+ * Battery-aware voice layer.
  *
- * Responsibilities:
- * - Prefer Android on-device speech recognition when available.
- * - Fall back to the system speech recognizer when an on-device recognizer is unavailable.
- * - Prefer an installed offline TTS voice for HARU responses.
- *
- * The selected AI backend never needs microphone or speaker access. It only receives text.
+ * Speech recognition and TTS engines are created only when the user requests
+ * them and are released as soon as the interaction completes.
  */
 class HaruVoiceController(
     private val context: Context,
@@ -36,17 +35,15 @@ class HaruVoiceController(
     }
 
     data class VoiceRuntimeStatus(
-        val speechInput: String = "Checking…",
-        val speechOutput: String = "Checking…",
+        val speechInput: String = "On demand",
+        val speechOutput: String = "On demand",
     )
 
     private var recognizer: SpeechRecognizer? = null
     private var tts: TextToSpeech? = null
-
-    fun initialize() {
-        setupRecognizer()
-        tts = TextToSpeech(context, this)
-    }
+    private var ttsReady = false
+    private var pendingSpeech: String? = null
+    private val mainHandler = Handler(Looper.getMainLooper())
 
     fun hasAudioPermission(): Boolean =
         ContextCompat.checkSelfPermission(
@@ -54,38 +51,30 @@ class HaruVoiceController(
             Manifest.permission.RECORD_AUDIO,
         ) == PackageManager.PERMISSION_GRANTED
 
-    private fun setupRecognizer() {
-        recognizer?.destroy()
-        recognizer = null
+    private fun ensureRecognizer(): SpeechRecognizer? {
+        recognizer?.let { return it }
 
         if (!SpeechRecognizer.isRecognitionAvailable(context)) {
             callbacks.onRuntimeChanged(
                 VoiceRuntimeStatus(
                     speechInput = "Unavailable",
-                    speechOutput = "Checking…",
+                    speechOutput = "On demand",
                 )
             )
-            return
+            return null
         }
 
         val onDeviceAvailable =
             Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
                 SpeechRecognizer.isOnDeviceRecognitionAvailable(context)
 
-        recognizer = if (onDeviceAvailable && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        val created = if (onDeviceAvailable && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             SpeechRecognizer.createOnDeviceSpeechRecognizer(context)
         } else {
             SpeechRecognizer.createSpeechRecognizer(context)
         }
 
-        callbacks.onRuntimeChanged(
-            VoiceRuntimeStatus(
-                speechInput = if (onDeviceAvailable) "On-device" else "System recognizer",
-                speechOutput = "Checking…",
-            )
-        )
-
-        recognizer?.setRecognitionListener(object : RecognitionListener {
+        created.setRecognitionListener(object : RecognitionListener {
             override fun onReadyForSpeech(params: Bundle?) {
                 callbacks.onListening()
             }
@@ -96,6 +85,7 @@ class HaruVoiceController(
                     ?.firstOrNull()
                     ?.trim()
 
+                releaseRecognizer()
                 if (spoken.isNullOrBlank()) {
                     callbacks.onVoiceError("I didn't catch that.")
                 } else {
@@ -104,6 +94,7 @@ class HaruVoiceController(
             }
 
             override fun onError(error: Int) {
+                releaseRecognizer()
                 callbacks.onVoiceError(
                     when (error) {
                         SpeechRecognizer.ERROR_NO_MATCH -> "I didn't catch that."
@@ -127,10 +118,19 @@ class HaruVoiceController(
             override fun onPartialResults(partialResults: Bundle?) = Unit
             override fun onEvent(eventType: Int, params: Bundle?) = Unit
         })
+
+        recognizer = created
+        callbacks.onRuntimeChanged(
+            VoiceRuntimeStatus(
+                speechInput = if (onDeviceAvailable) "On-device" else "System recognizer",
+                speechOutput = "On demand",
+            )
+        )
+        return created
     }
 
     fun startListening() {
-        val speechRecognizer = recognizer
+        val speechRecognizer = ensureRecognizer()
         if (speechRecognizer == null) {
             callbacks.onVoiceError("Speech recognition is not available on this device.")
             return
@@ -144,27 +144,36 @@ class HaruVoiceController(
             putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault())
             putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
             putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, false)
-
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
-            }
+            putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
         }
-
         speechRecognizer.startListening(intent)
     }
 
-    fun stopListening() {
-        recognizer?.stopListening()
-    }
-
     fun speak(text: String) {
-        if (text.isBlank()) return
-        tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "haru-response")
+        val clean = text.trim()
+        if (clean.isBlank()) return
+
+        if (ttsReady && tts != null) {
+            speakNow(clean)
+            return
+        }
+
+        pendingSpeech = clean
+        if (tts == null) {
+            tts = TextToSpeech(context, this)
+        }
     }
 
     override fun onInit(status: Int) {
         if (status != TextToSpeech.SUCCESS) {
-            publishOutputStatus("Unavailable")
+            pendingSpeech = null
+            releaseTts()
+            callbacks.onRuntimeChanged(
+                VoiceRuntimeStatus(
+                    speechInput = inputCapability(),
+                    speechOutput = "Unavailable",
+                )
+            )
             return
         }
 
@@ -177,44 +186,80 @@ class HaruVoiceController(
                 !voice.isNetworkConnectionRequired &&
                     voice.locale.language == locale.language
             }
-            ?.sortedByDescending { voice -> voice.quality }
-            ?.firstOrNull()
+            ?.maxByOrNull { voice -> voice.quality }
 
         if (offlineVoice != null) {
             tts?.voice = offlineVoice
-            publishOutputStatus("Offline TTS")
-        } else {
-            publishOutputStatus("System TTS")
+        }
+
+        tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
+            override fun onStart(utteranceId: String?) = Unit
+
+            override fun onDone(utteranceId: String?) {
+                mainHandler.post { releaseTts() }
+            }
+
+            @Deprecated("Deprecated in Android")
+            override fun onError(utteranceId: String?) {
+                mainHandler.post { releaseTts() }
+            }
+
+            override fun onError(utteranceId: String?, errorCode: Int) {
+                mainHandler.post { releaseTts() }
+            }
+        })
+
+        ttsReady = true
+        callbacks.onRuntimeChanged(
+            VoiceRuntimeStatus(
+                speechInput = inputCapability(),
+                speechOutput = if (offlineVoice != null) "Offline TTS" else "System TTS",
+            )
+        )
+
+        pendingSpeech?.let { pending ->
+            pendingSpeech = null
+            speakNow(pending)
         }
     }
 
-    private fun publishOutputStatus(output: String) {
-        val input =
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
-                SpeechRecognizer.isOnDeviceRecognitionAvailable(context)
-            ) {
-                "On-device"
-            } else if (SpeechRecognizer.isRecognitionAvailable(context)) {
-                "System recognizer"
-            } else {
-                "Unavailable"
-            }
-
-        callbacks.onRuntimeChanged(
-            VoiceRuntimeStatus(
-                speechInput = input,
-                speechOutput = output,
-            )
-        )
+    private fun speakNow(text: String) {
+        tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, UTTERANCE_ID)
     }
 
-    fun shutdown() {
+    private fun inputCapability(): String =
+        when {
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+                SpeechRecognizer.isOnDeviceRecognitionAvailable(context) -> "On-device"
+            SpeechRecognizer.isRecognitionAvailable(context) -> "System recognizer"
+            else -> "Unavailable"
+        }
+
+    private fun releaseRecognizer() {
         recognizer?.cancel()
         recognizer?.destroy()
         recognizer = null
+    }
 
+    private fun releaseTts() {
+        ttsReady = false
         tts?.stop()
         tts?.shutdown()
         tts = null
+    }
+
+    fun releaseTransientResources() {
+        pendingSpeech = null
+        releaseRecognizer()
+        releaseTts()
+    }
+
+    fun shutdown() {
+        releaseTransientResources()
+        mainHandler.removeCallbacksAndMessages(null)
+    }
+
+    companion object {
+        private const val UTTERANCE_ID = "haru-response"
     }
 }

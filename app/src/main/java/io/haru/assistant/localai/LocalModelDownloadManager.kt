@@ -47,6 +47,7 @@ class LocalModelDownloadManager(context: Context) {
             .setConstraints(
                 Constraints.Builder()
                     .setRequiredNetworkType(NetworkType.CONNECTED)
+                    .setRequiresBatteryNotLow(true)
                     .build()
             )
             .addTag(option.id)
@@ -121,7 +122,7 @@ class LocalModelDownloadManager(context: Context) {
         return when (info.state) {
             WorkInfo.State.ENQUEUED, WorkInfo.State.BLOCKED -> LocalModelDownloadState(
                 modelId, modelName, "QUEUED", downloaded, totalRaw.takeIf { it > 0L },
-                "Waiting for network…"
+                "Waiting for network or sufficient battery…"
             )
             WorkInfo.State.RUNNING -> LocalModelDownloadState(
                 modelId, modelName, "DOWNLOADING", downloaded, totalRaw.takeIf { it > 0L },

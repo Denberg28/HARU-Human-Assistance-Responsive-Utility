@@ -42,6 +42,7 @@ import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -54,6 +55,7 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -154,7 +156,25 @@ fun HaruScreen(
                 tabs.forEachIndexed { index, title ->
                     Tab(
                         selected = selectedTab == index,
-                        onClick = { selectedTab = index },
+                        onClick = {
+                            selectedTab = index
+                            when (index) {
+                                1 -> if (
+                                    newsBundle.local.isEmpty() &&
+                                    newsBundle.international.isEmpty() &&
+                                    newsBundle.error.isBlank()
+                                ) {
+                                    onRefreshNews()
+                                }
+                                2 -> if (
+                                    hazardBundle.pagasa.isEmpty() &&
+                                    hazardBundle.phivolcs.isEmpty() &&
+                                    hazardBundle.error.isBlank()
+                                ) {
+                                    onRefreshHazards()
+                                }
+                            }
+                        },
                         text = { Text(title) },
                     )
                 }
@@ -719,10 +739,10 @@ private fun GoogleMapsIframe(
     mapUrl: String,
     modifier: Modifier = Modifier,
 ) {
+    val context = LocalContext.current
     val escapedUrl = mapUrl
         .replace("&", "&amp;")
         .replace("\"", "&quot;")
-
     val html = """
         <!doctype html>
         <html>
@@ -740,25 +760,30 @@ private fun GoogleMapsIframe(
         </html>
     """.trimIndent()
 
+    val webView = remember(context) {
+        WebView(context).apply {
+            configureInteractiveWebView()
+        }
+    }
+
+    DisposableEffect(webView) {
+        onDispose {
+            webView.stopLoading()
+            webView.onPause()
+            webView.loadUrl("about:blank")
+            webView.removeAllViews()
+            webView.destroy()
+        }
+    }
+
     AndroidView(
         modifier = modifier,
-        factory = { context ->
-            WebView(context).apply {
-                configureInteractiveWebView()
-                tag = mapUrl
-                loadDataWithBaseURL(
-                    "https://maps.google.com/",
-                    html,
-                    "text/html",
-                    "UTF-8",
-                    null,
-                )
-            }
-        },
-        update = { webView ->
-            if (webView.tag != mapUrl) {
-                webView.tag = mapUrl
-                webView.loadDataWithBaseURL(
+        factory = { webView },
+        update = {
+            if (it.tag != mapUrl) {
+                it.tag = mapUrl
+                it.onResume()
+                it.loadDataWithBaseURL(
                     "https://maps.google.com/",
                     html,
                     "text/html",
@@ -776,38 +801,50 @@ private fun BrowserWebView(
     allowedHostSuffixes: Set<String>,
     modifier: Modifier = Modifier,
 ) {
-    AndroidView(
-        modifier = modifier,
-        factory = { context ->
-            WebView(context).apply webView@{
-                configureInteractiveWebView()
-                settings.userAgentString =
-                    WebSettings.getDefaultUserAgent(context).replace("; wv", "")
-                CookieManager.getInstance().apply {
-                    setAcceptCookie(true)
-                    setAcceptThirdPartyCookies(this@webView, true)
-                }
-                webViewClient = object : WebViewClient() {
-                    override fun shouldOverrideUrlLoading(
-                        view: WebView?,
-                        request: android.webkit.WebResourceRequest?,
-                    ): Boolean {
-                        val uri = request?.url ?: return true
-                        if (!uri.scheme.equals("https", ignoreCase = true)) return true
-                        val host = uri.host?.lowercase().orEmpty()
-                        return allowedHostSuffixes.none { suffix ->
-                            host == suffix || host.endsWith("." + suffix)
-                        }
+    val context = LocalContext.current
+    val webView = remember(context) {
+        WebView(context).apply webView@{
+            configureInteractiveWebView()
+            settings.userAgentString =
+                WebSettings.getDefaultUserAgent(context).replace("; wv", "")
+            CookieManager.getInstance().apply {
+                setAcceptCookie(true)
+                setAcceptThirdPartyCookies(this@webView, true)
+            }
+            webViewClient = object : WebViewClient() {
+                override fun shouldOverrideUrlLoading(
+                    view: WebView?,
+                    request: android.webkit.WebResourceRequest?,
+                ): Boolean {
+                    val uri = request?.url ?: return true
+                    if (!uri.scheme.equals("https", ignoreCase = true)) return true
+                    val host = uri.host?.lowercase().orEmpty()
+                    return allowedHostSuffixes.none { suffix ->
+                        host == suffix || host.endsWith("." + suffix)
                     }
                 }
-                tag = url
-                loadUrl(url)
             }
-        },
-        update = { webView ->
-            if (webView.tag != url) {
-                webView.tag = url
-                webView.loadUrl(url)
+        }
+    }
+
+    DisposableEffect(webView) {
+        onDispose {
+            webView.stopLoading()
+            webView.onPause()
+            webView.loadUrl("about:blank")
+            webView.removeAllViews()
+            webView.destroy()
+        }
+    }
+
+    AndroidView(
+        modifier = modifier,
+        factory = { webView },
+        update = {
+            if (it.tag != url) {
+                it.tag = url
+                it.onResume()
+                it.loadUrl(url)
             }
         },
     )
@@ -829,6 +866,7 @@ private fun WebView.configureInteractiveWebView() {
         loadWithOverviewMode = true
         cacheMode = WebSettings.LOAD_DEFAULT
         setGeolocationEnabled(false)
+        offscreenPreRaster = false
     }
     webChromeClient = android.webkit.WebChromeClient()
 }

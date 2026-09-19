@@ -82,6 +82,8 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
 
     private var newsBundle by mutableStateOf(AndroidNewsBundle())
     private var hazardBundle by mutableStateOf(AndroidHazardBundle())
+    private var newsLoading = false
+    private var hazardsLoading = false
 
     private var trustedLocations by mutableStateOf(emptyList<TrustedLocation>())
     private var locationShareCode by mutableStateOf("")
@@ -124,8 +126,6 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
             context = this,
             callbacks = this,
         )
-        voiceController.initialize()
-
         localAiManager = AndroidLocalAiManager(applicationContext)
         localModelDownloadManager = LocalModelDownloadManager(applicationContext)
         onlineAiManager = AndroidOnlineAiManager(applicationContext)
@@ -142,8 +142,6 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
         refreshOnlineKeyState()
         trustedLocations = trustedLocationManager.load()
         refreshLocalAiStatus()
-        refreshNews()
-        refreshHazards()
 
         localModelDownloadManager.liveData().observe(this) { workInfos ->
             localAiDownloadState = localModelDownloadManager.stateFrom(workInfos)
@@ -323,14 +321,26 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
     }
 
     private fun refreshNews() {
+        if (newsLoading) return
+        newsLoading = true
         lifecycleScope.launch {
-            newsBundle = newsService.fetch("Philippines")
+            try {
+                newsBundle = newsService.fetch("Philippines")
+            } finally {
+                newsLoading = false
+            }
         }
     }
 
     private fun refreshHazards() {
+        if (hazardsLoading) return
+        hazardsLoading = true
         lifecycleScope.launch {
-            hazardBundle = hazardService.fetch()
+            try {
+                hazardBundle = hazardService.fetch()
+            } finally {
+                hazardsLoading = false
+            }
         }
     }
 
@@ -747,6 +757,11 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
 
     override fun onRuntimeChanged(status: HaruVoiceController.VoiceRuntimeStatus) {
         voiceStatus = status
+    }
+
+    override fun onStop() {
+        voiceController.releaseTransientResources()
+        super.onStop()
     }
 
     override fun onDestroy() {
