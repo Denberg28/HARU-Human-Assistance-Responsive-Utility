@@ -76,6 +76,14 @@ def resolved_api_key(provider: str, session_key: str = "") -> str:
     )
 
 
+def session_key_for_provider(provider: str) -> str:
+    if provider == "Google Gemini API":
+        return st.session_state.get("gemini_api_key", "")
+    if provider == "OpenRouter API":
+        return st.session_state.get("openrouter_api_key", "")
+    return ""
+
+
 def api_key_source(provider: str) -> str:
     if server_secret_for_provider(provider):
         return "server secret"
@@ -110,7 +118,6 @@ DEFAULTS = {
     "ai_applied_provider": "Disabled",
     "ai_applied_model": "",
     "ai_applied_endpoint": "",
-    "ai_applied_api_key": "",
 }
 for key, value in DEFAULTS.items():
     if key not in st.session_state:
@@ -520,11 +527,7 @@ def choose_ollama_model(models: list[str]) -> str:
 
 def draft_ai_config() -> AiConfig:
     provider = st.session_state.get("ai_provider", "Disabled")
-    session_key = ""
-    if provider == "Google Gemini API":
-        session_key = st.session_state.get("gemini_api_key", "")
-    elif provider == "OpenRouter API":
-        session_key = st.session_state.get("openrouter_api_key", "")
+    session_key = session_key_for_provider(provider)
 
     return AiConfig(
         mode=st.session_state.get("ai_mode", "Off"),
@@ -564,7 +567,9 @@ def current_ai_config() -> AiConfig:
             endpoint=st.session_state.get("ai_applied_endpoint", ""),
             api_key=resolved_api_key(
                 st.session_state.get("ai_applied_provider", "Disabled"),
-                st.session_state.get("ai_applied_api_key", ""),
+                session_key_for_provider(
+                    st.session_state.get("ai_applied_provider", "Disabled")
+                ),
             ),
             timeout_s=25,
         )
@@ -1063,20 +1068,26 @@ with st.expander("AI selector"):
         st.session_state.ai_applied_provider = "Disabled"
         st.session_state.ai_applied_model = ""
         st.session_state.ai_applied_endpoint = ""
-        st.session_state.ai_applied_api_key = ""
         st.info("AI is disabled. HARU uses only local deterministic skills.")
     else:
         if ai_mode == "Local":
-            provider_options = [
-                "Ollama",
-                "Local OpenAI-compatible",
-                "Android on-device (APK only)",
-            ]
-            if st.session_state.ai_provider not in provider_options:
+            if is_cloud_haru():
+                provider_options = ["Ollama"]
                 st.session_state.ai_provider = "Ollama"
-            st.caption(
-                "Recommended: Ollama on the same PC as HARU. No API key required."
-            )
+                st.caption(
+                    "Local endpoints are disabled on Streamlit Cloud. Run HARU locally to use Ollama or another local server."
+                )
+            else:
+                provider_options = [
+                    "Ollama",
+                    "Local OpenAI-compatible",
+                    "Android on-device (APK only)",
+                ]
+                if st.session_state.ai_provider not in provider_options:
+                    st.session_state.ai_provider = "Ollama"
+                st.caption(
+                    "Recommended: Ollama on the same PC as HARU. No API key required."
+                )
         else:
             provider_options = [
                 "Google Gemini API",
@@ -1167,8 +1178,7 @@ with st.expander("AI selector"):
                         st.session_state.ai_applied_provider = "Ollama"
                         st.session_state.ai_applied_model = chosen
                         st.session_state.ai_applied_endpoint = st.session_state.ai_endpoint
-                        st.session_state.ai_applied_api_key = ""
-                        st.session_state.ai_applied_signature = ai_config_signature(candidate)
+                                        st.session_state.ai_applied_signature = ai_config_signature(candidate)
                         st.session_state.ai_connection_state = "CONNECTED"
                         st.session_state.ai_runtime_degraded = False
                         st.session_state.ai_runtime_degraded_reason = ""
@@ -1456,16 +1466,12 @@ with st.expander("AI selector"):
                                 else st.session_state.get("openrouter_api_key")
                             )
                         ):
-                            save_stored_key(candidate.provider, candidate.api_key)
+                            if save_stored_key(candidate.provider, candidate.api_key):
+                                if candidate.provider == "Google Gemini API":
+                                    st.session_state.gemini_api_key = ""
+                                elif candidate.provider == "OpenRouter API":
+                                    st.session_state.openrouter_api_key = ""
 
-                        st.session_state.ai_applied_api_key = (
-                            ""
-                            if (
-                                server_secret_for_provider(candidate.provider)
-                                or local_stored_key_for_provider(candidate.provider)
-                            )
-                            else candidate.api_key
-                        )
                         st.session_state.ai_applied_signature = ai_config_signature(candidate)
                         st.session_state.ai_connection_state = "CONNECTED"
                         st.session_state.ai_runtime_degraded = False
@@ -1506,8 +1512,7 @@ with st.expander("AI selector"):
                         st.session_state.gemini_api_key = ""
                     elif provider == "OpenRouter API":
                         st.session_state.openrouter_api_key = ""
-                    st.session_state.ai_applied_api_key = ""
-
+            
                     if not is_cloud_haru():
                         delete_stored_key(provider)
 
