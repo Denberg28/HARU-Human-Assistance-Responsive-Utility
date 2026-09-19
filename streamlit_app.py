@@ -781,4 +781,4 @@ with st.expander("Developer panel"):
             st.write(f"**You:** {q}")
             st.write(f"**HARU:** {a}")
 
-st.markdown('<div class="footer">HARU Lab v0.6 • connected AI becomes HARU's primary brain</div>', unsafe_allow_html=True)
+st.markdown("<div class=\"footer\">HARU Lab v0.6 • connected AI becomes HARU's primary brain</div>", unsafe_allow_html=True)
