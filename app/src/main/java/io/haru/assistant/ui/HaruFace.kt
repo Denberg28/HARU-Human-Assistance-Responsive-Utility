@@ -7,6 +7,7 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.matchParentSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -50,11 +51,7 @@ fun HaruFace(
             val c = center
             val radius = size.minDimension * 0.42f * pulse
 
-            drawCircle(
-                color = Color(0xFFF4F6F8),
-                radius = radius,
-                center = c
-            )
+            drawCircle(Color(0xFFF4F6F8), radius, c)
             drawCircle(
                 color = accent,
                 radius = radius,
@@ -69,8 +66,8 @@ fun HaruFace(
             when (mood) {
                 HaruMood.SLEEPY -> {
                     val w = radius * 0.18f
-                    drawLine(accent, Offset(c.x - eyeDx - w, eyeY), Offset(c.x - eyeDx + w, eyeY), strokeWidth = radius * 0.05f, cap = StrokeCap.Round)
-                    drawLine(accent, Offset(c.x + eyeDx - w, eyeY), Offset(c.x + eyeDx + w, eyeY), strokeWidth = radius * 0.05f, cap = StrokeCap.Round)
+                    drawLine(accent, Offset(c.x - eyeDx - w, eyeY), Offset(c.x - eyeDx + w, eyeY), radius * 0.05f, cap = StrokeCap.Round)
+                    drawLine(accent, Offset(c.x + eyeDx - w, eyeY), Offset(c.x + eyeDx + w, eyeY), radius * 0.05f, cap = StrokeCap.Round)
                 }
                 HaruMood.HAPPY -> {
                     val w = radius * 0.16f
@@ -105,7 +102,7 @@ fun HaruFace(
                     accent,
                     Offset(c.x - radius * 0.15f, mouthY),
                     Offset(c.x + radius * 0.15f, mouthY),
-                    strokeWidth = radius * 0.05f,
+                    radius * 0.05f,
                     cap = StrokeCap.Round
                 )
             }
