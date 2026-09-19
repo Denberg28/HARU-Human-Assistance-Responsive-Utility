@@ -161,6 +161,26 @@ def _gemini_grounding_sources(data: dict, limit: int = 5) -> list[tuple[str, str
     return sources
 
 
+def _interaction_output_text(data: dict) -> str:
+    """Extract final text from a raw Gemini Interactions API response."""
+    direct = str(data.get("output_text") or "").strip()
+    if direct:
+        return direct
+
+    parts = []
+    for step in data.get("steps", []):
+        if not isinstance(step, dict) or step.get("type") != "model_output":
+            continue
+        for item in step.get("content", []):
+            if (
+                isinstance(item, dict)
+                and item.get("type") == "text"
+                and item.get("text")
+            ):
+                parts.append(str(item["text"]))
+    return "\n".join(parts).strip()
+
+
 def ask_ai(
     config: AiConfig,
     prompt: str,
@@ -259,11 +279,57 @@ def ask_ai(
     if provider == "Google Gemini API":
         if not config.api_key:
             raise AiRuntimeError("Gemini API key is required.")
+
+        # Antigravity is a managed agent and must use the Interactions API,
+        # not the standard generateContent model endpoint.
+        if model == "antigravity-preview-09-2026":
+            interaction_input = (
+                prompt
+                if not system_prompt
+                else f"{system_prompt}\n\nUser: {prompt}"
+            )
+            payload = {
+                "agent": model,
+                "input": interaction_input,
+                "environment": "remote",
+                "agent_config": {
+                    "type": "antigravity",
+                    # Keep agent runs economical for HARU's free-first objective.
+                    "model": "gemini-3.5-flash-lite",
+                    "max_total_tokens": 12000,
+                },
+            }
+            if enable_native_tools:
+                payload["tools"] = [
+                    {"type": "google_search"},
+                    {"type": "url_context"},
+                ]
+
+            data = _json_request(
+                "https://generativelanguage.googleapis.com/v1beta/interactions",
+                payload=payload,
+                headers={"x-goog-api-key": config.api_key},
+                timeout=max(config.timeout_s, 120),
+            )
+            text = _interaction_output_text(data)
+            if not text:
+                status = str(data.get("status") or "").strip()
+                if status:
+                    raise AiRuntimeError(
+                        f"Antigravity returned no final text (status: {status})."
+                    )
+                raise AiRuntimeError("Antigravity returned no final text.")
+            return text
+
         model_path = model if model.startswith("models/") else f"models/{model}"
         payload = {"contents": [{"parts": [{"text": prompt}]}]}
         if system_prompt:
             payload["systemInstruction"] = {"parts": [{"text": system_prompt}]}
-        if enable_native_tools:
+
+        # Gemini models can use Google Search grounding. Gemma is kept as a
+        # high-volume text model without unsupported native-tool requests.
+        use_grounding = enable_native_tools and model.startswith("gemini-")
+        if use_grounding:
             payload["tools"] = [{"google_search": {}}]
 
         data = _json_request(
@@ -281,7 +347,7 @@ def ask_ai(
         if not text:
             raise AiRuntimeError("Gemini returned no text.")
 
-        if enable_native_tools:
+        if use_grounding:
             sources = _gemini_grounding_sources(data)
             if sources:
                 source_lines = "\n".join(
