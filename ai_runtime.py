@@ -52,7 +52,7 @@ def _json_request(url: str, *, payload=None, headers=None, timeout=25, method=No
             return json.loads(raw) if raw else {}
     except HTTPError as exc:
         try:
-            raw_detail = exc.read().decode("utf-8")
+            raw_detail = exc.read(MAX_JSON_RESPONSE_BYTES + 1).decode("utf-8", errors="replace")
             parsed = json.loads(raw_detail) if raw_detail else {}
         except Exception:
             parsed = {}
@@ -307,6 +307,7 @@ def ask_ai(
                 "environment": "remote",
                 "agent_config": {
                     "type": "antigravity",
+                    "model": "gemini-3.5-flash-lite",
                     "max_total_tokens": token_budget,
                 },
             }
