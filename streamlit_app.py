@@ -43,7 +43,6 @@ DEFAULTS = {
     "ai_model": "",
     "ai_endpoint": "",
     "ai_api_key": "",
-    "ai_fallback": False,
     "ai_status": "Not tested",
     "ai_connection_state": "OFF",
     "ai_connection_message": "AI runtime is disabled.",
@@ -250,6 +249,8 @@ def ai_status_html(state: str, message: str) -> str:
         "FAILED": ("#c62828", "FAILED"),
     }
     color, label = palette.get(state, ("#7a7f87", state))
+    safe_label = html.escape(str(label))
+    safe_message = html.escape(str(message))
     return f"""
     <div style="
         display:flex; align-items:center; gap:.65rem;
@@ -260,8 +261,8 @@ def ai_status_html(state: str, message: str) -> str:
             background:{color}; display:inline-block;
             box-shadow:0 0 0 4px {color}22;"></span>
         <div>
-            <div style="font-weight:700; font-size:.9rem;">{label}</div>
-            <div style="font-size:.82rem; opacity:.72;">{message}</div>
+            <div style="font-weight:700; font-size:.9rem;">{safe_label}</div>
+            <div style="font-size:.82rem; opacity:.72;">{safe_message}</div>
         </div>
     </div>
     """
@@ -371,7 +372,7 @@ def fetch_news_bundle(region: str, interests: tuple[str, ...], nonce: int):
     return deduplicate(local), deduplicate(world), deduplicate(personalized), errors
 
 
-def render_news_items(items, section_key: str, limit: int = 6):
+def render_news_items(items, limit: int = 6):
     if not items:
         st.info("No stories are available right now.")
         return
@@ -470,11 +471,21 @@ st.markdown(
           line-height:1.45;
       }
       div[data-testid="stForm"] {
-          padding:.75rem .85rem .8rem .85rem;
+          padding:.65rem .8rem .7rem .8rem;
           border-radius:12px;
       }
-      div[data-testid="stForm"] [data-testid="stTextInput"] {
-          margin-bottom:.25rem;
+      div[data-testid="stForm"] [data-testid="stTextArea"] {
+          margin-bottom:.2rem;
+      }
+      div[data-testid="stForm"] textarea {
+          min-height:68px !important;
+          max-height:110px !important;
+          resize:none !important;
+          line-height:1.35 !important;
+          padding:.65rem .75rem !important;
+      }
+      div[data-testid="stForm"] small {
+          margin-bottom:.15rem;
       }
       .stTabs [data-baseweb="tab-list"] {
           gap:.35rem;
@@ -484,7 +495,13 @@ st.markdown(
           padding-bottom:.45rem;
       }
       div[data-testid="stExpander"] {
-          margin-top:.35rem;
+          margin-top:.28rem;
+      }
+      div[data-testid="stExpander"] details {
+          border-radius:10px;
+      }
+      button, input, textarea, select {
+          box-shadow:none !important;
       }
       .footer {
           text-align:center;
@@ -516,10 +533,18 @@ assistant_tab, news_tab = st.tabs(["Assistant", "News"])
 with assistant_tab:
     st.markdown(face_html(st.session_state.mood), unsafe_allow_html=True)
     st.markdown(f'<div class="status">{st.session_state.mood}</div>', unsafe_allow_html=True)
-    st.markdown(f'<div class="reply">{st.session_state.message}</div>', unsafe_allow_html=True)
+    safe_reply = html.escape(str(st.session_state.message)).replace("\n", "<br>")
+    st.markdown(f'<div class="reply">{safe_reply}</div>', unsafe_allow_html=True)
 
     with st.form("haru_command", clear_on_submit=True):
-        command = st.text_input("Ask HARU", placeholder="Try: latest news or calculate 22.2 * 60")
+        st.caption("Ask HARU")
+        command = st.text_area(
+            "HARU command",
+            placeholder="Type a question or task…",
+            height=68,
+            label_visibility="collapsed",
+            key="haru_command_text",
+        )
         c1, c2 = st.columns([3, 1])
         with c1:
             sent = st.form_submit_button("Send", use_container_width=True)
@@ -608,19 +633,19 @@ with news_tab:
 
     st.markdown("### 🇵🇭 Local first")
     st.caption(f"Area: {st.session_state.news_region}")
-    render_news_items(local_items, "local", 6)
+    render_news_items(local_items, 6)
 
     st.markdown("### 🌍 International")
-    render_news_items(world_items, "world", 6)
+    render_news_items(world_items, 6)
 
     st.markdown("### 🧭 General + your interests")
     if interests:
         st.caption("Based only on your HARU activity and topics you selected: " + ", ".join(i.replace("_", " ") for i in interests))
-        render_news_items(personalized_items, "personal", 6)
+        render_news_items(personalized_items, 6)
     else:
         st.caption("Use HARU normally or choose topics in News settings. General/local coverage will still remain visible.")
         general = deduplicate(philippines_headlines(6) + world_items[:4]) if not local_items else deduplicate(local_items[:3] + world_items[:3])
-        render_news_items(general, "general", 6)
+        render_news_items(general, 6)
 
 with st.expander("AI selector"):
     st.markdown("#### AI runtime")
@@ -912,4 +937,4 @@ with st.expander("Developer panel"):
             st.write(f"**You:** {q}")
             st.write(f"**HARU:** {a}")
 
-st.markdown("<div class=\"footer\">HARU Lab v0.8 • compact adaptive interface</div>", unsafe_allow_html=True)
+st.markdown("<div class=\"footer\">HARU Lab v0.9 • sanitized compact interface</div>", unsafe_allow_html=True)
