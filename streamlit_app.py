@@ -1,6 +1,7 @@
 from datetime import datetime
 from pathlib import Path
 import ast
+import base64
 import hashlib
 import importlib.util
 import html
@@ -43,7 +44,7 @@ st.set_page_config(
 
 ROOT_DIR = Path(__file__).resolve().parent
 ASSET_DIR = ROOT_DIR / "assets"
-HARU_ANIMATION = ASSET_DIR / "haru_animation.gif"
+HARU_LINEART = ASSET_DIR / "haru_lineart.svg"
 HARU_THEME = ASSET_DIR / "haru_cute_theme.wav"
 
 
@@ -51,9 +52,8 @@ def ensure_haru_media() -> None:
     """Create HARU media on first run when deployed assets are missing."""
     ASSET_DIR.mkdir(parents=True, exist_ok=True)
 
-    need_animation = not HARU_ANIMATION.exists()
     need_theme = not HARU_THEME.exists()
-    if not need_animation and not need_theme:
+    if not need_theme:
         return
 
     generator_path = ROOT_DIR / "scripts" / "generate_haru_media.py"
@@ -68,8 +68,6 @@ def ensure_haru_media() -> None:
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
 
-        if need_animation and hasattr(module, "make_gif"):
-            module.make_gif()
         if need_theme and hasattr(module, "make_theme"):
             module.make_theme()
     except Exception:
@@ -694,21 +692,18 @@ def active_model_display_name() -> str:
 
 
 def render_haru_mascot(mood: str) -> None:
-    """Render the animated HARU mascot, generating it on demand if needed."""
-    ensure_haru_media()
-
-    if HARU_ANIMATION.exists():
-        left, center, right = st.columns([1.15, 1.7, 1.15])
+    """Render HARU as lightweight original line art."""
+    if HARU_LINEART.exists():
+        left, center, right = st.columns([1.25, 1.5, 1.25])
         with center:
-            st.image(str(HARU_ANIMATION), use_container_width=True)
+            st.image(str(HARU_LINEART), use_container_width=True)
         return
 
-    # Last-resort fallback keeps the assistant functional if media generation fails.
     st.markdown(face_html(mood), unsafe_allow_html=True)
 
 
 def render_haru_theme_control() -> None:
-    """Optional original HARU theme; off by default to avoid surprise audio."""
+    """Optional HARU theme with a hidden 10%-volume player."""
     ensure_haru_media()
 
     if not HARU_THEME.exists():
@@ -718,17 +713,57 @@ def render_haru_theme_control() -> None:
         "♪ HARU theme",
         value=st.session_state.music_enabled,
         key="haru_music_toggle",
-        help="Play HARU's original cute background theme. Music is off by default.",
+        help="Play HARU's theme quietly in the background.",
     )
     st.session_state.music_enabled = enabled
 
     if enabled:
-        st.audio(
-            HARU_THEME.read_bytes(),
-            format="audio/wav",
-            autoplay=True,
-            loop=True,
+        audio_b64 = base64.b64encode(HARU_THEME.read_bytes()).decode("ascii")
+        st.markdown(
+            f"""
+            <audio id="haru-theme-audio" autoplay loop style="display:none">
+              <source src="data:audio/wav;base64,{audio_b64}" type="audio/wav">
+            </audio>
+            <script>
+            (() => {{
+              const audio = document.getElementById("haru-theme-audio");
+              if (audio) {{
+                audio.volume = 0.10;
+                const playPromise = audio.play();
+                if (playPromise) playPromise.catch(() => {{}});
+              }}
+            }})();
+            </script>
+            """,
+            unsafe_allow_html=True,
         )
+
+
+def render_latest_history_tracker() -> None:
+    """Show the latest user-to-HARU exchange for quick conversation tracking."""
+    history = st.session_state.get("history", [])
+    if history:
+        latest = history[-1]
+        if isinstance(latest, (tuple, list)) and len(latest) >= 2:
+            user_text, haru_text = str(latest[0]), str(latest[1])
+        else:
+            user_text, haru_text = str(latest), ""
+    else:
+        user_text, haru_text = "No previous message yet.", "Hello. I'm HARU."
+
+    safe_user = html.escape(user_text).replace("\n", "<br>")
+    safe_haru = html.escape(haru_text).replace("\n", "<br>")
+
+    st.markdown(
+        f"""
+        <div class="history-track">
+          <div class="history-label">Latest communication</div>
+          <div class="history-line"><strong>You:</strong> {safe_user}</div>
+          <div class="history-line"><strong>HARU:</strong> {safe_haru}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
 def face_html(mood: str):
@@ -919,12 +954,32 @@ st.markdown(
           box-shadow:none !important;
       }
       .stImage img {
-          border-radius: 22px;
-          filter: drop-shadow(0 8px 20px rgba(37, 91, 105, .10));
+          max-width:260px;
+          margin:0 auto;
+          display:block;
+          border-radius:0;
+          filter:none;
       }
-      div[data-testid="stAudio"] {
-          margin-top: .15rem;
-          margin-bottom: .35rem;
+      .history-track {
+          padding:.72rem .9rem;
+          border:1px solid rgba(127,127,127,.22);
+          border-radius:12px;
+          background:rgba(127,127,127,.045);
+          margin-top:.35rem;
+      }
+      .history-label {
+          font-size:.7rem;
+          font-weight:700;
+          letter-spacing:.08em;
+          text-transform:uppercase;
+          opacity:.58;
+          margin-bottom:.38rem;
+      }
+      .history-line {
+          font-size:.9rem;
+          line-height:1.35;
+          margin:.12rem 0;
+          overflow-wrap:anywhere;
       }
       .footer {
           text-align:center;
@@ -966,14 +1021,7 @@ with assistant_tab:
             "Type a question or task…",
             key="haru_chat_input",
         )
-        help_clicked = st.button(
-            "Help",
-            key="haru_help",
-            use_container_width=True,
-        )
-
-    if help_clicked:
-        command = "help"
+        render_latest_history_tracker()
 
     if command:
         st.session_state.mood = "THINKING"
@@ -1618,4 +1666,4 @@ with st.expander("Developer panel"):
             st.write(f"**You:** {q}")
             st.write(f"**HARU:** {a}")
 
-st.markdown("<div class=\"footer\">HARU Lab v2.3 • animated mascot + original theme</div>", unsafe_allow_html=True)
+st.markdown("<div class=\"footer\">HARU Lab v2.4 • line-art mascot + quiet theme + communication tracker</div>", unsafe_allow_html=True)
