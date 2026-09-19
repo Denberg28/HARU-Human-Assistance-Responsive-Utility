@@ -7,6 +7,7 @@ import os
 import re
 
 import streamlit as st
+import streamlit.components.v1 as components
 
 from credential_store import (
     delete_key as delete_stored_key,
@@ -237,7 +238,7 @@ def local_tool_result(command: str):
     if low in {"hazards", "hazard", "disaster", "disaster update", "hazard update"}:
         return (
             "ALERT",
-            "Open HARU's Hazard / Disaster tab for current PAGASA, PHIVOLCS, and UP NOAH information.",
+            "Open HARU's Hazard Advisories tab for current PAGASA, PHIVOLCS, and UP NOAH information.",
         )
 
     # Notes
@@ -1068,7 +1069,7 @@ st.markdown(
 )
 st.markdown('<div class="haru-sub">Human Assistance & Responsive Utility</div>', unsafe_allow_html=True)
 
-assistant_tab, news_tab, hazard_tab = st.tabs(["Assistant", "News", "Hazard / Disaster"])
+assistant_tab, news_tab, hazard_tab = st.tabs(["Assistant", "News", "Hazard Advisories"])
 
 with assistant_tab:
     pending_command = str(st.session_state.get("pending_command", "")).strip()
@@ -1204,7 +1205,7 @@ with news_tab:
 with hazard_tab:
     header_left, header_right = st.columns([3, 1])
     with header_left:
-        st.subheader("Hazard / Disaster")
+        st.subheader("Hazard Advisories")
         st.caption(
             "Official Philippine situational information from PAGASA, PHIVOLCS, and UP NOAH."
         )
@@ -1217,6 +1218,23 @@ with hazard_tab:
     st.info(
         "For situational awareness only. Follow official agency and local-government evacuation or emergency instructions."
     )
+
+    st.markdown("### 🛰️ Live PAGASA PANaHON Map")
+    st.caption(
+        "Primary visual aid: near-real-time PAGASA weather, radar, satellite, lightning, warnings, "
+        "river-basin observations, numerical weather prediction, and hazard layers."
+    )
+    with st.container(border=True):
+        components.iframe(
+            "https://www.panahon.gov.ph/",
+            height=520,
+            scrolling=True,
+        )
+        st.link_button(
+            "Open PANaHON full screen",
+            "https://www.panahon.gov.ph/",
+            use_container_width=True,
+        )
 
     with st.spinner("Checking official hazard sources…"):
         pagasa_items, phivolcs_items, noah_items, hazard_errors = fetch_hazards_cached(
@@ -1876,4 +1894,4 @@ if os.environ.get("HARU_DEBUG", "").strip() == "1":
                 st.write(f"**You:** {q}")
                 st.write(f"**HARU:** {a}")
 
-st.markdown("<div class=\"footer\">HARU Lab v3.5 • news + hazard intelligence</div>", unsafe_allow_html=True)
+st.markdown("<div class=\"footer\">HARU Lab v3.6 • hazard advisories + live PANaHON</div>", unsafe_allow_html=True)
