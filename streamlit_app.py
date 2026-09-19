@@ -1,4 +1,6 @@
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
+import base64
+import json
 import ast
 import hashlib
 import html
@@ -8,6 +10,7 @@ import re
 
 import streamlit as st
 import streamlit.components.v1 as components
+from streamlit_geolocation import streamlit_geolocation
 
 from credential_store import (
     delete_key as delete_stored_key,
@@ -106,6 +109,8 @@ DEFAULTS = {
     "news_last_seen": 0.0,
     "news_refresh_nonce": 0,
     "hazard_refresh_nonce": 0,
+    "trusted_locations": [],
+    "location_share_code": "",
     "explicit_interests": {},
     "local_notes": [],
     "local_tasks": [],
@@ -129,6 +134,76 @@ DEFAULTS = {
 for key, value in DEFAULTS.items():
     if key not in st.session_state:
         st.session_state[key] = value.copy() if isinstance(value, (list, dict)) else value
+
+
+def encode_location_share(
+    name: str,
+    latitude: float,
+    longitude: float,
+    accuracy_m: float | None,
+    expires_hours: float,
+) -> str:
+    """Create an expiring, portable location snapshot code."""
+    payload = {
+        "v": 1,
+        "name": re.sub(r"\s+", " ", (name or "Loved one").strip())[:40],
+        "lat": round(float(latitude), 6),
+        "lon": round(float(longitude), 6),
+        "acc": round(float(accuracy_m), 1) if accuracy_m is not None else None,
+        "exp": int(
+            (
+                datetime.now(timezone.utc)
+                + timedelta(hours=max(0.25, min(float(expires_hours), 24.0)))
+            ).timestamp()
+        ),
+    }
+    raw = json.dumps(payload, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
+    return base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
+
+
+def decode_location_share(code: str) -> dict:
+    """Validate and decode a HARU location snapshot code."""
+    clean = re.sub(r"\s+", "", code or "")
+    if not clean or len(clean) > 600:
+        raise ValueError("Invalid location share code.")
+
+    padding = "=" * (-len(clean) % 4)
+    try:
+        payload = json.loads(
+            base64.urlsafe_b64decode(clean + padding).decode("utf-8")
+        )
+    except Exception as exc:
+        raise ValueError("Location share code could not be read.") from exc
+
+    if payload.get("v") != 1:
+        raise ValueError("Unsupported location share code.")
+
+    lat = float(payload.get("lat"))
+    lon = float(payload.get("lon"))
+    if not (-90 <= lat <= 90 and -180 <= lon <= 180):
+        raise ValueError("Location coordinates are invalid.")
+
+    expires = int(payload.get("exp") or 0)
+    if expires <= int(datetime.now(timezone.utc).timestamp()):
+        raise ValueError("This location share has expired.")
+
+    return {
+        "name": re.sub(r"\s+", " ", str(payload.get("name") or "Loved one"))[:40],
+        "lat": lat,
+        "lon": lon,
+        "accuracy_m": payload.get("acc"),
+        "expires": expires,
+    }
+
+
+def purge_expired_locations(items: list[dict]) -> list[dict]:
+    now_ts = int(datetime.now(timezone.utc).timestamp())
+    return [
+        item for item in items
+        if int(item.get("expires") or 0) > now_ts
+        and -90 <= float(item.get("lat", 999)) <= 90
+        and -180 <= float(item.get("lon", 999)) <= 180
+    ]
 
 
 def _safe_calc(expression: str) -> float:
@@ -1113,7 +1188,7 @@ st.markdown(
 )
 st.markdown('<div class="haru-sub">Human Assistance & Responsive Utility</div>', unsafe_allow_html=True)
 
-assistant_tab, news_tab, hazard_tab = st.tabs(["Assistant", "News", "Hazard Advisories"])
+assistant_tab, news_tab, hazard_tab, map_tab = st.tabs(["Assistant", "News", "Hazard Advisories", "Map"])
 
 with assistant_tab:
     pending_command = str(st.session_state.get("pending_command", "")).strip()
@@ -1298,6 +1373,145 @@ with hazard_tab:
     st.caption(
         "Situational awareness only. Follow official agency and local-government emergency instructions."
     )
+
+with map_tab:
+    st.subheader("Trusted Locations")
+    st.caption(
+        "Share a phone location only with permission. HARU uses one-time GPS snapshots; "
+        "it does not track anyone in the background."
+    )
+
+    st.session_state.trusted_locations = purge_expired_locations(
+        st.session_state.trusted_locations
+    )
+
+    share_col, receive_col = st.columns(2, gap="large")
+
+    with share_col:
+        st.markdown("### Share my location")
+        share_name = st.text_input(
+            "Name",
+            value="",
+            placeholder="e.g. Mom",
+            key="trusted_share_name",
+        )
+        expires_label = st.selectbox(
+            "Share expires after",
+            ["15 minutes", "1 hour", "4 hours", "24 hours"],
+            index=1,
+        )
+        expiry_hours = {
+            "15 minutes": 0.25,
+            "1 hour": 1.0,
+            "4 hours": 4.0,
+            "24 hours": 24.0,
+        }[expires_label]
+
+        st.caption("Tap below and allow location access on this phone.")
+        location = streamlit_geolocation()
+
+        if isinstance(location, dict) and location.get("latitude") is not None:
+            latitude = float(location["latitude"])
+            longitude = float(location["longitude"])
+            accuracy = location.get("accuracy")
+            if st.button(
+                "Create share code",
+                type="primary",
+                use_container_width=True,
+                key="create_location_share",
+            ):
+                st.session_state.location_share_code = encode_location_share(
+                    share_name or "Loved one",
+                    latitude,
+                    longitude,
+                    float(accuracy) if accuracy is not None else None,
+                    expiry_hours,
+                )
+
+            if st.session_state.location_share_code:
+                st.text_area(
+                    "Send this code to someone you trust",
+                    value=st.session_state.location_share_code,
+                    height=90,
+                    key="location_share_code_display",
+                    disabled=True,
+                )
+                accuracy_text = (
+                    f" · ±{float(accuracy):.0f} m"
+                    if accuracy is not None
+                    else ""
+                )
+                st.caption(
+                    f"Location captured{accuracy_text}. This is a snapshot, not continuous tracking."
+                )
+        else:
+            st.caption("No phone location has been shared yet.")
+
+    with receive_col:
+        st.markdown("### Find a loved one")
+        st.caption(
+            "Ask them to open HARU, allow GPS, and send you their temporary share code."
+        )
+        incoming_code = st.text_area(
+            "Location share code",
+            placeholder="Paste the code they sent you",
+            height=90,
+            key="incoming_location_code",
+        )
+
+        if st.button(
+            "Add shared location",
+            use_container_width=True,
+            disabled=not incoming_code.strip(),
+            key="add_trusted_location",
+        ):
+            try:
+                shared = decode_location_share(incoming_code)
+                existing = [
+                    item for item in st.session_state.trusted_locations
+                    if not (
+                        item.get("name") == shared["name"]
+                        and abs(float(item.get("lat", 0)) - shared["lat"]) < 1e-6
+                        and abs(float(item.get("lon", 0)) - shared["lon"]) < 1e-6
+                    )
+                ]
+                existing.append(shared)
+                st.session_state.trusted_locations = existing[-20:]
+                st.success(f"Added {shared['name']}.")
+                st.rerun()
+            except ValueError as exc:
+                st.error(str(exc))
+
+        if st.session_state.trusted_locations:
+            if st.button(
+                "Clear shared locations",
+                use_container_width=True,
+                key="clear_trusted_locations",
+            ):
+                st.session_state.trusted_locations = []
+                st.rerun()
+
+    if st.session_state.trusted_locations:
+        st.markdown("### Shared map")
+        map_rows = {
+            "lat": [float(item["lat"]) for item in st.session_state.trusted_locations],
+            "lon": [float(item["lon"]) for item in st.session_state.trusted_locations],
+        }
+        st.map(map_rows, zoom=11, use_container_width=True)
+
+        for item in st.session_state.trusted_locations:
+            expiry = datetime.fromtimestamp(
+                int(item["expires"]),
+                tz=timezone.utc,
+            ).astimezone()
+            accuracy = item.get("accuracy_m")
+            detail = f"expires {expiry.strftime('%I:%M %p')}"
+            if accuracy is not None:
+                detail += f" · ±{float(accuracy):.0f} m"
+            st.caption(f"📍 {item['name']} · {detail}")
+    else:
+        st.info("No active shared locations. Add a trusted person's share code to show them here.")
+
 
 with assistant_tab:
     with st.expander("AI selector"):
@@ -1924,4 +2138,4 @@ if os.environ.get("HARU_DEBUG", "").strip() == "1":
                 st.write(f"**You:** {q}")
                 st.write(f"**HARU:** {a}")
 
-st.markdown("<div class=\"footer\">HARU Lab v3.8 • compact news entries</div>", unsafe_allow_html=True)
+st.markdown("<div class=\"footer\">HARU Lab v3.9 • trusted location snapshots</div>", unsafe_allow_html=True)
