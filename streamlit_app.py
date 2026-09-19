@@ -754,12 +754,13 @@ def render_thinking_indicator() -> None:
 
 
 def render_assistant_response(reply: str) -> None:
-    """Render model output as safe Markdown with compact readable spacing."""
+    """Render model output as compact, readable Markdown."""
     text = (reply or "").strip()
     if not text:
         return
     st.markdown('<div class="response-label">HARU</div>', unsafe_allow_html=True)
-    st.markdown(text)
+    with st.container(key="assistant_response"):
+        st.markdown(text)
 
 
 @st.cache_data(ttl=900, show_spinner=False)
@@ -850,10 +851,10 @@ st.markdown(
           justify-content:center;
           align-items:center;
           width:100%;
-          min-height:138px;
+          min-height:118px;
           margin:.15rem 0 .05rem;
           padding:.15rem .35rem;
-          font-size:3.45rem;
+          font-size:3.1rem;
           font-weight:700;
           line-height:1.15;
           letter-spacing:.01em;
@@ -914,19 +915,42 @@ st.markdown(
           0%, 70%, 100% { transform:translateY(0); opacity:.24; }
           35% { transform:translateY(-4px); opacity:.8; }
       }
-      div[data-testid="stMarkdownContainer"] p {
-          line-height:1.55;
+      .st-key-assistant_response {
+          font-size:.94rem;
       }
-      div[data-testid="stMarkdownContainer"] ul,
-      div[data-testid="stMarkdownContainer"] ol {
-          margin-top:.25rem;
-          margin-bottom:.5rem;
+      .st-key-assistant_response div[data-testid="stMarkdownContainer"] {
+          font-size:.94rem;
+          line-height:1.48;
       }
-      div[data-testid="stMarkdownContainer"] li {
-          margin-bottom:.18rem;
+      .st-key-assistant_response div[data-testid="stMarkdownContainer"] p {
+          font-size:.94rem;
+          line-height:1.5;
+          margin:.18rem 0 .62rem;
       }
-      div[data-testid="stMarkdownContainer"] pre {
+      .st-key-assistant_response div[data-testid="stMarkdownContainer"] h1,
+      .st-key-assistant_response div[data-testid="stMarkdownContainer"] h2,
+      .st-key-assistant_response div[data-testid="stMarkdownContainer"] h3,
+      .st-key-assistant_response div[data-testid="stMarkdownContainer"] h4,
+      .st-key-assistant_response div[data-testid="stMarkdownContainer"] h5,
+      .st-key-assistant_response div[data-testid="stMarkdownContainer"] h6 {
+          font-size:1rem !important;
+          line-height:1.35 !important;
+          font-weight:700 !important;
+          margin:.85rem 0 .38rem !important;
+      }
+      .st-key-assistant_response div[data-testid="stMarkdownContainer"] ul,
+      .st-key-assistant_response div[data-testid="stMarkdownContainer"] ol {
+          margin:.22rem 0 .62rem;
+          padding-left:1.35rem;
+      }
+      .st-key-assistant_response div[data-testid="stMarkdownContainer"] li {
+          font-size:.94rem;
+          line-height:1.48;
+          margin-bottom:.16rem;
+      }
+      .st-key-assistant_response div[data-testid="stMarkdownContainer"] pre {
           border-radius:10px;
+          font-size:.86rem;
       }
       div[data-testid="stChatInput"] {
           margin:.15rem 0 .35rem 0;
@@ -964,8 +988,8 @@ st.markdown(
           border-radius:18px 18px 5px 18px;
           background:rgba(127,127,127,.12);
           border:1px solid rgba(127,127,127,.16);
-          font-size:.92rem;
-          line-height:1.4;
+          font-size:.94rem;
+          line-height:1.45;
           overflow-wrap:anywhere;
       }
       .footer {
@@ -1007,13 +1031,14 @@ with assistant_tab:
         render_latest_user_entry()
         render_assistant_response(str(st.session_state.message))
 
-    with st.container(border=True):
-        st.caption("Ask HARU · Enter to send · Shift+Enter for a new line")
-        command = st.chat_input(
-            "Type a question or task…",
-            key="haru_chat_input",
-            disabled=bool(pending_command),
-        )
+    command = None
+    if not pending_command:
+        with st.container(border=True):
+            st.caption("Ask HARU · Enter to send · Shift+Enter for a new line")
+            command = st.chat_input(
+                "Type a question or task…",
+                key="haru_chat_input",
+            )
 
     if command:
         st.session_state.pending_command = command.strip()
@@ -1021,7 +1046,11 @@ with assistant_tab:
         st.rerun()
 
     if pending_command:
-        mood, reply = route_command(pending_command)
+        try:
+            mood, reply = route_command(pending_command)
+        except Exception:
+            mood = "CONFUSED"
+            reply = "HARU hit an unexpected runtime error. Please try the request again."
         st.session_state.mood = mood
         st.session_state.message = reply
         st.session_state.history.append((pending_command, reply))
@@ -1679,4 +1708,4 @@ with st.expander("Developer panel"):
             st.write(f"**You:** {q}")
             st.write(f"**HARU:** {a}")
 
-st.markdown("<div class=\"footer\">HARU Lab v3.1 • immediate turn feedback</div>", unsafe_allow_html=True)
+st.markdown("<div class=\"footer\">HARU Lab v3.2 • compact single-composer chat</div>", unsafe_allow_html=True)
