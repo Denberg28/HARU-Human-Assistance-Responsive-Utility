@@ -3,6 +3,7 @@ import re
 
 import streamlit as st
 
+from ai_runtime import AiConfig, AiRuntimeError, ask_ai, list_ollama_models, test_ai
 from news_service import (
     deduplicate,
     friendly_time,
@@ -29,6 +30,13 @@ DEFAULTS = {
     "news_last_seen": 0.0,
     "news_refresh_nonce": 0,
     "explicit_interests": {},
+    "ai_mode": "Off",
+    "ai_provider": "Disabled",
+    "ai_model": "",
+    "ai_endpoint": "",
+    "ai_api_key": "",
+    "ai_fallback": False,
+    "ai_status": "Not tested",
 }
 for key, value in DEFAULTS.items():
     if key not in st.session_state:
@@ -84,7 +92,31 @@ def route_command(command: str):
         shown = str(int(value)) if value.is_integer() else f"{value:.4f}".rstrip("0").rstrip(".")
         return "HAPPY", f"{m.group(1)} {m.group(2)} {m.group(3)} = {shown}"
 
-    return "CONFUSED", "I don't have a local skill for that yet. Try “help”."
+    if st.session_state.get("ai_fallback") and st.session_state.get("ai_mode") != "Off":
+        config = current_ai_config()
+        try:
+            reply = ask_ai(
+                config,
+                clean,
+                "You are HARU, a compact helpful phone assistant. Be concise, practical, and factual. "
+                "Use the deterministic HARU tools for time, calculations, and news when available.",
+            )
+            return "HAPPY", reply
+        except AiRuntimeError as exc:
+            return "CONFUSED", f"AI fallback failed: {exc}"
+
+    return "CONFUSED", "I don't have a local skill for that yet. Try “help” or enable AI fallback in Developer panel."
+
+
+def current_ai_config() -> AiConfig:
+    return AiConfig(
+        mode=st.session_state.get("ai_mode", "Off"),
+        provider=st.session_state.get("ai_provider", "Disabled"),
+        model=st.session_state.get("ai_model", ""),
+        endpoint=st.session_state.get("ai_endpoint", ""),
+        api_key=st.session_state.get("ai_api_key", ""),
+        timeout_s=25,
+    )
 
 
 def face_html(mood: str):
@@ -305,6 +337,133 @@ with news_tab:
         render_news_items(general, "general", 6)
 
 with st.expander("Developer panel"):
+    st.markdown("#### AI runtime")
+    st.caption(
+        "HARU local skills always run first. AI is optional and can be used only as a fallback for commands "
+        "the deterministic router does not understand."
+    )
+
+    ai_mode = st.radio(
+        "Runtime",
+        ["Off", "Local", "Online"],
+        horizontal=True,
+        index=["Off", "Local", "Online"].index(st.session_state.ai_mode),
+    )
+    st.session_state.ai_mode = ai_mode
+
+    if ai_mode == "Off":
+        st.session_state.ai_provider = "Disabled"
+        st.session_state.ai_fallback = False
+        st.info("AI is disabled. HARU uses only local deterministic skills.")
+    else:
+        if ai_mode == "Local":
+            provider_options = [
+                "Ollama",
+                "Local OpenAI-compatible",
+                "Android on-device (APK only)",
+            ]
+            if st.session_state.ai_provider not in provider_options:
+                st.session_state.ai_provider = provider_options[0]
+            st.caption(
+                "In hosted Streamlit, localhost means the Streamlit server—not your phone or home PC. "
+                "For Ollama on your own machine, use HARU Lab locally or expose a secured reachable endpoint. "
+                "The Android APK will later support true phone-local runtimes."
+            )
+        else:
+            provider_options = [
+                "OpenAI API",
+                "Google Gemini API",
+                "Anthropic Claude API",
+                "Cloud OpenAI-compatible",
+            ]
+            if st.session_state.ai_provider not in provider_options:
+                st.session_state.ai_provider = provider_options[0]
+
+        provider = st.selectbox(
+            "Provider",
+            provider_options,
+            index=provider_options.index(st.session_state.ai_provider),
+        )
+        st.session_state.ai_provider = provider
+
+        default_models = {
+            "Ollama": "qwen3:4b",
+            "Local OpenAI-compatible": "local-model",
+            "Android on-device (APK only)": "phone-local",
+            "OpenAI API": "gpt-5.6",
+            "Google Gemini API": "gemini-2.5-flash",
+            "Anthropic Claude API": "claude-sonnet-4-5",
+            "Cloud OpenAI-compatible": "model-id",
+        }
+
+        default_endpoints = {
+            "Ollama": "http://localhost:11434",
+            "Local OpenAI-compatible": "http://localhost:1234",
+            "Cloud OpenAI-compatible": "https://example.com",
+        }
+
+        if provider in default_endpoints:
+            st.session_state.ai_endpoint = st.text_input(
+                "Endpoint",
+                value=st.session_state.ai_endpoint or default_endpoints[provider],
+                help="Use the base URL only. HARU adds the provider API path automatically.",
+            )
+
+        if provider == "Ollama":
+            discover_col, refresh_col = st.columns([3, 1])
+            with discover_col:
+                st.session_state.ai_model = st.text_input(
+                    "Model",
+                    value=st.session_state.ai_model or default_models[provider],
+                    placeholder="e.g. qwen3:4b",
+                )
+            with refresh_col:
+                if st.button("List models"):
+                    try:
+                        names = list_ollama_models(st.session_state.ai_endpoint)
+                        st.session_state.ai_status = "Found: " + ", ".join(names[:8]) if names else "No Ollama models found."
+                    except AiRuntimeError as exc:
+                        st.session_state.ai_status = f"Ollama discovery failed: {exc}"
+        else:
+            st.session_state.ai_model = st.text_input(
+                "Model ID",
+                value=st.session_state.ai_model or default_models.get(provider, ""),
+                help="Model IDs change over time; you can enter the exact model exposed by your account/provider.",
+            )
+
+        if provider in {"OpenAI API", "Google Gemini API", "Anthropic Claude API", "Cloud OpenAI-compatible"}:
+            st.session_state.ai_api_key = st.text_input(
+                "API key",
+                value=st.session_state.ai_api_key,
+                type="password",
+                help="Held only in the current Streamlit session. Do not commit API keys to GitHub.",
+            )
+        else:
+            st.session_state.ai_api_key = ""
+
+        st.session_state.ai_fallback = st.toggle(
+            "Use selected AI as fallback",
+            value=st.session_state.ai_fallback,
+            help="Known HARU skills still run locally first.",
+        )
+
+        test_col, clear_col = st.columns(2)
+        with test_col:
+            if st.button("Test AI connection", use_container_width=True):
+                try:
+                    st.session_state.ai_status = test_ai(current_ai_config())
+                except AiRuntimeError as exc:
+                    st.session_state.ai_status = f"Connection failed: {exc}"
+        with clear_col:
+            if st.button("Clear API key", use_container_width=True):
+                st.session_state.ai_api_key = ""
+                st.session_state.ai_status = "API key cleared for this session."
+                st.rerun()
+
+        st.caption(f"Status: {st.session_state.ai_status}")
+
+    st.divider()
+    st.markdown("#### HARU face")
     mood_options = ["IDLE", "LISTENING", "THINKING", "WORKING", "HAPPY", "CONFUSED", "ALERT", "SLEEPY"]
     selected_mood = st.selectbox("Preview expression", mood_options, index=mood_options.index(st.session_state.mood))
     if st.button("Apply mood"):
@@ -317,4 +476,4 @@ with st.expander("Developer panel"):
             st.write(f"**You:** {q}")
             st.write(f"**HARU:** {a}")
 
-st.markdown('<div class="footer">HARU Lab v0.2 • local-first assistant + news briefing</div>', unsafe_allow_html=True)
+st.markdown('<div class="footer">HARU Lab v0.3 • local-first assistant + selectable AI runtime</div>', unsafe_allow_html=True)
