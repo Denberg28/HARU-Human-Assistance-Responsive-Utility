@@ -1,5 +1,6 @@
 package io.haru.assistant.ui
 
+import android.view.Gravity
 import android.view.MotionEvent
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.RepeatMode
@@ -98,6 +99,10 @@ fun HaruScreen(
     locationShareCode: String,
     locationShareMapUrl: String,
     mapLocationStatus: String,
+    liveTrackedLocation: TrustedLocation?,
+    liveTrackingStatus: String,
+    liveShareActive: Boolean,
+    liveMonitorActive: Boolean,
     onSubmitClick: () -> Unit,
     onMicClick: () -> Unit,
     onSpeakClick: () -> Unit,
@@ -115,6 +120,8 @@ fun HaruScreen(
     onCreateLocationShare: (String, Int) -> Unit,
     onShareLocation: () -> Unit,
     onImportLocationShare: (String) -> Unit,
+    onStopLiveShare: () -> Unit,
+    onStopLiveMonitor: () -> Unit,
     onClearTrustedLocations: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -210,10 +217,16 @@ fun HaruScreen(
                         shareCode = locationShareCode,
                         shareMapUrl = locationShareMapUrl,
                         mapLocationStatus = mapLocationStatus,
+                        liveTrackedLocation = liveTrackedLocation,
+                        liveTrackingStatus = liveTrackingStatus,
+                        liveShareActive = liveShareActive,
+                        liveMonitorActive = liveMonitorActive,
                         onLocateMe = onLocateMe,
                         onCreateShare = onCreateLocationShare,
                         onShareLocation = onShareLocation,
                         onImportShare = onImportLocationShare,
+                        onStopLiveShare = onStopLiveShare,
+                        onStopLiveMonitor = onStopLiveMonitor,
                         onClear = onClearTrustedLocations,
                         onOpenUrl = onOpenUrl,
                     )
@@ -549,10 +562,16 @@ private fun MapPane(
     shareCode: String,
     shareMapUrl: String,
     mapLocationStatus: String,
+    liveTrackedLocation: TrustedLocation?,
+    liveTrackingStatus: String,
+    liveShareActive: Boolean,
+    liveMonitorActive: Boolean,
     onLocateMe: () -> Unit,
     onCreateShare: (String, Int) -> Unit,
     onShareLocation: () -> Unit,
     onImportShare: (String) -> Unit,
+    onStopLiveShare: () -> Unit,
+    onStopLiveMonitor: () -> Unit,
     onClear: () -> Unit,
     onOpenUrl: (String) -> Unit,
 ) {
@@ -619,6 +638,7 @@ private fun MapPane(
         TrustedLocationsMap(
             locations = locations,
             currentDeviceLocation = currentDeviceLocation,
+            liveTrackedLocation = liveTrackedLocation,
         )
         Text(
             "Map data © OpenStreetMap contributors · tiles/style by OpenFreeMap",
@@ -626,7 +646,7 @@ private fun MapPane(
         )
 
         Spacer(Modifier.height(12.dp))
-        Text("Share my location", fontWeight = FontWeight.SemiBold)
+        Text("Live location sharing", fontWeight = FontWeight.SemiBold)
         OutlinedTextField(
             value = shareName,
             onValueChange = { shareName = it.take(40) },
@@ -643,7 +663,7 @@ private fun MapPane(
             },
             modifier = Modifier.fillMaxWidth(),
         ) {
-            Text("Create 1-hour share")
+            Text(if (liveShareActive) "Live sharing active" else "Start 1-hour live share")
         }
 
         if (shareCode.isNotBlank()) {
@@ -680,7 +700,7 @@ private fun MapPane(
             }
 
             Text(
-                "The shared text contains a normal Google Maps link plus a HARU code for optional in-app import.",
+                "The share contains a HARU-LIVE code plus a Google Maps snapshot. Another HARU user can paste the live code to monitor updates until it expires.",
                 style = MaterialTheme.typography.labelSmall,
             )
         }
@@ -698,7 +718,79 @@ private fun MapPane(
             enabled = incomingCode.isNotBlank(),
             modifier = Modifier.fillMaxWidth(),
         ) {
-            Text("Add location")
+            Text(if (liveMonitorActive) "Monitoring live share" else "Open shared location")
+        }
+
+        if (liveTrackingStatus.isNotBlank()) {
+            Text(
+                liveTrackingStatus,
+                style = MaterialTheme.typography.labelSmall,
+            )
+        }
+
+        if (liveShareActive || liveMonitorActive) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                if (liveShareActive) {
+                    OutlinedButton(
+                        onClick = onStopLiveShare,
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Text("Stop sharing")
+                    }
+                }
+
+                if (liveMonitorActive) {
+                    OutlinedButton(
+                        onClick = onStopLiveMonitor,
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Text("Stop monitoring")
+                    }
+                }
+            }
+        }
+
+        if (liveTrackedLocation != null) {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 4.dp),
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            "● " + liveTrackedLocation.name,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        Text(
+                            "Live marker · " +
+                                (liveTrackedLocation.accuracyM?.let {
+                                    "±" + it.toInt() + " m"
+                                } ?: "accuracy unavailable"),
+                            style = MaterialTheme.typography.labelSmall,
+                        )
+                    }
+                    TextButton(
+                        onClick = {
+                            onOpenUrl(
+                                "https://www.google.com/maps/search/?api=1&query=" +
+                                    liveTrackedLocation.latitude + "," +
+                                    liveTrackedLocation.longitude
+                            )
+                        }
+                    ) {
+                        Text("Google Maps ↗")
+                    }
+                }
+            }
         }
 
         if (locations.isNotEmpty()) {
@@ -759,10 +851,12 @@ private fun MapPane(
 private fun TrustedLocationsMap(
     locations: List<TrustedLocation>,
     currentDeviceLocation: TrustedLocation?,
+    liveTrackedLocation: TrustedLocation?,
 ) {
     val context = LocalContext.current
     val allLocations = buildList {
         currentDeviceLocation?.let(::add)
+        liveTrackedLocation?.let(::add)
         addAll(locations)
     }
     val renderKey = allLocations.joinToString("|") {
@@ -800,7 +894,19 @@ private fun TrustedLocationsMap(
                     setRotateGesturesEnabled(true)
                     setTiltGesturesEnabled(false)
                     setCompassEnabled(true)
-                    setCompassFadeFacingNorth(false)
+                    setCompassFadeFacingNorth(true)
+                    setCompassGravity(
+                        Gravity.TOP or Gravity.END
+                    )
+                    val compassMargin =
+                        (16f * resources.displayMetrics.density)
+                            .toInt()
+                    setCompassMargins(
+                        0,
+                        compassMargin,
+                        compassMargin,
+                        0,
+                    )
                 }
 
                 map.setMinZoomPreference(3.0)
@@ -879,6 +985,7 @@ private fun TrustedLocationsMap(
 
                         val focus =
                             currentDeviceLocation ?:
+                                liveTrackedLocation ?:
                                 locations.lastOrNull()
 
                         if (focus != null) {
@@ -907,50 +1014,12 @@ private fun TrustedLocationsMap(
                 modifier = Modifier.fillMaxSize(),
             )
 
-            Column(
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(8.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                Button(
-                    onClick = {
-                        mapController?.easeCamera(
-                            CameraUpdateFactory.zoomBy(1.0),
-                            140,
-                        )
-                    },
-                    enabled = mapController != null,
-                ) {
-                    Text("+")
-                }
 
-                Button(
-                    onClick = {
-                        mapController?.easeCamera(
-                            CameraUpdateFactory.zoomBy(-1.0),
-                            140,
-                        )
-                    },
-                    enabled = mapController != null,
-                ) {
-                    Text("−")
-                }
-
-                OutlinedButton(
-                    onClick = {
-                        mapController?.resetNorth()
-                    },
-                    enabled = mapController != null,
-                ) {
-                    Text("N")
-                }
-            }
         }
     }
 
     Text(
-        "Pinch/quick zoom enabled · rotate with two fingers · N resets north · MapLibre compass is enabled.",
+        "Pinch/quick zoom enabled · rotate with two fingers · tap the native compass to return north.",
         style = MaterialTheme.typography.labelSmall,
     )
 }
