@@ -30,12 +30,12 @@ data class CompanionSnapshot(
         }
 
         reminders
-            .filter { it.dueAt > now }
             .sortedBy { it.dueAt }
             .take(2)
             .forEach { reminder ->
-                val minutes = ((reminder.dueAt - now) / 60_000L).coerceAtLeast(0)
+                val minutes = (reminder.dueAt - now) / 60_000L
                 val whenText = when {
+                    minutes <= 0 -> "due now"
                     minutes < 60 -> "in " + minutes + " min"
                     minutes < 1440 -> "in " + (minutes / 60) + " hr"
                     else -> "in " + (minutes / 1440) + " day"
@@ -154,7 +154,7 @@ class AndroidCompanionStore(
 
     private fun saveNotes(notes: List<String>) {
         val array = JSONArray()
-        notes.takeLast(200).forEach(array::put)
+        notes.takeLast(200).forEach { note -> array.put(note) }
         preferences.edit().putString("notes", array.toString()).apply()
     }
 
