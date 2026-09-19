@@ -12,7 +12,7 @@ USER_AGENT = (
     "HARU-Human-Assistance-Responsive-Utility)"
 )
 
-PAGASA_WEATHER_URL = "https://www.pagasa.dost.gov.ph/weather"
+PAGASA_WEATHER_URL = "https://bagong.pagasa.dost.gov.ph/weather"
 PAGASA_ADVISORY_URL = "https://www.pagasa.dost.gov.ph/weather/weather-advisory"
 PAGASA_TC_URL = "https://bagong.pagasa.dost.gov.ph/tropical-cyclone-bulletin-iframe"
 PHIVOLCS_EQ_URL = "https://earthquake.phivolcs.dost.gov.ph/"
