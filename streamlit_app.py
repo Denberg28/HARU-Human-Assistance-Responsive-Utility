@@ -1206,64 +1206,54 @@ with hazard_tab:
     header_left, header_right = st.columns([3, 1])
     with header_left:
         st.subheader("Hazard Advisories")
-        st.caption(
-            "Official Philippine situational information from PAGASA, PHIVOLCS, and UP NOAH."
-        )
+        st.caption("Latest official Philippine hazard information.")
     with header_right:
         if st.button("Refresh hazards", use_container_width=True):
             st.session_state.hazard_refresh_nonce += 1
             st.cache_data.clear()
             st.rerun()
 
-    st.info(
-        "For situational awareness only. Follow official agency and local-government evacuation or emergency instructions."
-    )
-
-    st.markdown("### 🛰️ Live PAGASA PANaHON Map")
-    st.caption(
-        "Primary visual aid: near-real-time PAGASA weather, radar, satellite, lightning, warnings, "
-        "river-basin observations, numerical weather prediction, and hazard layers."
-    )
+    st.markdown("### 🛰️ Live PAGASA PANaHON")
     with st.container(border=True):
         components.iframe(
             "https://www.panahon.gov.ph/",
-            height=520,
+            height=500,
             scrolling=True,
         )
         st.link_button(
-            "Open PANaHON full screen",
+            "Open full-screen map",
             "https://www.panahon.gov.ph/",
             use_container_width=True,
         )
 
-    with st.spinner("Checking official hazard sources…"):
+    with st.spinner("Checking official advisories…"):
         pagasa_items, phivolcs_items, noah_items, hazard_errors = fetch_hazards_cached(
             st.session_state.hazard_refresh_nonce
         )
 
-    weather_col, quake_col = st.columns(2, gap="large")
-    with weather_col:
+    pagasa_col, phivolcs_col = st.columns(2, gap="large")
+
+    with pagasa_col:
         st.markdown("### 🌧️ PAGASA")
-        st.caption("Weather, advisories, and tropical-cyclone information")
-        render_hazard_events(pagasa_items)
+        render_hazard_events(pagasa_items[:1])
 
-    with quake_col:
+    with phivolcs_col:
         st.markdown("### 🌋 PHIVOLCS")
-        st.caption("Latest Philippine earthquake information")
-        render_hazard_events(phivolcs_items)
+        render_hazard_events(phivolcs_items[:3])
 
-    st.markdown("### 🗺️ UP NOAH")
+    if noah_items:
+        event = noah_items[0]
+        st.markdown("### 🗺️ UP NOAH")
+        st.caption(event.summary)
+        st.link_button(
+            "Open local hazard map",
+            event.url,
+            use_container_width=False,
+        )
+
     st.caption(
-        "Rainfall, typhoon-track, flood, landslide, and storm-surge hazard context. "
-        "NOAH layers are map/context products rather than emergency bulletins."
+        "Situational awareness only. Follow official agency and local-government emergency instructions."
     )
-    noah_cols = st.columns(min(3, max(1, len(noah_items))))
-    for index, event in enumerate(noah_items):
-        with noah_cols[index % len(noah_cols)]:
-            st.markdown(f"**{event.title}**")
-            st.caption(event.source)
-            st.write(event.summary)
-            st.link_button("Open NOAH", event.url, use_container_width=True)
 
     if hazard_errors:
         with st.expander("Source status"):
@@ -1894,4 +1884,4 @@ if os.environ.get("HARU_DEBUG", "").strip() == "1":
                 st.write(f"**You:** {q}")
                 st.write(f"**HARU:** {a}")
 
-st.markdown("<div class=\"footer\">HARU Lab v3.6 • hazard advisories + live PANaHON</div>", unsafe_allow_html=True)
+st.markdown("<div class=\"footer\">HARU Lab v3.7 • concise hazard advisories</div>", unsafe_allow_html=True)
