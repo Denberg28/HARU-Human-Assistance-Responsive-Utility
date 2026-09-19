@@ -899,12 +899,12 @@ private fun AppUpdateDialog(
                         onClick = { onInstallUpdate(updateUrl) },
                         modifier = Modifier.fillMaxWidth(),
                     ) {
-                        Text("Download & install update")
+                        Text("Open update download")
                     }
                 }
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    "HARU downloads the signed update and opens Android's installer. Install over the current app to preserve your data.",
+                    "HARU opens the release APK in your browser. Android handles the normal APK install flow.",
                     style = MaterialTheme.typography.labelSmall,
                 )
             }
