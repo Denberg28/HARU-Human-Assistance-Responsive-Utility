@@ -1,6 +1,4 @@
-from datetime import datetime, timedelta, timezone
-import base64
-import json
+from datetime import datetime, timezone
 import ast
 import hashlib
 import html
@@ -39,6 +37,11 @@ from news_service import (
 from hazard_service import (
     HazardEvent,
     fetch_hazard_bundle,
+)
+from location_share import (
+    decode_location_share,
+    encode_location_share,
+    purge_expired_locations,
 )
 
 st.set_page_config(
@@ -134,76 +137,6 @@ DEFAULTS = {
 for key, value in DEFAULTS.items():
     if key not in st.session_state:
         st.session_state[key] = value.copy() if isinstance(value, (list, dict)) else value
-
-
-def encode_location_share(
-    name: str,
-    latitude: float,
-    longitude: float,
-    accuracy_m: float | None,
-    expires_hours: float,
-) -> str:
-    """Create an expiring, portable location snapshot code."""
-    payload = {
-        "v": 1,
-        "name": re.sub(r"\s+", " ", (name or "Loved one").strip())[:40],
-        "lat": round(float(latitude), 6),
-        "lon": round(float(longitude), 6),
-        "acc": round(float(accuracy_m), 1) if accuracy_m is not None else None,
-        "exp": int(
-            (
-                datetime.now(timezone.utc)
-                + timedelta(hours=max(0.25, min(float(expires_hours), 24.0)))
-            ).timestamp()
-        ),
-    }
-    raw = json.dumps(payload, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
-    return base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
-
-
-def decode_location_share(code: str) -> dict:
-    """Validate and decode a HARU location snapshot code."""
-    clean = re.sub(r"\s+", "", code or "")
-    if not clean or len(clean) > 600:
-        raise ValueError("Invalid location share code.")
-
-    padding = "=" * (-len(clean) % 4)
-    try:
-        payload = json.loads(
-            base64.urlsafe_b64decode(clean + padding).decode("utf-8")
-        )
-    except Exception as exc:
-        raise ValueError("Location share code could not be read.") from exc
-
-    if payload.get("v") != 1:
-        raise ValueError("Unsupported location share code.")
-
-    lat = float(payload.get("lat"))
-    lon = float(payload.get("lon"))
-    if not (-90 <= lat <= 90 and -180 <= lon <= 180):
-        raise ValueError("Location coordinates are invalid.")
-
-    expires = int(payload.get("exp") or 0)
-    if expires <= int(datetime.now(timezone.utc).timestamp()):
-        raise ValueError("This location share has expired.")
-
-    return {
-        "name": re.sub(r"\s+", " ", str(payload.get("name") or "Loved one"))[:40],
-        "lat": lat,
-        "lon": lon,
-        "accuracy_m": payload.get("acc"),
-        "expires": expires,
-    }
-
-
-def purge_expired_locations(items: list[dict]) -> list[dict]:
-    now_ts = int(datetime.now(timezone.utc).timestamp())
-    return [
-        item for item in items
-        if int(item.get("expires") or 0) > now_ts
-        and -90 <= float(item.get("lat", 999)) <= 90
-        and -180 <= float(item.get("lon", 999)) <= 180
-    ]
 
 
 def _safe_calc(expression: str) -> float:
@@ -1377,8 +1310,8 @@ with hazard_tab:
 with map_tab:
     st.subheader("Trusted Locations")
     st.caption(
-        "Share a phone location only with permission. HARU uses one-time GPS snapshots; "
-        "it does not track anyone in the background."
+        "Share a phone location only with permission. HARU uses temporary GPS snapshots, "
+        "not background tracking. Share codes are signed and expire automatically."
     )
 
     st.session_state.trusted_locations = purge_expired_locations(
@@ -1408,6 +1341,8 @@ with map_tab:
         }[expires_label]
 
         st.caption("Tap below and allow location access on this phone.")
+        if is_cloud_haru() and not os.environ.get("HARU_LOCATION_SHARE_SECRET", "").strip():
+            st.caption("Temporary signing key active: existing share codes may stop working after an app restart.")
         location = streamlit_geolocation()
 
         if isinstance(location, dict) and location.get("latitude") is not None:
@@ -2138,4 +2073,4 @@ if os.environ.get("HARU_DEBUG", "").strip() == "1":
                 st.write(f"**You:** {q}")
                 st.write(f"**HARU:** {a}")
 
-st.markdown("<div class=\"footer\">HARU Lab v3.9 • trusted location snapshots</div>", unsafe_allow_html=True)
+st.markdown("<div class=\"footer\">HARU Lab v4.0 • sanitized trusted locations</div>", unsafe_allow_html=True)
