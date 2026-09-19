@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -50,9 +51,7 @@ fun HaruScreen(
             )
 
             Spacer(Modifier.height(24.dp))
-
             HaruFace(mood = state.mood)
-
             Spacer(Modifier.height(20.dp))
 
             Card(modifier = Modifier.fillMaxWidth()) {
@@ -96,7 +95,10 @@ fun HaruScreen(
                 }
                 Spacer(Modifier.width(12.dp))
                 Button(
-                    onClick = { viewModel.updateCommand("help"); viewModel.submit() },
+                    onClick = {
+                        viewModel.updateCommand("help")
+                        viewModel.submit()
+                    },
                     enabled = !state.isBusy
                 ) {
                     Text("Help")
