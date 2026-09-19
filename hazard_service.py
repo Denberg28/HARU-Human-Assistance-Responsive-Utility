@@ -16,8 +16,6 @@ PAGASA_WEATHER_URL = "https://bagong.pagasa.dost.gov.ph/weather"
 PAGASA_ADVISORY_URL = "https://www.pagasa.dost.gov.ph/weather/weather-advisory"
 PAGASA_TC_URL = "https://bagong.pagasa.dost.gov.ph/tropical-cyclone-bulletin-iframe"
 PHIVOLCS_EQ_URL = "https://earthquake.phivolcs.dost.gov.ph/"
-NOAH_RAIN_URL = "https://noah.up.edu.ph/weather-updates/rainfall-contour"
-NOAH_TYPHOON_URL = "https://noah.up.edu.ph/weather-updates/typhoon-track"
 NOAH_HAZARD_URL = "https://noah.up.edu.ph/know-your-hazards"
 
 
@@ -107,11 +105,23 @@ def _between(text: str, start: str, stops: tuple[str, ...], limit: int = 520) ->
     return re.sub(r"\s+", " ", tail).strip(" :-")[:limit]
 
 
-def pagasa_events() -> list[HazardEvent]:
-    events: list[HazardEvent] = []
+def _unique_parts(parts: list[str]) -> list[str]:
+    result: list[str] = []
+    seen: set[str] = set()
+    for part in parts:
+        clean = re.sub(r"\s+", " ", part or "").strip(" .:-")
+        if not clean:
+            continue
+        key = re.sub(r"\W+", "", clean.lower())[:180]
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        result.append(clean)
+    return result
 
-    weather_html = _fetch_html(PAGASA_WEATHER_URL)
-    weather_text = _page_text(weather_html)
+
+def pagasa_events() -> list[HazardEvent]:
+    weather_text = _page_text(_fetch_html(PAGASA_WEATHER_URL))
 
     issued_match = re.search(
         r"Issued at:\s*([^S]{3,80}?)(?=\s+Synopsis\b)",
@@ -124,32 +134,21 @@ def pagasa_events() -> list[HazardEvent]:
         weather_text,
         "Synopsis",
         ("TC Information", "Forecast Weather Conditions"),
-        360,
+        300,
     )
     tc_info = _between(
         weather_text,
         "TC Information",
         ("Forecast Weather Conditions", "Forecast Wind"),
-        520,
+        360,
     )
 
-    summary_parts = []
-    if synopsis:
-        summary_parts.append(synopsis)
+    relevant_parts = [synopsis]
+    has_warning = False
+
     if tc_info and "no active tropical cyclone" not in tc_info.lower():
-        summary_parts.append(tc_info)
-
-    events.append(
-        HazardEvent(
-            source="DOST-PAGASA",
-            title="Daily weather and hazard outlook",
-            summary=" ".join(summary_parts)[:760]
-            or "Open the official PAGASA daily weather page for the latest nationwide outlook.",
-            issued=issued,
-            url=PAGASA_WEATHER_URL,
-            severity="watch",
-        )
-    )
+        relevant_parts.append(tc_info)
+        has_warning = True
 
     try:
         advisory_text = _page_text(_fetch_html(PAGASA_ADVISORY_URL))
@@ -157,54 +156,55 @@ def pagasa_events() -> list[HazardEvent]:
             advisory_text,
             "Weather Advisory",
             ("We always find ways", "Feedback"),
-            620,
+            420,
         )
-        if advisory:
-            events.append(
-                HazardEvent(
-                    source="DOST-PAGASA",
-                    title="Weather advisory",
-                    summary=advisory,
-                    url=PAGASA_ADVISORY_URL,
-                    severity=(
-                        "info"
-                        if "no weather advisory issued" in advisory.lower()
-                        else "warning"
-                    ),
-                )
-            )
+        if advisory and "no weather advisory issued" not in advisory.lower():
+            relevant_parts.append(advisory)
+            has_warning = True
     except Exception:
         pass
 
-    try:
-        tc_text = _page_text(_fetch_html(PAGASA_TC_URL))
-        tc_summary = _between(
-            tc_text,
-            "Tropical Cyclone Bulletin",
-            ("We always find ways", "Feedback"),
-            620,
-        )
-        if tc_summary:
-            events.append(
-                HazardEvent(
-                    source="DOST-PAGASA",
-                    title="Tropical cyclone bulletin",
-                    summary=tc_summary,
-                    url=PAGASA_TC_URL,
-                    severity=(
-                        "info"
-                        if "no active tropical cyclone" in tc_summary.lower()
-                        else "warning"
-                    ),
-                )
+    # Only read the separate TC bulletin when the daily weather page indicates
+    # an active cyclone; this avoids repeating the same no-cyclone message.
+    if has_warning and tc_info:
+        try:
+            tc_text = _page_text(_fetch_html(PAGASA_TC_URL))
+            tc_summary = _between(
+                tc_text,
+                "Tropical Cyclone Bulletin",
+                ("We always find ways", "Feedback"),
+                420,
             )
-    except Exception:
-        pass
+            if (
+                tc_summary
+                and "no active tropical cyclone" not in tc_summary.lower()
+            ):
+                relevant_parts.append(tc_summary)
+        except Exception:
+            pass
 
-    return events
+    summary_parts = _unique_parts(relevant_parts)
+    summary = " ".join(summary_parts)[:760] or (
+        "Open PAGASA for the latest nationwide weather and hazard outlook."
+    )
+
+    return [
+        HazardEvent(
+            source="DOST-PAGASA",
+            title=(
+                "Active weather advisory"
+                if has_warning
+                else "Current weather outlook"
+            ),
+            summary=summary,
+            issued=issued,
+            url=PAGASA_WEATHER_URL,
+            severity="warning" if has_warning else "watch",
+        )
+    ]
 
 
-def phivolcs_earthquakes(limit: int = 6) -> list[HazardEvent]:
+def phivolcs_earthquakes(limit: int = 3) -> list[HazardEvent]:
     html_text = _fetch_html(PHIVOLCS_EQ_URL)
     parser = _TableRowParser()
     parser.feed(html_text)
@@ -233,15 +233,17 @@ def phivolcs_earthquakes(limit: int = 6) -> list[HazardEvent]:
         except ValueError:
             mag_value = 0.0
 
+        # Keep the advisory pane focused on events that are more useful for
+        # general situational awareness; smaller events remain on PHIVOLCS.
+        if mag_value < 3.0:
+            continue
+
         severity = "warning" if mag_value >= 5 else "watch" if mag_value >= 4 else "info"
         events.append(
             HazardEvent(
                 source="DOST-PHIVOLCS",
                 title=f"M{magnitude} earthquake · {location}",
-                summary=(
-                    f"Depth {depth} km · Coordinates {latitude}°N, {longitude}°E. "
-                    "Check the official bulletin for reported intensities and updates."
-                ),
+                summary=f"Depth {depth} km. Check PHIVOLCS for intensities and updates.",
                 issued=date_time,
                 url=PHIVOLCS_EQ_URL,
                 severity=severity,
@@ -270,34 +272,13 @@ def noah_resources() -> list[HazardEvent]:
     return [
         HazardEvent(
             source="UP NOAH",
-            title="Current rainfall and typhoon context",
+            title="Local hazard map",
             summary=(
-                "NOAH combines current accumulated rainfall and typhoon-track layers "
-                "with hazard context for situational awareness."
-            ),
-            url=NOAH_RAIN_URL,
-            severity="watch",
-        ),
-        HazardEvent(
-            source="UP NOAH",
-            title="Typhoon track layer",
-            summary=(
-                "Open the NOAH typhoon-track view for current track context sourced "
-                "from operational weather providers."
-            ),
-            url=NOAH_TYPHOON_URL,
-            severity="watch",
-        ),
-        HazardEvent(
-            source="UP NOAH",
-            title="Know Your Hazards",
-            summary=(
-                "Point-based flood, landslide, and storm-surge hazard assessment. "
-                "Use this as hazard-map context, not as an emergency warning bulletin."
+                "Check flood, landslide, and storm-surge susceptibility for a specific location."
             ),
             url=NOAH_HAZARD_URL,
             severity="info",
-        ),
+        )
     ]
 
 
