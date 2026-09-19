@@ -1,7 +1,6 @@
 from datetime import datetime
 from pathlib import Path
 import ast
-import base64
 import hashlib
 import html
 import operator
@@ -677,184 +676,26 @@ def normalize_haru_mood(raw: str) -> str:
     return mapped if mapped in allowed else "IDLE"
 
 
-def cat_svg_for_mood(mood: str) -> str:
-    """Return a consistent monochrome HARU cat face for the requested mood."""
+def emoji_for_mood(mood: str) -> str:
+    """Return a simple, reliable Unicode emoji for HARU's current state."""
     mood = normalize_haru_mood(mood)
-
-    expressions = {
-        "IDLE": {
-            "eyes": """
-                <path d="M88 137 Q101 150 114 137" />
-                <path d="M206 137 Q219 150 232 137" />
-            """,
-            "mouth": """
-                <path d="M149 169 Q160 178 171 169" />
-                <path d="M160 177 Q155 190 143 189" />
-                <path d="M160 177 Q165 190 177 189" />
-            """,
-            "extra": "",
-        },
-        "HAPPY": {
-            "eyes": """
-                <path d="M87 143 Q101 126 115 143" />
-                <path d="M205 143 Q219 126 233 143" />
-            """,
-            "mouth": """
-                <path d="M139 172 Q160 205 181 172" />
-            """,
-            "extra": """
-                <path d="M72 179 Q62 184 57 193" />
-                <path d="M248 179 Q258 184 263 193" />
-            """,
-        },
-        "LISTENING": {
-            "eyes": """
-                <circle cx="101" cy="139" r="7" fill="#202428" stroke="none" />
-                <circle cx="219" cy="139" r="7" fill="#202428" stroke="none" />
-            """,
-            "mouth": """
-                <path d="M150 171 Q160 177 170 171" />
-                <path d="M160 177 Q155 188 145 187" />
-                <path d="M160 177 Q165 188 175 187" />
-            """,
-            "extra": """
-                <path d="M53 102 Q38 125 49 150" />
-                <path d="M267 102 Q282 125 271 150" />
-            """,
-        },
-        "THINKING": {
-            "eyes": """
-                <path d="M86 132 Q101 123 116 132" />
-                <circle cx="219" cy="140" r="7" fill="#202428" stroke="none" />
-            """,
-            "mouth": """
-                <path d="M147 178 Q160 172 173 178" />
-            """,
-            "extra": """
-                <path d="M246 81 Q260 65 275 74 Q287 82 280 96 Q276 104 265 107" />
-                <circle cx="264" cy="120" r="3.5" fill="#202428" stroke="none" />
-            """,
-        },
-        "WORKING": {
-            "eyes": """
-                <circle cx="101" cy="139" r="6" fill="#202428" stroke="none" />
-                <circle cx="219" cy="139" r="6" fill="#202428" stroke="none" />
-                <path d="M87 121 Q101 115 115 121" />
-                <path d="M205 121 Q219 115 233 121" />
-            """,
-            "mouth": """
-                <path d="M150 174 Q160 181 170 174" />
-            """,
-            "extra": """
-                <path d="M130 207 H190" />
-                <path d="M140 217 H180" />
-            """,
-        },
-        "CONFUSED": {
-            "eyes": """
-                <circle cx="101" cy="142" r="6.5" fill="#202428" stroke="none" />
-                <circle cx="219" cy="142" r="6.5" fill="#202428" stroke="none" />
-                <path d="M84 122 Q98 113 112 121" />
-                <path d="M208 121 Q222 113 236 122" />
-            """,
-            "mouth": """
-                <path d="M145 183 Q160 167 175 183" />
-            """,
-            "extra": """
-                <path d="M248 77 Q259 64 273 72 Q284 79 279 91 Q275 99 265 101" />
-                <circle cx="265" cy="113" r="3.5" fill="#202428" stroke="none" />
-            """,
-        },
-        "ALERT": {
-            "eyes": """
-                <ellipse cx="101" cy="140" rx="7" ry="11" />
-                <ellipse cx="219" cy="140" rx="7" ry="11" />
-            """,
-            "mouth": """
-                <ellipse cx="160" cy="181" rx="9" ry="12" />
-            """,
-            "extra": """
-                <path d="M132 55 L126 37" />
-                <path d="M160 50 L160 29" />
-                <path d="M188 55 L194 37" />
-            """,
-        },
-        "SLEEPY": {
-            "eyes": """
-                <path d="M87 142 Q101 151 115 142" />
-                <path d="M205 142 Q219 151 233 142" />
-            """,
-            "mouth": """
-                <ellipse cx="160" cy="183" rx="9" ry="12" />
-            """,
-            "extra": """
-                <path d="M250 89 H269 L251 105 H270" />
-                <path d="M266 61 H280 L267 73 H281" />
-            """,
-        },
-    }
-
-    exp = expressions[mood]
-
-    svg = f"""
-    <div class="haru-cat-wrap">
-      <svg xmlns="http://www.w3.org/2000/svg" class="haru-cat" viewBox="0 0 320 280" role="img" aria-label="HARU {mood.lower()} expression">
-        <g fill="none" stroke="#202428" stroke-width="8" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M67 95
-                   C62 72 70 38 87 24
-                   C94 18 103 21 110 28
-                   L143 59
-                   Q160 53 177 59
-                   L210 28
-                   C217 21 226 18 233 24
-                   C250 38 258 72 253 95
-                   C267 119 270 151 263 178
-                   C252 224 211 249 160 249
-                   C109 249 68 224 57 178
-                   C50 151 53 119 67 95 Z" />
-          <path d="M61 154 L18 148" />
-          <path d="M61 169 L14 171" />
-          <path d="M65 184 L23 198" />
-          <path d="M259 154 L302 148" />
-          <path d="M259 169 L306 171" />
-          <path d="M255 184 L297 198" />
-          {exp["eyes"]}
-          <path d="M151 158 Q160 165 169 158 Q160 175 151 158 Z" fill="#202428" />
-          {exp["mouth"]}
-          {exp["extra"]}
-        </g>
-      </svg>
-    </div>
-    """
-    return " ".join(svg.split())
+    return {
+        "IDLE": "🙂",
+        "HAPPY": "😊",
+        "LISTENING": "👂",
+        "THINKING": "🤔",
+        "WORKING": "🛠️",
+        "CONFUSED": "😕",
+        "ALERT": "😮",
+        "SLEEPY": "😴",
+    }.get(mood, "🙂")
 
 
 def render_haru_mascot(mood: str) -> None:
-    """Render HARU's mood SVG as an image for maximum Streamlit compatibility."""
-    markup = cat_svg_for_mood(mood)
-    svg_start = markup.find("<svg")
-    svg_end = markup.rfind("</svg>")
-    if svg_start < 0 or svg_end < 0:
-        return
-
-    svg = markup[svg_start : svg_end + len("</svg>")]
-    if 'xmlns="http://www.w3.org/2000/svg"' not in svg:
-        svg = svg.replace(
-            "<svg ",
-            '<svg xmlns="http://www.w3.org/2000/svg" ',
-            1,
-        )
-
-    encoded = base64.b64encode(svg.encode("utf-8")).decode("ascii")
-
+    """Render HARU as a basic mood-responsive emoji."""
+    emoji = emoji_for_mood(mood)
     st.markdown(
-        (
-            '<div class="haru-cat-wrap">'
-            f'<img class="haru-cat" '
-            f'src="data:image/svg+xml;base64,{encoded}" '
-            f'alt="HARU {html.escape(normalize_haru_mood(mood).lower())} expression">'
-            '</div>'
-        ),
+        f'<div class="haru-emoji" role="img" aria-label="HARU {normalize_haru_mood(mood).lower()}">{emoji}</div>',
         unsafe_allow_html=True,
     )
 
@@ -966,25 +807,21 @@ st.markdown(
           font-size:.9rem;
           margin:.15rem 0 .45rem 0;
       }
-      .haru-cat-wrap {
+      .haru-emoji {
           display:flex;
           justify-content:center;
           align-items:center;
           width:100%;
-          margin:.25rem 0 .1rem;
-          overflow:hidden;
+          min-height:150px;
+          margin:.15rem 0 .05rem;
+          font-size:7.4rem;
+          line-height:1;
+          user-select:none;
+          animation:haru-emoji-breathe 2.6s ease-in-out infinite alternate;
       }
-      .haru-cat {
-          width:245px;
-          max-width:72vw;
-          height:auto;
-          display:block;
-          object-fit:contain;
-          animation:haru-breathe 2.6s ease-in-out infinite alternate;
-      }
-      @keyframes haru-breathe {
-          from { transform:translateY(0) scale(.995); }
-          to { transform:translateY(-2px) scale(1.005); }
+      @keyframes haru-emoji-breathe {
+          from { transform:translateY(0) scale(.98); }
+          to { transform:translateY(-3px) scale(1.02); }
       }
       .status {
           text-align:center;
@@ -1056,7 +893,7 @@ st.markdown(
       @media (max-width: 640px) {
           .block-container { padding-top: 2.4rem; }
           .haru-title { font-size:1.8rem; }
-          .haru-cat { width:220px; max-width:78vw; }
+          .haru-emoji { min-height:130px; font-size:6.2rem; }
       }
     </style>
     """,
@@ -1729,4 +1566,4 @@ with st.expander("Developer panel"):
             st.write(f"**You:** {q}")
             st.write(f"**HARU:** {a}")
 
-st.markdown("<div class=\"footer\">HARU Lab v2.5.3 • fixed standalone mood SVG</div>", unsafe_allow_html=True)
+st.markdown("<div class=\"footer\">HARU Lab v2.6 • reliable mood-responsive emoji</div>", unsafe_allow_html=True)
