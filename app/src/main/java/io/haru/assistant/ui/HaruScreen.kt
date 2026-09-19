@@ -449,7 +449,7 @@ private fun NewsEntry(
             style = MaterialTheme.typography.labelSmall,
         )
         TextButton(onClick = { onOpenUrl(item.link) }) {
-            Text("Open ↗")
+            Text("Google Maps ↗")
         }
         HorizontalDivider()
     }
@@ -742,14 +742,8 @@ private fun MapPane(
                     TextButton(
                         onClick = {
                             onOpenUrl(
-                                "https://www.openstreetmap.org/?mlat=" +
-                                    item.latitude +
-                                    "&mlon=" +
-                                    item.longitude +
-                                    "#map=14/" +
-                                    item.latitude +
-                                    "/" +
-                                    item.longitude
+                                "https://www.google.com/maps/search/?api=1&query=" +
+                                    item.latitude + "," + item.longitude
                             )
                         }
                     ) {
