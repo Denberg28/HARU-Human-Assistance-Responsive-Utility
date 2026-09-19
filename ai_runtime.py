@@ -191,11 +191,15 @@ def ask_ai(
             raise AiRuntimeError("Ollama returned no text.")
         return text
 
-    if provider in {"Local OpenAI-compatible", "Cloud OpenAI-compatible"}:
-        base = _normalize_endpoint(config.endpoint, "http://localhost:1234")
+    if provider in {"Local OpenAI-compatible", "Cloud OpenAI-compatible", "OpenRouter API"}:
+        default_base = "https://openrouter.ai/api" if provider == "OpenRouter API" else "http://localhost:1234"
+        base = _normalize_endpoint(config.endpoint, default_base)
         headers = {}
         if config.api_key:
             headers["Authorization"] = f"Bearer {config.api_key}"
+        if provider == "OpenRouter API":
+            headers["HTTP-Referer"] = "https://github.com/Denberg28/HARU-Human-Assistance-Responsive-Utility"
+            headers["X-Title"] = "HARU"
         messages = []
         if system_prompt:
             messages.append({"role": "system", "content": system_prompt})
