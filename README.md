@@ -43,7 +43,10 @@ For Streamlit Cloud, configure:
 ```toml
 GEMINI_API_KEY = "..."
 OPENROUTER_API_KEY = "..."
+HARU_LOCATION_SHARE_SECRET = "use-a-long-random-secret"
 ```
+
+`HARU_LOCATION_SHARE_SECRET` signs temporary Trusted Locations share codes so they remain valid across Streamlit app restarts. Location codes contain the shared coordinates and should only be sent to people the user trusts.
 
 ## Android
 
