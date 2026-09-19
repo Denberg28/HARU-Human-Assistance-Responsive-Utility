@@ -795,7 +795,7 @@ def cat_svg_for_mood(mood: str) -> str:
 
     exp = expressions[mood]
 
-    return f"""
+    svg = f"""
     <div class="haru-cat-wrap">
       <svg class="haru-cat" viewBox="0 0 320 280" role="img" aria-label="HARU {mood.lower()} expression">
         <g fill="none" stroke="#202428" stroke-width="8" stroke-linecap="round" stroke-linejoin="round">
@@ -811,16 +811,13 @@ def cat_svg_for_mood(mood: str) -> str:
                    C252 224 211 249 160 249
                    C109 249 68 224 57 178
                    C50 151 53 119 67 95 Z" />
-
           <path d="M61 154 L18 148" />
           <path d="M61 169 L14 171" />
           <path d="M65 184 L23 198" />
           <path d="M259 154 L302 148" />
           <path d="M259 169 L306 171" />
           <path d="M255 184 L297 198" />
-
           {exp["eyes"]}
-
           <path d="M151 158 Q160 165 169 158 Q160 175 151 158 Z" fill="#202428" />
           {exp["mouth"]}
           {exp["extra"]}
@@ -828,10 +825,13 @@ def cat_svg_for_mood(mood: str) -> str:
       </svg>
     </div>
     """
+    return " ".join(svg.split())
 
 
 def render_haru_mascot(mood: str) -> None:
-    st.markdown(cat_svg_for_mood(mood), unsafe_allow_html=True)
+    # st.html renders SVG as HTML instead of interpreting indented SVG tags
+    # as Markdown code blocks.
+    st.html(cat_svg_for_mood(mood))
 
 
 def render_latest_history_tracker() -> None:
@@ -945,7 +945,9 @@ st.markdown(
           display:flex;
           justify-content:center;
           align-items:center;
+          width:100%;
           margin:.25rem 0 .1rem;
+          overflow:hidden;
       }
       .haru-cat {
           width:245px;
@@ -1701,4 +1703,4 @@ with st.expander("Developer panel"):
             st.write(f"**You:** {q}")
             st.write(f"**HARU:** {a}")
 
-st.markdown("<div class=\"footer\">HARU Lab v2.5 • mood-responsive line-art cat + communication tracker</div>", unsafe_allow_html=True)
+st.markdown("<div class=\"footer\">HARU Lab v2.5.1 • fixed mood-responsive line-art cat</div>", unsafe_allow_html=True)
