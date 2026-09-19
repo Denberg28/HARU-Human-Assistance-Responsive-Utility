@@ -27,7 +27,7 @@ jobs:
 
       - name: Compile Python runtime
         run: |
-          python -m compileall -q streamlit_app.py ai_runtime.py credential_store.py news_service.py hazard_service.py location_share.py tests
+          python -m compileall -q streamlit_app.py ai_runtime.py credential_store.py news_service.py hazard_service.py location_share.py companion_store.py tests
 
       - name: Run offline unit tests
         run: python -m unittest discover -s tests -v
