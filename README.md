@@ -55,3 +55,18 @@ Open the repository in Android Studio, allow Gradle sync, and run the `app` conf
 ## Reliability scope
 
 HARU is intentionally small: one UI shell, deterministic local skills, provider adapters, bounded external requests, and minimal persistent state. Add integrations as isolated adapters rather than expanding the core UI.
+
+
+## Companion Core
+
+HARU keeps the companion loop intentionally small:
+
+- local notes and tasks
+- relative reminders such as `remind me in 30 minutes to charge batteries`
+- a compact Today summary
+- Android system reminder notifications that can fire while HARU is closed
+- Android reminders are restored after phone reboot
+
+Desktop/local Streamlit stores companion state privately in `~/.haru/companion.json`.
+Streamlit Cloud keeps notes, tasks, and reminders session-only to avoid cross-user persistence.
+Android stores companion state in app-private preferences.
