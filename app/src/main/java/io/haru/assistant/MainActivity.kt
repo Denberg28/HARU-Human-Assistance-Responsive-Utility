@@ -11,6 +11,7 @@ import android.location.LocationManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
 import android.os.Looper
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -87,6 +88,8 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
     }
 
     private var pendingLocationPurpose = LocationRequestPurpose.NONE
+    private var activeLocationListener: LocationListener? = null
+    private val mainHandler = Handler(Looper.getMainLooper())
 
     private val audioPermissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -350,10 +353,18 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
     }
 
     private fun openUrl(url: String) {
-        if (!url.startsWith("https://")) return
+        val clean = url.trim()
+        if (clean.length !in 1..MAX_EXTERNAL_URL_CHARS) return
+
+        val uri = runCatching { Uri.parse(clean) }.getOrNull() ?: return
+        if (!uri.scheme.equals("https", ignoreCase = true)) return
+        if (uri.host.isNullOrBlank()) return
+
         runCatching {
             startActivity(
-                Intent(Intent.ACTION_VIEW, Uri.parse(url))
+                Intent(Intent.ACTION_VIEW, uri).apply {
+                    addCategory(Intent.CATEGORY_BROWSABLE)
+                }
             )
         }
     }
@@ -448,14 +459,41 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
             return
         }
 
+        activeLocationListener?.let {
+            runCatching { manager.removeUpdates(it) }
+        }
+
         val listener = object : LocationListener {
             override fun onLocationChanged(location: Location) {
-                manager.removeUpdates(this)
+                runCatching { manager.removeUpdates(this) }
+                if (activeLocationListener === this) {
+                    activeLocationListener = null
+                }
+                mainHandler.removeCallbacksAndMessages(LOCATION_TIMEOUT_TOKEN)
                 handleCapturedLocation(location)
             }
 
             override fun onProviderDisabled(provider: String) = Unit
             override fun onProviderEnabled(provider: String) = Unit
+        }
+        activeLocationListener = listener
+
+        val timeout = Runnable {
+            if (activeLocationListener === listener) {
+                runCatching { manager.removeUpdates(listener) }
+                activeLocationListener = null
+                when (pendingLocationPurpose) {
+                    LocationRequestPurpose.MAP ->
+                        mapLocationStatus =
+                            "GPS request timed out. Try again outdoors or enable precise location."
+                    LocationRequestPurpose.SHARE ->
+                        onlineStatus =
+                            "Location request timed out. Try again."
+                    LocationRequestPurpose.NONE -> Unit
+                }
+                pendingLocationPurpose =
+                    LocationRequestPurpose.NONE
+            }
         }
 
         runCatching {
@@ -464,7 +502,15 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
                 listener,
                 Looper.getMainLooper(),
             )
+            mainHandler.postAtTime(
+                timeout,
+                LOCATION_TIMEOUT_TOKEN,
+                System.currentTimeMillis() + LOCATION_TIMEOUT_MS,
+            )
         }.onFailure {
+            runCatching { manager.removeUpdates(listener) }
+            activeLocationListener = null
+            mainHandler.removeCallbacksAndMessages(LOCATION_TIMEOUT_TOKEN)
             when (pendingLocationPurpose) {
                 LocationRequestPurpose.MAP ->
                     mapLocationStatus =
@@ -695,10 +741,27 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
 
     override fun onStop() {
         voiceController.releaseTransientResources()
+        currentDeviceLocation = null
+        mapLocationStatus = ""
+        locationShareCode = ""
+
+        if (::trustedLocationManager.isInitialized) {
+            val manager =
+                getSystemService(Context.LOCATION_SERVICE) as LocationManager
+            activeLocationListener?.let {
+                runCatching { manager.removeUpdates(it) }
+            }
+            activeLocationListener = null
+            mainHandler.removeCallbacksAndMessages(LOCATION_TIMEOUT_TOKEN)
+            pendingLocationPurpose =
+                LocationRequestPurpose.NONE
+        }
+
         super.onStop()
     }
 
     override fun onDestroy() {
+        mainHandler.removeCallbacksAndMessages(null)
         voiceController.shutdown()
         super.onDestroy()
     }
@@ -710,6 +773,10 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
         }
 
     companion object {
+        private const val MAX_EXTERNAL_URL_CHARS = 4096
+        private const val LOCATION_TIMEOUT_MS = 15_000L
+        private val LOCATION_TIMEOUT_TOKEN = Any()
+
         private const val SYSTEM_PROMPT =
             "You are HARU, a concise and practical personal companion. " +
                 "Use local device tools for notes, tasks, reminders, voice, hazards, news, and trusted locations. " +
