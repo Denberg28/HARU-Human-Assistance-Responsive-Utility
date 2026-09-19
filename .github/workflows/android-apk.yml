@@ -53,7 +53,7 @@ jobs:
         shell: bash
         run: |
           VERSION=$(grep -m1 'versionName = ' app/build.gradle.kts | sed -E 's/.*"([^"]+)".*/\1/')
-          APK="HARU-v$VERSION-arm64.apk"
+          APK="HARU-v$VERSION-Standalone-arm64.apk"
           cp app/build/outputs/apk/release/app-release.apk "$APK"
           sha256sum "$APK" > "$APK.sha256"
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
@@ -62,10 +62,10 @@ jobs:
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: HARU-v0.3.2-arm64
+          name: HARU-v0.3.3-Standalone-arm64
           path: |
-            HARU-v0.3.2-arm64.apk
-            HARU-v0.3.2-arm64.apk.sha256
+            HARU-v0.3.3-Standalone-arm64.apk
+            HARU-v0.3.3-Standalone-arm64.apk.sha256
           if-no-files-found: error
           retention-days: 14
 
@@ -75,7 +75,7 @@ jobs:
         shell: bash
         run: |
           TAG="v$VERSION"
-          NOTES="HARU Android $TAG: normal browser-based APK updates, no package-install permission, native MapLibre map, summarized PAGASA weather, live Gemini refresh, and low-battery cleanup."
+          NOTES="HARU Android $TAG standalone installer: no in-app updater, no package-install permission, no local AI stack, native MapLibre map, summarized PAGASA weather, live Gemini model refresh, and low-battery cleanup. Uninstall an older HARU build before installing this standalone package if Android identifies the APK as an update."
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" "$APK" "$APK.sha256" --clobber
             gh release edit "$TAG" --title "HARU $TAG" --notes "$NOTES" --latest
