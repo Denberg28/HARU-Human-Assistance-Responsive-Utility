@@ -677,25 +677,26 @@ def normalize_haru_mood(raw: str) -> str:
 
 
 def emoji_for_mood(mood: str) -> str:
-    """Return a simple, reliable Unicode emoji for HARU's current state."""
+    """Return HARU's cute chibi cat-style kaomoji for the current state."""
     mood = normalize_haru_mood(mood)
     return {
-        "IDLE": "🙂",
-        "HAPPY": "😊",
-        "LISTENING": "👂",
-        "THINKING": "🤔",
-        "WORKING": "🛠️",
-        "CONFUSED": "😕",
-        "ALERT": "😮",
-        "SLEEPY": "😴",
-    }.get(mood, "🙂")
+        "IDLE": "₍^. .^₎⟆",
+        "HAPPY": "₍^ >ヮ<^₎♡",
+        "LISTENING": "₍^. ̫ .^₎♫",
+        "THINKING": "₍^. .^₎?",
+        "WORKING": "₍^•⩊•^₎⚙",
+        "CONFUSED": "₍^. .^₎՞",
+        "ALERT": "₍⊙ᆺ⊙₎!",
+        "SLEEPY": "₍^-.-^₎ zZ",
+    }.get(mood, "₍^. .^₎⟆")
 
 
 def render_haru_mascot(mood: str) -> None:
-    """Render HARU as a basic mood-responsive emoji."""
-    emoji = emoji_for_mood(mood)
+    """Render HARU as a cute, lightweight, mood-responsive chibi face."""
+    face = html.escape(emoji_for_mood(mood))
+    label = html.escape(normalize_haru_mood(mood).lower())
     st.markdown(
-        f'<div class="haru-emoji" role="img" aria-label="HARU {normalize_haru_mood(mood).lower()}">{emoji}</div>',
+        f'<div class="haru-emoji" role="img" aria-label="HARU {label}">{face}</div>',
         unsafe_allow_html=True,
     )
 
@@ -812,11 +813,17 @@ st.markdown(
           justify-content:center;
           align-items:center;
           width:100%;
-          min-height:150px;
+          min-height:138px;
           margin:.15rem 0 .05rem;
-          font-size:7.4rem;
-          line-height:1;
+          padding:.15rem .35rem;
+          font-size:3.45rem;
+          font-weight:700;
+          line-height:1.15;
+          letter-spacing:.01em;
+          text-align:center;
+          white-space:nowrap;
           user-select:none;
+          font-family:"Segoe UI Symbol","Noto Sans Symbols 2","Arial Unicode MS",sans-serif;
           animation:haru-emoji-breathe 2.6s ease-in-out infinite alternate;
       }
       @keyframes haru-emoji-breathe {
@@ -893,7 +900,7 @@ st.markdown(
       @media (max-width: 640px) {
           .block-container { padding-top: 2.4rem; }
           .haru-title { font-size:1.8rem; }
-          .haru-emoji { min-height:130px; font-size:6.2rem; }
+          .haru-emoji { min-height:112px; font-size:2.55rem; }
       }
     </style>
     """,
@@ -1566,4 +1573,4 @@ with st.expander("Developer panel"):
             st.write(f"**You:** {q}")
             st.write(f"**HARU:** {a}")
 
-st.markdown("<div class=\"footer\">HARU Lab v2.6 • reliable mood-responsive emoji</div>", unsafe_allow_html=True)
+st.markdown("<div class=\"footer\">HARU Lab v2.7 • chibi cat mood set</div>", unsafe_allow_html=True)
