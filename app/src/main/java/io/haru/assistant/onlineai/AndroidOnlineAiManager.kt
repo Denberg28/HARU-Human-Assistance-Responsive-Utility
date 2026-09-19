@@ -67,8 +67,17 @@ class AndroidOnlineAiManager(
                     val item = array.optJSONObject(i) ?: continue
                     val id = item.optString("id").trim()
                     val label = item.optString("label").trim()
-                    if (id.startsWith("gemini-") && label.isNotBlank()) {
-                        add(GeminiModel(id, label))
+                    if (
+                        SAFE_MODEL_ID.matches(id) &&
+                        label.isNotBlank() &&
+                        label.length <= MAX_MODEL_LABEL_CHARS
+                    ) {
+                        add(
+                            GeminiModel(
+                                id = id,
+                                label = label,
+                            )
+                        )
                     }
                 }
             }
@@ -100,7 +109,7 @@ class AndroidOnlineAiManager(
                 } else {
                     connection.errorStream
                 })?.bufferedReader(Charsets.UTF_8)
-                    ?.use { it.readText().take(2_000_000) }
+                    ?.use { it.readText().take(MAX_CATALOG_RESPONSE_CHARS) }
                     .orEmpty()
 
                 if (code !in 200..299) {
@@ -124,7 +133,7 @@ class AndroidOnlineAiManager(
                             .removePrefix("models/")
                             .trim()
 
-                        if (!id.startsWith("gemini-")) continue
+                        if (!SAFE_MODEL_ID.matches(id)) continue
                         if (
                             id.contains("embedding", true) ||
                             id.contains("image", true) ||
@@ -148,6 +157,7 @@ class AndroidOnlineAiManager(
 
                         val label = item.optString("displayName")
                             .trim()
+                            .take(MAX_MODEL_LABEL_CHARS)
                             .ifBlank { humanize(id) }
 
                         add(GeminiModel(id, label))
@@ -213,6 +223,14 @@ class AndroidOnlineAiManager(
         prompt: String,
         systemPrompt: String,
     ): String = withContext(Dispatchers.IO) {
+        require(prompt.isNotBlank()) { "Prompt is empty." }
+        require(prompt.length <= MAX_PROMPT_CHARS) {
+            "Prompt is too large."
+        }
+        require(systemPrompt.length <= MAX_SYSTEM_PROMPT_CHARS) {
+            "System prompt is too large."
+        }
+
         when (provider) {
             OnlineProvider.ANTIGRAVITY ->
                 askAntigravity(prompt, systemPrompt)
@@ -296,6 +314,10 @@ class AndroidOnlineAiManager(
         prompt: String,
         systemPrompt: String,
     ): String {
+        require(SAFE_MODEL_ID.matches(modelId)) {
+            "Invalid Gemini model identifier."
+        }
+
         val key = credentials.get("gemini")
         require(key.isNotBlank()) { "Gemini API key is required." }
 
@@ -391,7 +413,7 @@ class AndroidOnlineAiManager(
             } else {
                 connection.errorStream
             })?.bufferedReader(Charsets.UTF_8)
-                ?.use { it.readText().take(4_000_000) }
+                ?.use { it.readText().take(MAX_AI_RESPONSE_CHARS) }
                 .orEmpty()
 
             if (code !in 200..299) {
@@ -452,6 +474,15 @@ class AndroidOnlineAiManager(
                 }
 
     companion object {
+        private const val MAX_PROMPT_CHARS = 16_000
+        private const val MAX_SYSTEM_PROMPT_CHARS = 4_000
+        private const val MAX_MODEL_LABEL_CHARS = 100
+        private const val MAX_CATALOG_RESPONSE_CHARS = 1_000_000
+        private const val MAX_AI_RESPONSE_CHARS = 1_000_000
+
+        private val SAFE_MODEL_ID =
+            Regex("^gemini-[A-Za-z0-9._-]{1,80}$")
+
         private const val KEY_PROVIDER = "provider"
         private const val KEY_GEMINI_MODEL = "gemini_model"
         private const val KEY_GEMINI_CATALOG = "gemini_catalog"
