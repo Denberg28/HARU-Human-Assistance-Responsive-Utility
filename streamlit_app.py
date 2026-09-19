@@ -98,7 +98,8 @@ DEFAULTS = {
     "ai_provider": "Disabled",
     "ai_model": "",
     "ai_endpoint": "",
-    "ai_api_key": "",
+    "gemini_api_key": "",
+    "openrouter_api_key": "",
     "ai_status": "Not tested",
     "ai_connection_state": "OFF",
     "ai_connection_message": "AI runtime is disabled.",
@@ -518,15 +519,19 @@ def choose_ollama_model(models: list[str]) -> str:
 
 
 def draft_ai_config() -> AiConfig:
+    provider = st.session_state.get("ai_provider", "Disabled")
+    session_key = ""
+    if provider == "Google Gemini API":
+        session_key = st.session_state.get("gemini_api_key", "")
+    elif provider == "OpenRouter API":
+        session_key = st.session_state.get("openrouter_api_key", "")
+
     return AiConfig(
         mode=st.session_state.get("ai_mode", "Off"),
-        provider=st.session_state.get("ai_provider", "Disabled"),
+        provider=provider,
         model=st.session_state.get("ai_model", ""),
         endpoint=st.session_state.get("ai_endpoint", ""),
-        api_key=resolved_api_key(
-            st.session_state.get("ai_provider", "Disabled"),
-            st.session_state.get("ai_api_key", ""),
-        ),
+        api_key=resolved_api_key(provider, session_key),
         timeout_s=25,
     )
 
@@ -760,7 +765,10 @@ def render_news_items(items, limit: int = 6):
     for index, item in enumerate(items[:limit]):
         st.markdown(f"**{item.title}**")
         st.caption(f"{item.source} · {friendly_time(item)}")
-        st.link_button("Open story", item.link, use_container_width=False)
+        if item.link.startswith(("https://", "http://")):
+            st.link_button("Open story", item.link, use_container_width=False)
+        else:
+            st.caption("Story link unavailable.")
         if index < min(limit, len(items)) - 1:
             st.divider()
 
@@ -928,6 +936,8 @@ with assistant_tab:
         st.session_state.mood = mood
         st.session_state.message = reply
         st.session_state.history.append((command, reply))
+        if len(st.session_state.history) > 100:
+            st.session_state.history = st.session_state.history[-100:]
         st.rerun()
 
 with news_tab:
@@ -951,7 +961,8 @@ with news_tab:
             help="Use Philippines, a province, city, or region. HARU does not require precise device location.",
         )
         if region != st.session_state.news_region:
-            st.session_state.news_region = region.strip() or "Philippines"
+            cleaned_region = re.sub(r"\s+", " ", region.strip())[:80]
+            st.session_state.news_region = cleaned_region or "Philippines"
 
         st.caption("Optional interests")
         interest_labels = {
@@ -1218,14 +1229,14 @@ with st.expander("AI selector"):
             openrouter_saved_key = local_stored_key_for_provider("OpenRouter API")
             if openrouter_server_key:
                 st.success("OpenRouter key loaded securely from Streamlit/server secrets.")
-                st.session_state.ai_api_key = ""
+                st.session_state.openrouter_api_key = ""
             elif openrouter_saved_key:
                 st.success("OpenRouter key loaded securely from this PC's credential store.")
-                st.session_state.ai_api_key = ""
+                st.session_state.openrouter_api_key = ""
             else:
-                st.session_state.ai_api_key = st.text_input(
+                st.session_state.openrouter_api_key = st.text_input(
                     "OpenRouter API key",
-                    value=st.session_state.ai_api_key,
+                    value=st.session_state.openrouter_api_key,
                     type="password",
                     placeholder="sk-or-v1-…",
                     help=(
@@ -1261,7 +1272,7 @@ with st.expander("AI selector"):
                     try:
                         names = list_openai_compatible_models(
                             st.session_state.ai_endpoint,
-                            resolved_api_key("OpenRouter API", st.session_state.ai_api_key),
+                            resolved_api_key("OpenRouter API", st.session_state.openrouter_api_key),
                         )
                         free_names = [
                             name for name in names
@@ -1310,7 +1321,7 @@ with st.expander("AI selector"):
                 try:
                     names = list_openai_compatible_models(
                         st.session_state.ai_endpoint,
-                        st.session_state.ai_api_key,
+                        st.session_state.openrouter_api_key,
                     )
                     st.session_state["compatible_models"] = names
                     st.session_state.ai_status = f"Found {len(names)} model(s)." if names else "No models returned by endpoint."
@@ -1391,14 +1402,14 @@ with st.expander("AI selector"):
             provider_saved_key = local_stored_key_for_provider(provider)
             if provider_server_key:
                 st.success(f"{provider} key loaded securely from Streamlit/server secrets.")
-                st.session_state.ai_api_key = ""
+                st.session_state.gemini_api_key = ""
             elif provider_saved_key:
                 st.success(f"{provider} key loaded securely from this PC's credential store.")
-                st.session_state.ai_api_key = ""
+                st.session_state.gemini_api_key = ""
             else:
-                st.session_state.ai_api_key = st.text_input(
+                st.session_state.gemini_api_key = st.text_input(
                     "API key",
-                    value=st.session_state.ai_api_key,
+                    value=st.session_state.gemini_api_key,
                     type="password",
                     help=(
                         "Local Windows HARU saves a successfully connected key to Windows Credential Manager. "
@@ -1410,7 +1421,7 @@ with st.expander("AI selector"):
             # session value so Apply & connect can authenticate successfully.
             pass
         else:
-            st.session_state.ai_api_key = ""
+            pass
 
         if provider != "Ollama":
             st.info(
@@ -1439,7 +1450,11 @@ with st.expander("AI selector"):
                             candidate.api_key
                             and not is_cloud_haru()
                             and not server_secret_for_provider(candidate.provider)
-                            and st.session_state.get("ai_api_key")
+                            and (
+                                st.session_state.get("gemini_api_key")
+                                if candidate.provider == "Google Gemini API"
+                                else st.session_state.get("openrouter_api_key")
+                            )
                         ):
                             save_stored_key(candidate.provider, candidate.api_key)
 
@@ -1487,7 +1502,10 @@ with st.expander("AI selector"):
     
             with clear_col:
                 if st.button("Forget key", use_container_width=True):
-                    st.session_state.ai_api_key = ""
+                    if provider == "Google Gemini API":
+                        st.session_state.gemini_api_key = ""
+                    elif provider == "OpenRouter API":
+                        st.session_state.openrouter_api_key = ""
                     st.session_state.ai_applied_api_key = ""
 
                     if not is_cloud_haru():
@@ -1566,4 +1584,4 @@ with st.expander("Developer panel"):
             st.write(f"**You:** {q}")
             st.write(f"**HARU:** {a}")
 
-st.markdown("<div class=\"footer\">HARU Lab v2.9 • Antigravity default + free-only routing</div>", unsafe_allow_html=True)
+st.markdown("<div class=\"footer\">HARU Lab v3.0 • sanitized free-first runtime</div>", unsafe_allow_html=True)
