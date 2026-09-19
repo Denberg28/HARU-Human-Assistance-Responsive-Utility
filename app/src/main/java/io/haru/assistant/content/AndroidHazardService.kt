@@ -26,7 +26,7 @@ class AndroidHazardService {
     suspend fun fetch(): AndroidHazardBundle = withContext(Dispatchers.IO) {
         var error = ""
 
-        val pagasa = runCatching { fetchPagasa() }.getOrElse {
+        val pagasa = runCatching { fetchPagasaSummaries() }.getOrElse {
             error = "PAGASA feed unavailable."
             listOf(
                 AndroidHazardItem(
@@ -67,7 +67,16 @@ class AndroidHazardService {
         )
     }
 
-    private fun fetchPagasa(): List<AndroidHazardItem> {
+    private fun fetchPagasaSummaries(): List<AndroidHazardItem> {
+        val current = fetchPagasaCurrentOutlook()
+        val weekly = runCatching { fetchPagasaWeeklyOutlook() }.getOrNull()
+        return buildList {
+            add(current)
+            if (weekly != null) add(weekly)
+        }
+    }
+
+    private fun fetchPagasaCurrentOutlook(): AndroidHazardItem {
         val text = pageText(fetchText(PAGASA_WEATHER))
         val synopsis = between(
             text,
@@ -86,8 +95,12 @@ class AndroidHazardService {
             RegexOption.IGNORE_CASE,
         ).find(text)?.groupValues?.getOrNull(1)?.trim().orEmpty()
 
-        val activeTc = tcInfo.isNotBlank() &&
-            !tcInfo.contains("no active tropical cyclone", ignoreCase = true)
+        val activeTc =
+            tcInfo.isNotBlank() &&
+                !tcInfo.contains(
+                    "no active tropical cyclone",
+                    ignoreCase = true,
+                )
 
         val summary = listOf(
             synopsis,
@@ -97,17 +110,72 @@ class AndroidHazardService {
             .distinct()
             .joinToString(" ")
             .take(720)
-            .ifBlank { "Open PAGASA for the latest nationwide weather outlook." }
+            .ifBlank {
+                "Open PAGASA for the latest nationwide weather outlook."
+            }
 
-        return listOf(
-            AndroidHazardItem(
-                source = "DOST-PAGASA",
-                title = if (activeTc) "Active weather advisory" else "Current weather outlook",
-                summary = summary,
-                issued = issued,
-                url = PAGASA_WEATHER,
-                severity = if (activeTc) "warning" else "watch",
+        return AndroidHazardItem(
+            source = "DOST-PAGASA",
+            title = if (activeTc) {
+                "Active weather advisory"
+            } else {
+                "Current weather outlook"
+            },
+            summary = summary,
+            issued = issued,
+            url = PAGASA_WEATHER,
+            severity = if (activeTc) "warning" else "watch",
+        )
+    }
+
+    private fun fetchPagasaWeeklyOutlook(): AndroidHazardItem {
+        val text = pageText(fetchText(PAGASA_WEEKLY))
+        val issued = Regex(
+            "(?:Issued at|Valid from|Forecast issued)[:\\s]+(.{3,100}?)(?=\\s{2,}|\\.)",
+            RegexOption.IGNORE_CASE,
+        ).find(text)?.groupValues?.getOrNull(1)?.trim().orEmpty()
+
+        val cleaned = text
+            .replace(
+                Regex(
+                    "(Home|Weather|Climate|Astronomical|Hydrometeorology|" +
+                        "Research|About PAGASA|Skip to content)",
+                    RegexOption.IGNORE_CASE,
+                ),
+                " ",
             )
+            .replace(Regex("\\s+"), " ")
+            .trim()
+
+        val startMarkers = listOf(
+            "Weekly Weather Outlook",
+            "Weather Outlook",
+            "Forecast",
+        )
+        var body = ""
+        for (marker in startMarkers) {
+            val index = cleaned.indexOf(marker, ignoreCase = true)
+            if (index >= 0) {
+                body = cleaned.substring(index + marker.length)
+                break
+            }
+        }
+
+        val summary = body
+            .replace(Regex("\\s+"), " ")
+            .trim(' ', ':', '-')
+            .take(900)
+            .ifBlank {
+                "Open PAGASA for the latest weekly weather outlook."
+            }
+
+        return AndroidHazardItem(
+            source = "DOST-PAGASA",
+            title = "Weekly weather outlook",
+            summary = summary,
+            issued = issued,
+            url = PAGASA_WEEKLY,
+            severity = "info",
         )
     }
 
@@ -229,8 +297,9 @@ class AndroidHazardService {
 
     companion object {
         const val PAGASA_WEATHER = "https://bagong.pagasa.dost.gov.ph/weather"
+        const val PAGASA_WEEKLY =
+            "https://bagong.pagasa.dost.gov.ph/weather/weekly-weather-outlook"
         const val PHIVOLCS_EQ = "https://earthquake.phivolcs.dost.gov.ph/"
         const val NOAH_HAZARD = "https://noah.up.edu.ph/know-your-hazards"
-        const val PANAHON = "https://www.panahon.gov.ph/"
     }
 }
