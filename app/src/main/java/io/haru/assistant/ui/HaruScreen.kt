@@ -103,7 +103,7 @@ fun HaruScreen(
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 Text(
-                    text = "HARU",
+                    text = "😺 HARU",
                     style = MaterialTheme.typography.headlineMedium,
                     fontWeight = FontWeight.Bold,
                 )
@@ -223,10 +223,7 @@ private fun AssistantPane(
                     style = MaterialTheme.typography.labelMedium,
                 )
                 Spacer(Modifier.height(4.dp))
-                Text(
-                    text = state.message,
-                    style = MaterialTheme.typography.bodyMedium,
-                )
+                AssistantResponseText(state.message)
             }
         }
 
@@ -848,6 +845,37 @@ private fun LocalAiSetupDialog(
             }
         },
     )
+}
+
+@Composable
+private fun AssistantResponseText(message: String) {
+    val clean = message
+        .replace("```", "")
+        .replace(Regex("\\*\\*(.*?)\\*\\*"), "$1")
+        .replace(Regex("__(.*?)__"), "$1")
+        .trim()
+
+    Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+        clean.lines().forEach { raw ->
+            val line = raw.trimEnd()
+            when {
+                line.isBlank() -> Spacer(Modifier.height(3.dp))
+                line.startsWith("#") -> Text(
+                    text = line.trimStart('#', ' '),
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                line.startsWith("- ") || line.startsWith("* ") -> Text(
+                    text = "• " + line.drop(2).trim(),
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                else -> Text(
+                    text = line.replace("`", ""),
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            }
+        }
+    }
 }
 
 private fun providerLabel(provider: OnlineProvider): String =
