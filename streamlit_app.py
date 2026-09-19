@@ -44,6 +44,14 @@ DEFAULTS = {
     "ai_api_key": "",
     "ai_fallback": False,
     "ai_status": "Not tested",
+    "ai_connection_state": "OFF",
+    "ai_connection_message": "AI runtime is disabled.",
+    "ai_applied_signature": "",
+    "ai_applied_mode": "Off",
+    "ai_applied_provider": "Disabled",
+    "ai_applied_model": "",
+    "ai_applied_endpoint": "",
+    "ai_applied_api_key": "",
 }
 for key, value in DEFAULTS.items():
     if key not in st.session_state:
@@ -115,7 +123,7 @@ def route_command(command: str):
     return "CONFUSED", "I don't have a local skill for that yet. Try “help” or enable AI fallback in Developer panel."
 
 
-def current_ai_config() -> AiConfig:
+def draft_ai_config() -> AiConfig:
     return AiConfig(
         mode=st.session_state.get("ai_mode", "Off"),
         provider=st.session_state.get("ai_provider", "Disabled"),
@@ -124,6 +132,75 @@ def current_ai_config() -> AiConfig:
         api_key=st.session_state.get("ai_api_key", ""),
         timeout_s=25,
     )
+
+
+def ai_config_signature(config: AiConfig) -> str:
+    # API key intentionally excluded from display but included in the signature
+    # so replacing a key requires Apply again.
+    return "|".join(
+        [
+            config.mode,
+            config.provider,
+            config.model.strip(),
+            config.endpoint.strip(),
+            config.api_key,
+        ]
+    )
+
+
+def current_ai_config() -> AiConfig:
+    if st.session_state.get("ai_applied_signature"):
+        return AiConfig(
+            mode=st.session_state.get("ai_applied_mode", "Off"),
+            provider=st.session_state.get("ai_applied_provider", "Disabled"),
+            model=st.session_state.get("ai_applied_model", ""),
+            endpoint=st.session_state.get("ai_applied_endpoint", ""),
+            api_key=st.session_state.get("ai_applied_api_key", ""),
+            timeout_s=25,
+        )
+    return draft_ai_config()
+
+
+def effective_ai_connection_state() -> tuple[str, str]:
+    if st.session_state.get("ai_mode") == "Off":
+        return "OFF", "AI runtime is disabled."
+
+    draft_signature = ai_config_signature(draft_ai_config())
+    applied_signature = st.session_state.get("ai_applied_signature", "")
+
+    if applied_signature and draft_signature != applied_signature:
+        return "UNTESTED", "Settings changed. Apply again to use this configuration."
+
+    return (
+        st.session_state.get("ai_connection_state", "UNTESTED"),
+        st.session_state.get("ai_connection_message", "Not tested."),
+    )
+
+
+def ai_status_html(state: str, message: str) -> str:
+    palette = {
+        "OFF": ("#7a7f87", "OFF"),
+        "UNTESTED": ("#e0a100", "UNTESTED"),
+        "CONNECTING": ("#1976d2", "CONNECTING"),
+        "CONNECTED": ("#2e7d32", "CONNECTED"),
+        "FAILED": ("#c62828", "FAILED"),
+    }
+    color, label = palette.get(state, ("#7a7f87", state))
+    return f"""
+    <div style="
+        display:flex; align-items:center; gap:.65rem;
+        padding:.7rem .85rem; border:1px solid rgba(127,127,127,.22);
+        border-radius:12px; margin:.35rem 0 .85rem 0;">
+        <span style="
+            width:12px; height:12px; border-radius:50%;
+            background:{color}; display:inline-block;
+            box-shadow:0 0 0 4px {color}22;"></span>
+        <div>
+            <div style="font-weight:700; font-size:.9rem;">{label}</div>
+            <div style="font-size:.82rem; opacity:.72;">{message}</div>
+        </div>
+    </div>
+    """
 
 
 def face_html(mood: str):
@@ -350,6 +427,18 @@ with st.expander("Developer panel"):
         "the deterministic router does not understand."
     )
 
+    connection_state, connection_message = effective_ai_connection_state()
+    st.markdown(
+        ai_status_html(connection_state, connection_message),
+        unsafe_allow_html=True,
+    )
+    if st.session_state.get("ai_applied_signature"):
+        st.caption(
+            "Active: "
+            f"{st.session_state.ai_applied_provider} · "
+            f"{st.session_state.ai_applied_model}"
+        )
+
     ai_mode = st.radio(
         "Runtime",
         ["Off", "Local", "Online"],
@@ -361,6 +450,14 @@ with st.expander("Developer panel"):
     if ai_mode == "Off":
         st.session_state.ai_provider = "Disabled"
         st.session_state.ai_fallback = False
+        st.session_state.ai_connection_state = "OFF"
+        st.session_state.ai_connection_message = "AI runtime is disabled."
+        st.session_state.ai_applied_signature = ""
+        st.session_state.ai_applied_mode = "Off"
+        st.session_state.ai_applied_provider = "Disabled"
+        st.session_state.ai_applied_model = ""
+        st.session_state.ai_applied_endpoint = ""
+        st.session_state.ai_applied_api_key = ""
         st.info("AI is disabled. HARU uses only local deterministic skills.")
     else:
         if ai_mode == "Local":
@@ -527,23 +624,65 @@ with st.expander("Developer panel"):
         st.session_state.ai_fallback = st.toggle(
             "Use selected AI as fallback",
             value=st.session_state.ai_fallback,
-            help="Known HARU skills still run locally first.",
+            help="Known HARU skills still run locally first. The fallback uses only the last successfully applied runtime.",
         )
 
-        test_col, clear_col = st.columns(2)
-        with test_col:
-            if st.button("Test AI connection", use_container_width=True):
+        apply_col, test_col, clear_col = st.columns([1.35, 1, 1])
+        with apply_col:
+            if st.button("Apply & connect", type="primary", use_container_width=True):
+                candidate = draft_ai_config()
+                st.session_state.ai_connection_state = "CONNECTING"
+                st.session_state.ai_connection_message = (
+                    f"Testing {candidate.provider} · {candidate.model or 'no model selected'}…"
+                )
                 try:
-                    st.session_state.ai_status = test_ai(current_ai_config())
+                    result = test_ai(candidate)
+                    st.session_state.ai_applied_mode = candidate.mode
+                    st.session_state.ai_applied_provider = candidate.provider
+                    st.session_state.ai_applied_model = candidate.model
+                    st.session_state.ai_applied_endpoint = candidate.endpoint
+                    st.session_state.ai_applied_api_key = candidate.api_key
+                    st.session_state.ai_applied_signature = ai_config_signature(candidate)
+                    st.session_state.ai_connection_state = "CONNECTED"
+                    st.session_state.ai_connection_message = (
+                        f"Connected to {candidate.provider} using {candidate.model}."
+                    )
+                    st.session_state.ai_status = result
+                    st.rerun()
                 except AiRuntimeError as exc:
+                    st.session_state.ai_connection_state = "FAILED"
+                    st.session_state.ai_connection_message = str(exc)
                     st.session_state.ai_status = f"Connection failed: {exc}"
+                    st.rerun()
+
+        with test_col:
+            if st.button("Retest", use_container_width=True):
+                config = current_ai_config()
+                try:
+                    result = test_ai(config)
+                    st.session_state.ai_connection_state = "CONNECTED"
+                    st.session_state.ai_connection_message = (
+                        f"Connected to {config.provider} using {config.model}."
+                    )
+                    st.session_state.ai_status = result
+                    st.rerun()
+                except AiRuntimeError as exc:
+                    st.session_state.ai_connection_state = "FAILED"
+                    st.session_state.ai_connection_message = str(exc)
+                    st.session_state.ai_status = f"Connection failed: {exc}"
+                    st.rerun()
+
         with clear_col:
-            if st.button("Clear API key", use_container_width=True):
+            if st.button("Clear key", use_container_width=True):
                 st.session_state.ai_api_key = ""
+                st.session_state.ai_applied_api_key = ""
+                st.session_state.ai_applied_signature = ""
+                st.session_state.ai_connection_state = "UNTESTED"
+                st.session_state.ai_connection_message = "API key cleared. Apply a configuration again."
                 st.session_state.ai_status = "API key cleared for this session."
                 st.rerun()
 
-        st.caption(f"Status: {st.session_state.ai_status}")
+        st.caption(f"Diagnostic response: {st.session_state.ai_status}")
 
     st.divider()
     st.markdown("#### HARU face")
@@ -559,4 +698,4 @@ with st.expander("Developer panel"):
             st.write(f"**You:** {q}")
             st.write(f"**HARU:** {a}")
 
-st.markdown('<div class="footer">HARU Lab v0.3 • local-first assistant + selectable AI runtime</div>', unsafe_allow_html=True)
+st.markdown('<div class="footer">HARU Lab v0.4 • local-first assistant + verified AI runtime</div>', unsafe_allow_html=True)
