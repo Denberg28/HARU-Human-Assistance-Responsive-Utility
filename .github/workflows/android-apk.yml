@@ -1,4 +1,5 @@
 name: Build Android APK
+# HARU APK packaging gate
 
 on:
   workflow_dispatch:
