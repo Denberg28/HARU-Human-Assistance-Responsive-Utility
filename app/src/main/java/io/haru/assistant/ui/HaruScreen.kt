@@ -1,9 +1,5 @@
 package io.haru.assistant.ui
 
-import android.webkit.CookieManager
-import android.webkit.WebSettings
-import android.webkit.WebView
-import android.webkit.WebViewClient
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -70,6 +66,11 @@ import io.haru.assistant.location.TrustedLocation
 import io.haru.assistant.onlineai.GeminiModel
 import io.haru.assistant.onlineai.OnlineProvider
 import io.haru.assistant.voice.HaruVoiceController
+import org.maplibre.android.MapLibre
+import org.maplibre.android.annotations.MarkerOptions
+import org.maplibre.android.camera.CameraPosition
+import org.maplibre.android.geometry.LatLng
+import org.maplibre.android.maps.MapView
 import java.text.DateFormat
 import java.util.Date
 
@@ -450,54 +451,48 @@ private fun HazardPane(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text("Hazard Advisories", style = MaterialTheme.typography.titleMedium)
+            Text("Weather & Hazards", style = MaterialTheme.typography.titleMedium)
             OutlinedButton(onClick = onRefresh) { Text("Refresh") }
         }
+
         Text(
-            "Official situational information. Follow agency and local-government instructions.",
+            "Lightweight native summaries. No live weather page runs in the background.",
             style = MaterialTheme.typography.labelSmall,
         )
 
-        Spacer(Modifier.height(8.dp))
-        Card(modifier = Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(12.dp)) {
-                Text("PAGASA Weather Viewer", fontWeight = FontWeight.SemiBold)
-                Text(
-                    "Official PAGASA weather page. This replaces the less reliable PANaHON embed.",
-                    style = MaterialTheme.typography.bodySmall,
-                )
-                Spacer(Modifier.height(8.dp))
-                PagasaWeatherViewer()
-                Spacer(Modifier.height(6.dp))
-                OutlinedButton(
-                    onClick = {
-                        onOpenUrl("https://bagong.pagasa.dost.gov.ph/weather")
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text("Open official PAGASA page ↗")
-                }
-            }
+        if (bundle.error.isNotBlank()) {
+            Spacer(Modifier.height(4.dp))
+            Text(bundle.error, style = MaterialTheme.typography.labelSmall)
         }
 
         Spacer(Modifier.height(10.dp))
-        Row(
+        Text("PAGASA summary", fontWeight = FontWeight.SemiBold)
+        Text(
+            "Official weekly outlook plus the current public weather outlook.",
+            style = MaterialTheme.typography.labelSmall,
+        )
+        bundle.pagasa.take(2).forEach { HazardEntry(it, onOpenUrl) }
+
+        OutlinedButton(
+            onClick = {
+                onOpenUrl(
+                    "https://bagong.pagasa.dost.gov.ph/" +
+                        "weather/weather-outlook-selected-philippine-cities"
+                )
+            },
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text("🌧️ PAGASA", fontWeight = FontWeight.SemiBold)
-                bundle.pagasa.take(1).forEach { HazardEntry(it, onOpenUrl) }
-            }
-            Column(modifier = Modifier.weight(1f)) {
-                Text("🌋 PHIVOLCS", fontWeight = FontWeight.SemiBold)
-                bundle.phivolcs.take(3).forEach { HazardEntry(it, onOpenUrl) }
-                bundle.noah.firstOrNull()?.let {
-                    Spacer(Modifier.height(8.dp))
-                    Text("🗺️ UP NOAH", fontWeight = FontWeight.SemiBold)
-                    HazardEntry(it, onOpenUrl)
-                }
-            }
+            Text("PAGASA 5-day city outlook ↗")
+        }
+
+        Spacer(Modifier.height(12.dp))
+        Text("PHIVOLCS", fontWeight = FontWeight.SemiBold)
+        bundle.phivolcs.take(3).forEach { HazardEntry(it, onOpenUrl) }
+
+        bundle.noah.firstOrNull()?.let {
+            Spacer(Modifier.height(8.dp))
+            Text("UP NOAH", fontWeight = FontWeight.SemiBold)
+            HazardEntry(it, onOpenUrl)
         }
     }
 }
@@ -545,70 +540,75 @@ private fun MapPane(
     ) {
         Text("Trusted Locations", style = MaterialTheme.typography.titleMedium)
         Text(
-            "Consent-based temporary location snapshots. HARU does not background-track people.",
+            "Native MapLibre map using OpenStreetMap data. No browser embed or Google Maps API.",
             style = MaterialTheme.typography.labelSmall,
         )
 
         Spacer(Modifier.height(8.dp))
         TrustedLocationsMap(locations)
+        Text(
+            "Map data © OpenStreetMap contributors · tiles/style by OpenFreeMap",
+            style = MaterialTheme.typography.labelSmall,
+        )
 
-        Spacer(Modifier.height(10.dp))
-        Row(
+        Spacer(Modifier.height(12.dp))
+        Text("Share my location", fontWeight = FontWeight.SemiBold)
+        OutlinedTextField(
+            value = shareName,
+            onValueChange = { shareName = it.take(40) },
+            label = { Text("Name") },
+            singleLine = true,
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        )
+        Button(
+            onClick = {
+                onCreateShare(
+                    shareName.ifBlank { "Loved one" },
+                    60,
+                )
+            },
+            modifier = Modifier.fillMaxWidth(),
         ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text("Share my location", fontWeight = FontWeight.SemiBold)
-                OutlinedTextField(
-                    value = shareName,
-                    onValueChange = { shareName = it.take(40) },
-                    label = { Text("Name") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                Button(
-                    onClick = { onCreateShare(shareName.ifBlank { "Loved one" }, 60) },
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text("Create 1-hour share")
-                }
-                if (shareCode.isNotBlank()) {
-                    OutlinedTextField(
-                        value = shareCode,
-                        onValueChange = {},
-                        readOnly = true,
-                        label = { Text("Share code") },
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                }
-            }
+            Text("Create 1-hour share")
+        }
 
-            Column(modifier = Modifier.weight(1f)) {
-                Text("Find a loved one", fontWeight = FontWeight.SemiBold)
-                OutlinedTextField(
-                    value = incomingCode,
-                    onValueChange = { incomingCode = it.take(4000) },
-                    label = { Text("Paste share code") },
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                Button(
-                    onClick = { onImportShare(incomingCode) },
-                    enabled = incomingCode.isNotBlank(),
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text("Add location")
-                }
-                if (locations.isNotEmpty()) {
-                    TextButton(onClick = onClear) {
-                        Text("Clear locations")
-                    }
-                }
+        if (shareCode.isNotBlank()) {
+            OutlinedTextField(
+                value = shareCode,
+                onValueChange = {},
+                readOnly = true,
+                label = { Text("Share code") },
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+
+        Spacer(Modifier.height(12.dp))
+        Text("Find a loved one", fontWeight = FontWeight.SemiBold)
+        OutlinedTextField(
+            value = incomingCode,
+            onValueChange = { incomingCode = it.take(4000) },
+            label = { Text("Paste share code") },
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Button(
+            onClick = { onImportShare(incomingCode) },
+            enabled = incomingCode.isNotBlank(),
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text("Add location")
+        }
+
+        if (locations.isNotEmpty()) {
+            TextButton(onClick = onClear) {
+                Text("Clear locations")
             }
         }
 
+        Spacer(Modifier.height(8.dp))
         locations.forEach { item ->
             val expires = DateFormat.getTimeInstance(DateFormat.SHORT)
                 .format(Date(item.expiresAt))
+
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -629,20 +629,28 @@ private fun MapPane(
                         )
                         Text(
                             "expires " + expires +
-                                (item.accuracyM?.let { " · ±" + it.toInt() + " m" } ?: ""),
+                                (item.accuracyM?.let {
+                                    " · ±" + it.toInt() + " m"
+                                } ?: ""),
                             style = MaterialTheme.typography.labelSmall,
                         )
                     }
+
                     TextButton(
                         onClick = {
                             onOpenUrl(
                                 "https://www.openstreetmap.org/?mlat=" +
-                                    item.latitude + "&mlon=" + item.longitude +
-                                    "#map=14/" + item.latitude + "/" + item.longitude
+                                    item.latitude +
+                                    "&mlon=" +
+                                    item.longitude +
+                                    "#map=14/" +
+                                    item.latitude +
+                                    "/" +
+                                    item.longitude
                             )
                         }
                     ) {
-                        Text("OpenStreetMap ↗")
+                        Text("Open ↗")
                     }
                 }
             }
@@ -651,126 +659,81 @@ private fun MapPane(
 }
 
 @Composable
-private fun PagasaWeatherViewer() {
-    BrowserWebView(
-        url = "https://bagong.pagasa.dost.gov.ph/weather",
-        allowedHostSuffixes = setOf(
-            "pagasa.dost.gov.ph",
-        ),
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(340.dp),
-    )
-}
+private fun TrustedLocationsMap(
+    locations: List<TrustedLocation>,
+) {
+    val context = LocalContext.current
+    val mapKey = locations.joinToString("|") {
+        it.id + ":" + it.latitude + ":" + it.longitude
+    }
 
-@Composable
-private fun TrustedLocationsMap(locations: List<TrustedLocation>) {
-    val focus = locations.lastOrNull()
-    val mapUrl = if (focus != null) {
-        val delta = 0.025
-        val west = focus.longitude - delta
-        val south = focus.latitude - delta
-        val east = focus.longitude + delta
-        val north = focus.latitude + delta
-        "https://www.openstreetmap.org/export/embed.html?bbox=" +
-            west + "%2C" + south + "%2C" + east + "%2C" + north +
-            "&layer=mapnik&marker=" + focus.latitude + "%2C" + focus.longitude
-    } else {
-        "https://www.openstreetmap.org/export/embed.html" +
-            "?bbox=116.5%2C4.0%2C127.0%2C21.5&layer=mapnik"
+    val mapView = remember(context, mapKey) {
+        MapLibre.getInstance(context.applicationContext)
+
+        MapView(context).apply {
+            onCreate(null)
+            getMapAsync { map ->
+                map.setStyle(OPENFREE_MAP_STYLE) {
+                    val focus = locations.lastOrNull()
+                    val target = if (focus != null) {
+                        LatLng(focus.latitude, focus.longitude)
+                    } else {
+                        PHILIPPINES_CENTER
+                    }
+
+                    map.cameraPosition = CameraPosition.Builder()
+                        .target(target)
+                        .zoom(if (focus != null) 13.0 else 4.7)
+                        .build()
+
+                    @Suppress("DEPRECATION")
+                    locations.takeLast(20).forEach { item ->
+                        map.addMarker(
+                            MarkerOptions()
+                                .position(
+                                    LatLng(
+                                        item.latitude,
+                                        item.longitude,
+                                    )
+                                )
+                                .title(item.name)
+                                .snippet(
+                                    item.accuracyM?.let {
+                                        "Accuracy ±" + it.toInt() + " m"
+                                    } ?: "Trusted location"
+                                )
+                        )
+                    }
+                }
+            }
+            onStart()
+            onResume()
+        }
+    }
+
+    DisposableEffect(mapView) {
+        onDispose {
+            mapView.onPause()
+            mapView.onStop()
+            mapView.onDestroy()
+        }
     }
 
     Card(modifier = Modifier.fillMaxWidth()) {
-        BrowserWebView(
-            url = mapUrl,
-            allowedHostSuffixes = setOf(
-                "openstreetmap.org",
-            ),
+        AndroidView(
+            factory = { mapView },
             modifier = Modifier
                 .fillMaxWidth()
-                .height(280.dp),
+                .height(300.dp),
         )
     }
 }
 
-@Composable
-private fun BrowserWebView(
-    url: String,
-    allowedHostSuffixes: Set<String>,
-    modifier: Modifier = Modifier,
-) {
-    val context = LocalContext.current
-    val webView = remember(context) {
-        WebView(context).apply webView@{
-            configureInteractiveWebView()
-            settings.userAgentString =
-                WebSettings.getDefaultUserAgent(context).replace("; wv", "")
-            CookieManager.getInstance().apply {
-                setAcceptCookie(true)
-                setAcceptThirdPartyCookies(this@webView, true)
-            }
-            webViewClient = object : WebViewClient() {
-                override fun shouldOverrideUrlLoading(
-                    view: WebView?,
-                    request: android.webkit.WebResourceRequest?,
-                ): Boolean {
-                    val uri = request?.url ?: return true
-                    if (!uri.scheme.equals("https", ignoreCase = true)) {
-                        return true
-                    }
+private val PHILIPPINES_CENTER =
+    LatLng(12.8797, 121.7740)
 
-                    val host = uri.host?.lowercase().orEmpty()
-                    return allowedHostSuffixes.none { suffix ->
-                        host == suffix || host.endsWith("." + suffix)
-                    }
-                }
-            }
-        }
-    }
-
-    DisposableEffect(webView) {
-        onDispose {
-            webView.stopLoading()
-            webView.onPause()
-            webView.loadUrl("about:blank")
-            webView.removeAllViews()
-            webView.destroy()
-        }
-    }
-
-    AndroidView(
-        modifier = modifier,
-        factory = { webView },
-        update = {
-            if (it.tag != url) {
-                it.tag = url
-                it.onResume()
-                it.loadUrl(url)
-            }
-        },
-    )
-}
-
-private fun WebView.configureInteractiveWebView() {
-    settings.apply {
-        javaScriptEnabled = true
-        domStorageEnabled = true
-        allowFileAccess = false
-        allowContentAccess = false
-        javaScriptCanOpenWindowsAutomatically = false
-        setSupportMultipleWindows(false)
-        mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
-        builtInZoomControls = true
-        displayZoomControls = false
-        setSupportZoom(true)
-        useWideViewPort = true
-        loadWithOverviewMode = true
-        cacheMode = WebSettings.LOAD_DEFAULT
-        setGeolocationEnabled(false)
-        offscreenPreRaster = false
-    }
-    webChromeClient = android.webkit.WebChromeClient()
-}
+private const val OPENFREE_MAP_STYLE =
+    "https://tiles.openfreemap.org/styles/liberty"
 
 @Composable
 private fun OnlineAiDialog(
