@@ -1255,614 +1255,610 @@ with hazard_tab:
         "Situational awareness only. Follow official agency and local-government emergency instructions."
     )
 
-    if hazard_errors:
-        with st.expander("Source status"):
-            for err in hazard_errors:
-                st.caption(err)
-
-with st.expander("AI selector"):
-    st.markdown("#### AI runtime")
-    st.caption(
-        "Apply a model to make HARU a shell for that AI agent. The selected provider handles queries with its own "
-        "native capabilities and tools; HARU supplies the UI, conversation context, and local device functions."
-    )
-
-    connection_state, connection_message = effective_ai_connection_state()
-    st.markdown(
-        ai_status_html(connection_state, connection_message),
-        unsafe_allow_html=True,
-    )
-    if st.session_state.get("ai_applied_signature"):
+with assistant_tab:
+    with st.expander("AI selector"):
+        st.markdown("#### AI runtime")
         st.caption(
-            "Active: "
-            f"{st.session_state.ai_applied_provider} · "
-            f"{st.session_state.ai_applied_model}"
+            "Apply a model to make HARU a shell for that AI agent. The selected provider handles queries with its own "
+            "native capabilities and tools; HARU supplies the UI, conversation context, and local device functions."
         )
 
-    ai_mode = st.radio(
-        "Runtime",
-        ["Off", "Local", "Online"],
-        horizontal=True,
-        index=["Off", "Local", "Online"].index(st.session_state.ai_mode),
-    )
-    st.session_state.ai_mode = ai_mode
-
-    if ai_mode == "Off":
-        st.session_state.ai_provider = "Disabled"
-        st.session_state.ai_connection_state = "OFF"
-        st.session_state.ai_runtime_degraded = False
-        st.session_state.ai_runtime_degraded_reason = ""
-        st.session_state.ai_connection_message = "AI runtime is disabled."
-        st.session_state.ai_applied_signature = ""
-        st.session_state.ai_applied_mode = "Off"
-        st.session_state.ai_applied_provider = "Disabled"
-        st.session_state.ai_applied_model = ""
-        st.session_state.ai_applied_endpoint = ""
-        st.session_state.gemini_api_key = ""
-        st.session_state.openrouter_api_key = ""
-        st.info("AI is disabled. HARU uses only local deterministic skills.")
-    else:
-        if ai_mode == "Local":
-            if is_cloud_haru():
-                provider_options = ["Ollama"]
-                st.session_state.ai_provider = "Ollama"
-                st.caption(
-                    "Local endpoints are disabled on Streamlit Cloud. Run HARU locally to use Ollama or another local server."
-                )
-            else:
-                provider_options = [
-                    "Ollama",
-                    "Local OpenAI-compatible",
-                    "Android on-device (APK only)",
-                ]
-                if st.session_state.ai_provider not in provider_options:
-                    st.session_state.ai_provider = "Ollama"
-                st.caption(
-                    "Recommended: Ollama on the same PC as HARU. No API key required."
-                )
-        else:
-            provider_options = [
-                "Google Gemini API",
-                "OpenRouter API",
-            ]
-            if st.session_state.ai_provider not in provider_options:
-                st.session_state.ai_provider = "Google Gemini API"
-
-        provider_labels = {
-            "Ollama": "Ollama on this PC — recommended",
-            "Local OpenAI-compatible": "Other local OpenAI-compatible server",
-            "Android on-device (APK only)": "Android on-device model",
-            "Google Gemini API": "Google Gemini API — default",
-            "OpenRouter API": "OpenRouter API — free models only",
-        }
-        provider = st.selectbox(
-            "Provider",
-            provider_options,
-            index=provider_options.index(st.session_state.ai_provider),
-            format_func=lambda item: provider_labels.get(item, item),
+        connection_state, connection_message = effective_ai_connection_state()
+        st.markdown(
+            ai_status_html(connection_state, connection_message),
+            unsafe_allow_html=True,
         )
-        st.session_state.ai_provider = provider
-
-        model_catalogs = {
-            "Google Gemini API": {
-                "Antigravity — default agent": "antigravity-preview-09-2026",
-                "Gemini 3.5 Flash-Lite — long context / tools": "gemini-3.5-flash-lite",
-            },
-            "Android on-device (APK only)": {
-                "Gemma 4 E4B Instruct — HARU recommended": "google/gemma-4-E4B-it",
-                "Gemma 4 E2B Instruct — lightweight fallback": "google/gemma-4-E2B-it",
-                "Qwen3 4B — text-only alternative": "Qwen/Qwen3-4B",
-                "Phi-4 Mini — compact reasoning alternative": "microsoft/Phi-4-mini-instruct",
-            },
-        }
-
-        default_endpoints = {
-            "Ollama": "http://localhost:11434",
-            "Local OpenAI-compatible": "http://localhost:1234",
-            "OpenRouter API": "https://openrouter.ai/api",
-        }
-
-        if provider == "Ollama":
-            st.session_state.ai_endpoint = st.session_state.ai_endpoint or "http://localhost:11434"
-
-            if is_cloud_haru():
-                st.warning(
-                    "Local AI setup is only available in HARU Local because Streamlit Cloud cannot access your PC."
-                )
-                st.code(".\\run_haru_local.bat", language="powershell")
-                st.caption(
-                    "Run the launcher on your Windows PC. HARU Local will help start Ollama and install a model."
-                )
-            else:
-                st.markdown("##### Local AI setup")
-                st.caption(
-                    "HARU can detect Ollama, help you choose a model, download it locally, and connect it."
-                )
-
-                ollama_online = False
-                try:
-                    detected_models = list_ollama_models(st.session_state.ai_endpoint, timeout_s=2)
-                    st.session_state["ollama_models"] = detected_models
-                    ollama_online = True
-                    st.success("Ollama is running on this PC.")
-                except AiRuntimeError:
-                    st.warning(
-                        "Ollama is not reachable yet. Install/start Ollama, then press Check again."
-                    )
-                    st.code("winget install Ollama.Ollama", language="powershell")
-                    st.code("ollama serve", language="powershell")
-
-                if st.button("Check Ollama again", use_container_width=True, key="ollama_check"):
-                    try:
-                        names = list_ollama_models(st.session_state.ai_endpoint, timeout_s=3)
-                        st.session_state["ollama_models"] = names
-                        st.session_state.ai_status = f"Ollama ready · {len(names)} installed model(s)."
-                    except AiRuntimeError as exc:
-                        st.session_state.ai_status = f"Ollama not reachable: {exc}"
-                    st.rerun()
-
-                if ollama_online:
-                    model_presets = {
-                        "Lightweight — qwen3:4b": "qwen3:4b",
-                        "Balanced — qwen3:8b": "qwen3:8b",
-                        "Reasoning — gemma3:12b": "gemma3:12b",
-                        "Custom model name…": "",
-                    }
-                    preset_label = st.selectbox(
-                        "Model to install",
-                        list(model_presets.keys()),
-                        help="Start with 4B on modest PCs, 8B for a stronger balance, or choose a custom Ollama model.",
-                    )
-                    model_to_pull = model_presets[preset_label]
-                    if not model_to_pull:
-                        model_to_pull = st.text_input(
-                            "Custom Ollama model",
-                            placeholder="e.g. llama3.2:3b",
-                            help="Use an Ollama model name from the Ollama library.",
-                        ).strip()
-
-                    pull_col, connect_col = st.columns(2)
-                    with pull_col:
-                        if st.button(
-                            "Download model",
-                            use_container_width=True,
-                            disabled=not bool(model_to_pull),
-                        ):
-                            with st.spinner(f"Downloading {model_to_pull}… This can take several minutes."):
-                                try:
-                                    pull_ollama_model(
-                                        st.session_state.ai_endpoint,
-                                        model_to_pull,
-                                    )
-                                    names = list_ollama_models(st.session_state.ai_endpoint)
-                                    st.session_state["ollama_models"] = names
-                                    st.session_state.ai_model = model_to_pull
-                                    st.session_state.ai_status = f"Installed {model_to_pull}."
-                                    st.success(f"{model_to_pull} is installed.")
-                                except AiRuntimeError as exc:
-                                    st.error(f"Download failed: {exc}")
-
-                    with connect_col:
-                        if st.button(
-                            "Auto-connect best installed",
-                            type="primary",
-                            use_container_width=True,
-                        ):
-                            try:
-                                names = list_ollama_models(st.session_state.ai_endpoint)
-                                if not names:
-                                    st.session_state.ai_status = "Install a model first."
-                                    st.rerun()
-
-                                chosen = choose_ollama_model(names)
-                                st.session_state.ai_model = chosen
-                                candidate = AiConfig(
-                                    mode="Local",
-                                    provider="Ollama",
-                                    model=chosen,
-                                    endpoint=st.session_state.ai_endpoint,
-                                    api_key="",
-                                    timeout_s=25,
-                                )
-
-                                result = test_ai(candidate)
-                                st.session_state.ai_applied_mode = "Local"
-                                st.session_state.ai_applied_provider = "Ollama"
-                                st.session_state.ai_applied_model = chosen
-                                st.session_state.ai_applied_endpoint = st.session_state.ai_endpoint
-                                st.session_state.ai_applied_signature = ai_config_signature(candidate)
-                                st.session_state.ai_connection_state = "CONNECTED"
-                                st.session_state.ai_runtime_degraded = False
-                                st.session_state.ai_runtime_degraded_reason = ""
-                                st.session_state.ai_connection_message = f"Ollama connected. {chosen} is now HARU."
-                                st.session_state.ai_status = result
-                                st.rerun()
-                            except AiRuntimeError as exc:
-                                st.session_state.ai_connection_state = "FAILED"
-                                st.session_state.ai_connection_message = str(exc)
-                                st.session_state.ai_status = str(exc)
-                                st.rerun()
-
-                discovered = st.session_state.get("ollama_models", [])
-                if not discovered:
-                    try:
-                        discovered = list_ollama_models(st.session_state.ai_endpoint, timeout_s=2)
-                        st.session_state["ollama_models"] = discovered
-                    except AiRuntimeError:
-                        discovered = []
-
-                if discovered:
-                    current = (
-                        st.session_state.ai_model
-                        if st.session_state.ai_model in discovered
-                        else choose_ollama_model(discovered)
-                    )
-                    selected_model = st.selectbox(
-                        "Installed model",
-                        discovered,
-                        index=discovered.index(current),
-                        help="HARU detected these models from Ollama. qwen3:8b is suitable if already installed.",
-                    )
-                    st.session_state.ai_model = selected_model
-                    st.success(f"Ollama detected · {len(discovered)} model(s) available")
-
-                with st.expander("Advanced Ollama settings"):
-                    st.session_state.ai_endpoint = st.text_input(
-                        "Ollama endpoint",
-                        value=st.session_state.ai_endpoint,
-                        help="Default: http://localhost:11434",
-                    )
-                    if st.button("Refresh installed models", use_container_width=True):
-                        try:
-                            names = list_ollama_models(st.session_state.ai_endpoint)
-                            st.session_state["ollama_models"] = names
-                            st.session_state.ai_status = f"Found {len(names)} model(s)."
-                            st.rerun()
-                        except AiRuntimeError as exc:
-                            st.session_state.ai_status = f"Ollama discovery failed: {exc}"
-
-        elif provider == "OpenRouter API":
-            st.session_state.ai_endpoint = "https://openrouter.ai/api"
-
-            openrouter_server_key = server_secret_for_provider("OpenRouter API")
-            openrouter_saved_key = local_stored_key_for_provider("OpenRouter API")
-            if openrouter_server_key:
-                st.success("OpenRouter key loaded securely from Streamlit/server secrets.")
-                st.session_state.openrouter_api_key = ""
-            elif openrouter_saved_key:
-                st.success("OpenRouter key loaded securely from this PC's credential store.")
-                st.session_state.openrouter_api_key = ""
-            elif is_cloud_haru():
-                st.session_state.openrouter_api_key = ""
-                st.warning(
-                    "OpenRouter is locked to Streamlit Secrets on HARU Cloud. "
-                    "Set OPENROUTER_API_KEY in the app's Secrets settings."
-                )
-            else:
-                st.session_state.openrouter_api_key = st.text_input(
-                    "OpenRouter API key",
-                    value=st.session_state.openrouter_api_key,
-                    type="password",
-                    placeholder="sk-or-v1-…",
-                    help="A successful local connection is saved to Windows Credential Manager.",
-                )
-
-            free_modes = [
-                "Free auto-router — recommended",
-                "Choose a specific free model",
-            ]
-            if st.session_state.get("openrouter_model_mode") not in free_modes:
-                st.session_state["openrouter_model_mode"] = free_modes[0]
-
-            openrouter_mode = st.radio(
-                "Model access",
-                free_modes,
-                horizontal=False,
-                key="openrouter_model_mode",
+        if st.session_state.get("ai_applied_signature"):
+            st.caption(
+                "Active: "
+                f"{st.session_state.ai_applied_provider} · "
+                f"{st.session_state.ai_applied_model}"
             )
 
-            if openrouter_mode == "Free auto-router — recommended":
-                st.session_state.ai_model = "openrouter/free"
-                st.success(
-                    "Using OpenRouter Free Models Router. Paid models are hidden in HARU."
-                )
-                st.caption(
-                    "Model ID: openrouter/free · Free-plan request limits still apply."
-                )
+        ai_mode = st.radio(
+            "Runtime",
+            ["Off", "Local", "Online"],
+            horizontal=True,
+            index=["Off", "Local", "Online"].index(st.session_state.ai_mode),
+        )
+        st.session_state.ai_mode = ai_mode
+
+        if ai_mode == "Off":
+            st.session_state.ai_provider = "Disabled"
+            st.session_state.ai_connection_state = "OFF"
+            st.session_state.ai_runtime_degraded = False
+            st.session_state.ai_runtime_degraded_reason = ""
+            st.session_state.ai_connection_message = "AI runtime is disabled."
+            st.session_state.ai_applied_signature = ""
+            st.session_state.ai_applied_mode = "Off"
+            st.session_state.ai_applied_provider = "Disabled"
+            st.session_state.ai_applied_model = ""
+            st.session_state.ai_applied_endpoint = ""
+            st.session_state.gemini_api_key = ""
+            st.session_state.openrouter_api_key = ""
+            st.info("AI is disabled. HARU uses only local deterministic skills.")
+        else:
+            if ai_mode == "Local":
+                if is_cloud_haru():
+                    provider_options = ["Ollama"]
+                    st.session_state.ai_provider = "Ollama"
+                    st.caption(
+                        "Local endpoints are disabled on Streamlit Cloud. Run HARU locally to use Ollama or another local server."
+                    )
+                else:
+                    provider_options = [
+                        "Ollama",
+                        "Local OpenAI-compatible",
+                        "Android on-device (APK only)",
+                    ]
+                    if st.session_state.ai_provider not in provider_options:
+                        st.session_state.ai_provider = "Ollama"
+                    st.caption(
+                        "Recommended: Ollama on the same PC as HARU. No API key required."
+                    )
             else:
-                if st.button("Refresh free OpenRouter models", use_container_width=True):
+                provider_options = [
+                    "Google Gemini API",
+                    "OpenRouter API",
+                ]
+                if st.session_state.ai_provider not in provider_options:
+                    st.session_state.ai_provider = "Google Gemini API"
+
+            provider_labels = {
+                "Ollama": "Ollama on this PC — recommended",
+                "Local OpenAI-compatible": "Other local OpenAI-compatible server",
+                "Android on-device (APK only)": "Android on-device model",
+                "Google Gemini API": "Google Gemini API — default",
+                "OpenRouter API": "OpenRouter API — free models only",
+            }
+            provider = st.selectbox(
+                "Provider",
+                provider_options,
+                index=provider_options.index(st.session_state.ai_provider),
+                format_func=lambda item: provider_labels.get(item, item),
+            )
+            st.session_state.ai_provider = provider
+
+            model_catalogs = {
+                "Google Gemini API": {
+                    "Antigravity — default agent": "antigravity-preview-09-2026",
+                    "Gemini 3.5 Flash-Lite — long context / tools": "gemini-3.5-flash-lite",
+                },
+                "Android on-device (APK only)": {
+                    "Gemma 4 E4B Instruct — HARU recommended": "google/gemma-4-E4B-it",
+                    "Gemma 4 E2B Instruct — lightweight fallback": "google/gemma-4-E2B-it",
+                    "Qwen3 4B — text-only alternative": "Qwen/Qwen3-4B",
+                    "Phi-4 Mini — compact reasoning alternative": "microsoft/Phi-4-mini-instruct",
+                },
+            }
+
+            default_endpoints = {
+                "Ollama": "http://localhost:11434",
+                "Local OpenAI-compatible": "http://localhost:1234",
+                "OpenRouter API": "https://openrouter.ai/api",
+            }
+
+            if provider == "Ollama":
+                st.session_state.ai_endpoint = st.session_state.ai_endpoint or "http://localhost:11434"
+
+                if is_cloud_haru():
+                    st.warning(
+                        "Local AI setup is only available in HARU Local because Streamlit Cloud cannot access your PC."
+                    )
+                    st.code(".\\run_haru_local.bat", language="powershell")
+                    st.caption(
+                        "Run the launcher on your Windows PC. HARU Local will help start Ollama and install a model."
+                    )
+                else:
+                    st.markdown("##### Local AI setup")
+                    st.caption(
+                        "HARU can detect Ollama, help you choose a model, download it locally, and connect it."
+                    )
+
+                    ollama_online = False
+                    try:
+                        detected_models = list_ollama_models(st.session_state.ai_endpoint, timeout_s=2)
+                        st.session_state["ollama_models"] = detected_models
+                        ollama_online = True
+                        st.success("Ollama is running on this PC.")
+                    except AiRuntimeError:
+                        st.warning(
+                            "Ollama is not reachable yet. Install/start Ollama, then press Check again."
+                        )
+                        st.code("winget install Ollama.Ollama", language="powershell")
+                        st.code("ollama serve", language="powershell")
+
+                    if st.button("Check Ollama again", use_container_width=True, key="ollama_check"):
+                        try:
+                            names = list_ollama_models(st.session_state.ai_endpoint, timeout_s=3)
+                            st.session_state["ollama_models"] = names
+                            st.session_state.ai_status = f"Ollama ready · {len(names)} installed model(s)."
+                        except AiRuntimeError as exc:
+                            st.session_state.ai_status = f"Ollama not reachable: {exc}"
+                        st.rerun()
+
+                    if ollama_online:
+                        model_presets = {
+                            "Lightweight — qwen3:4b": "qwen3:4b",
+                            "Balanced — qwen3:8b": "qwen3:8b",
+                            "Reasoning — gemma3:12b": "gemma3:12b",
+                            "Custom model name…": "",
+                        }
+                        preset_label = st.selectbox(
+                            "Model to install",
+                            list(model_presets.keys()),
+                            help="Start with 4B on modest PCs, 8B for a stronger balance, or choose a custom Ollama model.",
+                        )
+                        model_to_pull = model_presets[preset_label]
+                        if not model_to_pull:
+                            model_to_pull = st.text_input(
+                                "Custom Ollama model",
+                                placeholder="e.g. llama3.2:3b",
+                                help="Use an Ollama model name from the Ollama library.",
+                            ).strip()
+
+                        pull_col, connect_col = st.columns(2)
+                        with pull_col:
+                            if st.button(
+                                "Download model",
+                                use_container_width=True,
+                                disabled=not bool(model_to_pull),
+                            ):
+                                with st.spinner(f"Downloading {model_to_pull}… This can take several minutes."):
+                                    try:
+                                        pull_ollama_model(
+                                            st.session_state.ai_endpoint,
+                                            model_to_pull,
+                                        )
+                                        names = list_ollama_models(st.session_state.ai_endpoint)
+                                        st.session_state["ollama_models"] = names
+                                        st.session_state.ai_model = model_to_pull
+                                        st.session_state.ai_status = f"Installed {model_to_pull}."
+                                        st.success(f"{model_to_pull} is installed.")
+                                    except AiRuntimeError as exc:
+                                        st.error(f"Download failed: {exc}")
+
+                        with connect_col:
+                            if st.button(
+                                "Auto-connect best installed",
+                                type="primary",
+                                use_container_width=True,
+                            ):
+                                try:
+                                    names = list_ollama_models(st.session_state.ai_endpoint)
+                                    if not names:
+                                        st.session_state.ai_status = "Install a model first."
+                                        st.rerun()
+
+                                    chosen = choose_ollama_model(names)
+                                    st.session_state.ai_model = chosen
+                                    candidate = AiConfig(
+                                        mode="Local",
+                                        provider="Ollama",
+                                        model=chosen,
+                                        endpoint=st.session_state.ai_endpoint,
+                                        api_key="",
+                                        timeout_s=25,
+                                    )
+
+                                    result = test_ai(candidate)
+                                    st.session_state.ai_applied_mode = "Local"
+                                    st.session_state.ai_applied_provider = "Ollama"
+                                    st.session_state.ai_applied_model = chosen
+                                    st.session_state.ai_applied_endpoint = st.session_state.ai_endpoint
+                                    st.session_state.ai_applied_signature = ai_config_signature(candidate)
+                                    st.session_state.ai_connection_state = "CONNECTED"
+                                    st.session_state.ai_runtime_degraded = False
+                                    st.session_state.ai_runtime_degraded_reason = ""
+                                    st.session_state.ai_connection_message = f"Ollama connected. {chosen} is now HARU."
+                                    st.session_state.ai_status = result
+                                    st.rerun()
+                                except AiRuntimeError as exc:
+                                    st.session_state.ai_connection_state = "FAILED"
+                                    st.session_state.ai_connection_message = str(exc)
+                                    st.session_state.ai_status = str(exc)
+                                    st.rerun()
+
+                    discovered = st.session_state.get("ollama_models", [])
+                    if not discovered:
+                        try:
+                            discovered = list_ollama_models(st.session_state.ai_endpoint, timeout_s=2)
+                            st.session_state["ollama_models"] = discovered
+                        except AiRuntimeError:
+                            discovered = []
+
+                    if discovered:
+                        current = (
+                            st.session_state.ai_model
+                            if st.session_state.ai_model in discovered
+                            else choose_ollama_model(discovered)
+                        )
+                        selected_model = st.selectbox(
+                            "Installed model",
+                            discovered,
+                            index=discovered.index(current),
+                            help="HARU detected these models from Ollama. qwen3:8b is suitable if already installed.",
+                        )
+                        st.session_state.ai_model = selected_model
+                        st.success(f"Ollama detected · {len(discovered)} model(s) available")
+
+                    with st.expander("Advanced Ollama settings"):
+                        st.session_state.ai_endpoint = st.text_input(
+                            "Ollama endpoint",
+                            value=st.session_state.ai_endpoint,
+                            help="Default: http://localhost:11434",
+                        )
+                        if st.button("Refresh installed models", use_container_width=True):
+                            try:
+                                names = list_ollama_models(st.session_state.ai_endpoint)
+                                st.session_state["ollama_models"] = names
+                                st.session_state.ai_status = f"Found {len(names)} model(s)."
+                                st.rerun()
+                            except AiRuntimeError as exc:
+                                st.session_state.ai_status = f"Ollama discovery failed: {exc}"
+
+            elif provider == "OpenRouter API":
+                st.session_state.ai_endpoint = "https://openrouter.ai/api"
+
+                openrouter_server_key = server_secret_for_provider("OpenRouter API")
+                openrouter_saved_key = local_stored_key_for_provider("OpenRouter API")
+                if openrouter_server_key:
+                    st.success("OpenRouter key loaded securely from Streamlit/server secrets.")
+                    st.session_state.openrouter_api_key = ""
+                elif openrouter_saved_key:
+                    st.success("OpenRouter key loaded securely from this PC's credential store.")
+                    st.session_state.openrouter_api_key = ""
+                elif is_cloud_haru():
+                    st.session_state.openrouter_api_key = ""
+                    st.warning(
+                        "OpenRouter is locked to Streamlit Secrets on HARU Cloud. "
+                        "Set OPENROUTER_API_KEY in the app's Secrets settings."
+                    )
+                else:
+                    st.session_state.openrouter_api_key = st.text_input(
+                        "OpenRouter API key",
+                        value=st.session_state.openrouter_api_key,
+                        type="password",
+                        placeholder="sk-or-v1-…",
+                        help="A successful local connection is saved to Windows Credential Manager.",
+                    )
+
+                free_modes = [
+                    "Free auto-router — recommended",
+                    "Choose a specific free model",
+                ]
+                if st.session_state.get("openrouter_model_mode") not in free_modes:
+                    st.session_state["openrouter_model_mode"] = free_modes[0]
+
+                openrouter_mode = st.radio(
+                    "Model access",
+                    free_modes,
+                    horizontal=False,
+                    key="openrouter_model_mode",
+                )
+
+                if openrouter_mode == "Free auto-router — recommended":
+                    st.session_state.ai_model = "openrouter/free"
+                    st.success(
+                        "Using OpenRouter Free Models Router. Paid models are hidden in HARU."
+                    )
+                    st.caption(
+                        "Model ID: openrouter/free · Free-plan request limits still apply."
+                    )
+                else:
+                    if st.button("Refresh free OpenRouter models", use_container_width=True):
+                        try:
+                            names = list_openai_compatible_models(
+                                st.session_state.ai_endpoint,
+                                resolved_api_key("OpenRouter API", st.session_state.openrouter_api_key),
+                            )
+                            free_names = [
+                                name for name in names
+                                if name == "openrouter/free" or name.endswith(":free")
+                            ]
+                            st.session_state["openrouter_models"] = free_names
+                            st.session_state.ai_status = (
+                                f"Found {len(free_names)} free OpenRouter model(s)."
+                                if free_names else
+                                "No specific free models were returned; use the free auto-router."
+                            )
+                            st.rerun()
+                        except AiRuntimeError as exc:
+                            st.session_state["openrouter_models"] = []
+                            st.session_state.ai_status = f"OpenRouter discovery failed: {exc}"
+
+                    discovered = st.session_state.get("openrouter_models", [])
+                    free_models = [
+                        name for name in discovered
+                        if name == "openrouter/free" or name.endswith(":free")
+                    ]
+                    if "openrouter/free" not in free_models:
+                        free_models.insert(0, "openrouter/free")
+
+                    current = (
+                        st.session_state.ai_model
+                        if st.session_state.ai_model in free_models
+                        else free_models[0]
+                    )
+                    st.session_state.ai_model = st.selectbox(
+                        "Free model",
+                        free_models,
+                        index=free_models.index(current),
+                        help="HARU only exposes OpenRouter's free router and :free model variants.",
+                    )
+                    st.caption("Free-only OpenRouter mode. Paid models are not selectable.")
+
+            elif provider == "Local OpenAI-compatible":
+                st.session_state.ai_endpoint = st.text_input(
+                    "Endpoint",
+                    value=st.session_state.ai_endpoint or default_endpoints[provider],
+                    help="Use the base URL only. HARU adds the provider API path automatically.",
+                )
+
+                if st.button("Discover endpoint models", use_container_width=True):
                     try:
                         names = list_openai_compatible_models(
                             st.session_state.ai_endpoint,
-                            resolved_api_key("OpenRouter API", st.session_state.openrouter_api_key),
+                            st.session_state.openrouter_api_key,
                         )
-                        free_names = [
-                            name for name in names
-                            if name == "openrouter/free" or name.endswith(":free")
-                        ]
-                        st.session_state["openrouter_models"] = free_names
-                        st.session_state.ai_status = (
-                            f"Found {len(free_names)} free OpenRouter model(s)."
-                            if free_names else
-                            "No specific free models were returned; use the free auto-router."
-                        )
-                        st.rerun()
+                        st.session_state["compatible_models"] = names
+                        st.session_state.ai_status = f"Found {len(names)} model(s)." if names else "No models returned by endpoint."
                     except AiRuntimeError as exc:
-                        st.session_state["openrouter_models"] = []
-                        st.session_state.ai_status = f"OpenRouter discovery failed: {exc}"
+                        st.session_state["compatible_models"] = []
+                        st.session_state.ai_status = f"Model discovery failed: {exc}"
 
-                discovered = st.session_state.get("openrouter_models", [])
-                free_models = [
-                    name for name in discovered
-                    if name == "openrouter/free" or name.endswith(":free")
-                ]
-                if "openrouter/free" not in free_models:
-                    free_models.insert(0, "openrouter/free")
-
-                current = (
-                    st.session_state.ai_model
-                    if st.session_state.ai_model in free_models
-                    else free_models[0]
-                )
-                st.session_state.ai_model = st.selectbox(
-                    "Free model",
-                    free_models,
-                    index=free_models.index(current),
-                    help="HARU only exposes OpenRouter's free router and :free model variants.",
-                )
-                st.caption("Free-only OpenRouter mode. Paid models are not selectable.")
-
-        elif provider == "Local OpenAI-compatible":
-            st.session_state.ai_endpoint = st.text_input(
-                "Endpoint",
-                value=st.session_state.ai_endpoint or default_endpoints[provider],
-                help="Use the base URL only. HARU adds the provider API path automatically.",
-            )
-
-            if st.button("Discover endpoint models", use_container_width=True):
-                try:
-                    names = list_openai_compatible_models(
-                        st.session_state.ai_endpoint,
-                        st.session_state.openrouter_api_key,
-                    )
-                    st.session_state["compatible_models"] = names
-                    st.session_state.ai_status = f"Found {len(names)} model(s)." if names else "No models returned by endpoint."
-                except AiRuntimeError as exc:
-                    st.session_state["compatible_models"] = []
-                    st.session_state.ai_status = f"Model discovery failed: {exc}"
-
-            discovered = st.session_state.get("compatible_models", [])
-            options = discovered + ["Custom model…"] if discovered else ["Custom model…"]
-            current_label = st.session_state.ai_model if st.session_state.ai_model in discovered else "Custom model…"
-            selected_model = st.selectbox(
-                "Model type",
-                options,
-                index=options.index(current_label),
-            )
-            if selected_model == "Custom model…":
-                st.session_state.ai_model = st.text_input(
-                    "Custom model ID",
-                    value=st.session_state.ai_model if st.session_state.ai_model not in discovered else "",
-                )
-            else:
-                st.session_state.ai_model = selected_model
-
-        else:
-            catalog = model_catalogs.get(provider, {})
-
-            if provider == "Google Gemini API":
-                labels = list(catalog.keys())
-                current_label = next(
-                    (label for label, model_id in catalog.items() if model_id == st.session_state.ai_model),
-                    labels[0],
-                )
-                selected_label = st.selectbox(
+                discovered = st.session_state.get("compatible_models", [])
+                options = discovered + ["Custom model…"] if discovered else ["Custom model…"]
+                current_label = st.session_state.ai_model if st.session_state.ai_model in discovered else "Custom model…"
+                selected_model = st.selectbox(
                     "Model type",
-                    labels,
-                    index=labels.index(current_label),
-                    help="HARU uses Antigravity by default, with Gemini 3.5 Flash-Lite as the lightweight alternative.",
+                    options,
+                    index=options.index(current_label),
                 )
-                st.session_state.ai_model = catalog[selected_label]
-
-                if st.session_state.ai_model == "antigravity-preview-09-2026":
-                    st.caption("Default · agent workflows · 60 RPM · 100K TPM · 100 RPD.")
-                else:
-                    st.caption("Gemini 3.5 Flash-Lite · 15 RPM · 250K TPM · 500 RPD · long context / tools.")
-            else:
-                labels = list(catalog.keys()) + ["Custom model…"]
-                current_label = next(
-                    (label for label, model_id in catalog.items() if model_id == st.session_state.ai_model),
-                    labels[0] if catalog and not st.session_state.ai_model else "Custom model…",
-                )
-                selected_label = st.selectbox(
-                    "Model type",
-                    labels,
-                    index=labels.index(current_label),
-                    help="Friendly model names are mapped internally to the provider's API model ID.",
-                )
-
-                if selected_label == "Custom model…":
+                if selected_model == "Custom model…":
                     st.session_state.ai_model = st.text_input(
                         "Custom model ID",
-                        value=st.session_state.ai_model if st.session_state.ai_model not in catalog.values() else "",
-                        placeholder="Enter provider model ID",
+                        value=st.session_state.ai_model if st.session_state.ai_model not in discovered else "",
                     )
                 else:
+                    st.session_state.ai_model = selected_model
+
+            else:
+                catalog = model_catalogs.get(provider, {})
+
+                if provider == "Google Gemini API":
+                    labels = list(catalog.keys())
+                    current_label = next(
+                        (label for label, model_id in catalog.items() if model_id == st.session_state.ai_model),
+                        labels[0],
+                    )
+                    selected_label = st.selectbox(
+                        "Model type",
+                        labels,
+                        index=labels.index(current_label),
+                        help="HARU uses Antigravity by default, with Gemini 3.5 Flash-Lite as the lightweight alternative.",
+                    )
                     st.session_state.ai_model = catalog[selected_label]
 
-            if st.session_state.ai_model:
-                st.caption(f"API model: {st.session_state.ai_model}")
-            if provider == "Android on-device (APK only)":
-                st.info(
-                    "HARU local default: Gemma 4 E4B Instruct. "
-                    "Use E2B on lower-memory phones. Streamlit only configures this target; "
-                    "the model itself will run inside the native Android app through the mobile inference runtime."
-                )
+                    if st.session_state.ai_model == "antigravity-preview-09-2026":
+                        st.caption("Default · agent workflows · 60 RPM · 100K TPM · 100 RPD.")
+                    else:
+                        st.caption("Gemini 3.5 Flash-Lite · 15 RPM · 250K TPM · 500 RPD · long context / tools.")
+                else:
+                    labels = list(catalog.keys()) + ["Custom model…"]
+                    current_label = next(
+                        (label for label, model_id in catalog.items() if model_id == st.session_state.ai_model),
+                        labels[0] if catalog and not st.session_state.ai_model else "Custom model…",
+                    )
+                    selected_label = st.selectbox(
+                        "Model type",
+                        labels,
+                        index=labels.index(current_label),
+                        help="Friendly model names are mapped internally to the provider's API model ID.",
+                    )
 
-        if provider == "Google Gemini API":
-            provider_server_key = server_secret_for_provider(provider)
-            provider_saved_key = local_stored_key_for_provider(provider)
-            if provider_server_key:
-                st.success(f"{provider} key loaded securely from Streamlit/server secrets.")
-                st.session_state.gemini_api_key = ""
-            elif provider_saved_key:
-                st.success(f"{provider} key loaded securely from this PC's credential store.")
-                st.session_state.gemini_api_key = ""
-            elif is_cloud_haru():
-                st.session_state.gemini_api_key = ""
-                st.warning(
-                    "Google AI is locked to Streamlit Secrets on HARU Cloud. "
-                    "Set GEMINI_API_KEY in the app's Secrets settings."
-                )
+                    if selected_label == "Custom model…":
+                        st.session_state.ai_model = st.text_input(
+                            "Custom model ID",
+                            value=st.session_state.ai_model if st.session_state.ai_model not in catalog.values() else "",
+                            placeholder="Enter provider model ID",
+                        )
+                    else:
+                        st.session_state.ai_model = catalog[selected_label]
+
+                if st.session_state.ai_model:
+                    st.caption(f"API model: {st.session_state.ai_model}")
+                if provider == "Android on-device (APK only)":
+                    st.info(
+                        "HARU local default: Gemma 4 E4B Instruct. "
+                        "Use E2B on lower-memory phones. Streamlit only configures this target; "
+                        "the model itself will run inside the native Android app through the mobile inference runtime."
+                    )
+
+            if provider == "Google Gemini API":
+                provider_server_key = server_secret_for_provider(provider)
+                provider_saved_key = local_stored_key_for_provider(provider)
+                if provider_server_key:
+                    st.success(f"{provider} key loaded securely from Streamlit/server secrets.")
+                    st.session_state.gemini_api_key = ""
+                elif provider_saved_key:
+                    st.success(f"{provider} key loaded securely from this PC's credential store.")
+                    st.session_state.gemini_api_key = ""
+                elif is_cloud_haru():
+                    st.session_state.gemini_api_key = ""
+                    st.warning(
+                        "Google AI is locked to Streamlit Secrets on HARU Cloud. "
+                        "Set GEMINI_API_KEY in the app's Secrets settings."
+                    )
+                else:
+                    st.session_state.gemini_api_key = st.text_input(
+                        "API key",
+                        value=st.session_state.gemini_api_key,
+                        type="password",
+                        help="A successful local connection is saved to Windows Credential Manager.",
+                    )
+            elif provider == "OpenRouter API":
+                # OpenRouter renders its dedicated key field above. Preserve that
+                # session value so Apply & connect can authenticate successfully.
+                pass
             else:
-                st.session_state.gemini_api_key = st.text_input(
-                    "API key",
-                    value=st.session_state.gemini_api_key,
-                    type="password",
-                    help="A successful local connection is saved to Windows Credential Manager.",
+                pass
+
+            if provider != "Ollama":
+                st.info(
+                    "When applied, HARU becomes the shell for the selected model/agent. "
+                    "Google Antigravity is the online default, Gemini 3.5 Flash-Lite is the lightweight alternative, "
+                    "and OpenRouter exposes free models only. HARU local tools remain available for device-specific tasks."
                 )
-        elif provider == "OpenRouter API":
-            # OpenRouter renders its dedicated key field above. Preserve that
-            # session value so Apply & connect can authenticate successfully.
-            pass
-        else:
-            pass
 
-        if provider != "Ollama":
-            st.info(
-                "When applied, HARU becomes the shell for the selected model/agent. "
-                "Google Antigravity is the online default, Gemini 3.5 Flash-Lite is the lightweight alternative, "
-                "and OpenRouter exposes free models only. HARU local tools remain available for device-specific tasks."
-            )
+            if provider != "Ollama":
+                apply_col, test_col, clear_col = st.columns([1.35, 1, 1])
+                with apply_col:
+                    if st.button("Apply & connect", type="primary", use_container_width=True):
+                        candidate = draft_ai_config()
+                        st.session_state.ai_connection_state = "CONNECTING"
+                        st.session_state.ai_connection_message = (
+                            f"Testing {candidate.provider} · {candidate.model or 'no model selected'}…"
+                        )
+                        try:
+                            result = test_ai(candidate)
+                            st.session_state.ai_applied_mode = candidate.mode
+                            st.session_state.ai_applied_provider = candidate.provider
+                            st.session_state.ai_applied_model = candidate.model
+                            st.session_state.ai_applied_endpoint = candidate.endpoint
 
-        if provider != "Ollama":
-            apply_col, test_col, clear_col = st.columns([1.35, 1, 1])
-            with apply_col:
-                if st.button("Apply & connect", type="primary", use_container_width=True):
-                    candidate = draft_ai_config()
-                    st.session_state.ai_connection_state = "CONNECTING"
-                    st.session_state.ai_connection_message = (
-                        f"Testing {candidate.provider} · {candidate.model or 'no model selected'}…"
-                    )
-                    try:
-                        result = test_ai(candidate)
-                        st.session_state.ai_applied_mode = candidate.mode
-                        st.session_state.ai_applied_provider = candidate.provider
-                        st.session_state.ai_applied_model = candidate.model
-                        st.session_state.ai_applied_endpoint = candidate.endpoint
+                            if (
+                                candidate.api_key
+                                and not is_cloud_haru()
+                                and not server_secret_for_provider(candidate.provider)
+                                and (
+                                    st.session_state.get("gemini_api_key")
+                                    if candidate.provider == "Google Gemini API"
+                                    else st.session_state.get("openrouter_api_key")
+                                )
+                            ):
+                                if save_stored_key(candidate.provider, candidate.api_key):
+                                    if candidate.provider == "Google Gemini API":
+                                        st.session_state.gemini_api_key = ""
+                                    elif candidate.provider == "OpenRouter API":
+                                        st.session_state.openrouter_api_key = ""
 
-                        if (
-                            candidate.api_key
-                            and not is_cloud_haru()
-                            and not server_secret_for_provider(candidate.provider)
-                            and (
-                                st.session_state.get("gemini_api_key")
-                                if candidate.provider == "Google Gemini API"
-                                else st.session_state.get("openrouter_api_key")
+                            st.session_state.ai_applied_signature = ai_config_signature(candidate)
+                            st.session_state.ai_connection_state = "CONNECTED"
+                            st.session_state.ai_runtime_degraded = False
+                            st.session_state.ai_runtime_degraded_reason = ""
+                            st.session_state.ai_connection_message = (
+                                f"Connected. {candidate.provider} · {candidate.model} is now HARU's active brain."
                             )
-                        ):
-                            if save_stored_key(candidate.provider, candidate.api_key):
-                                if candidate.provider == "Google Gemini API":
-                                    st.session_state.gemini_api_key = ""
-                                elif candidate.provider == "OpenRouter API":
-                                    st.session_state.openrouter_api_key = ""
-
-                        st.session_state.ai_applied_signature = ai_config_signature(candidate)
-                        st.session_state.ai_connection_state = "CONNECTED"
-                        st.session_state.ai_runtime_degraded = False
-                        st.session_state.ai_runtime_degraded_reason = ""
-                        st.session_state.ai_connection_message = (
-                            f"Connected. {candidate.provider} · {candidate.model} is now HARU's active brain."
-                        )
-                        st.session_state.ai_status = result
-                        st.rerun()
-                    except AiRuntimeError as exc:
-                        st.session_state.ai_connection_state = "FAILED"
-                        st.session_state.ai_connection_message = str(exc)
-                        st.session_state.ai_status = f"Connection failed: {exc}"
-                        st.rerun()
-    
-            with test_col:
-                if st.button("Retest", use_container_width=True):
-                    config = current_ai_config()
-                    try:
-                        result = test_ai(config)
-                        st.session_state.ai_connection_state = "CONNECTED"
-                        st.session_state.ai_runtime_degraded = False
-                        st.session_state.ai_runtime_degraded_reason = ""
-                        st.session_state.ai_connection_message = (
-                            f"Connected. {config.provider} · {config.model} is HARU's active brain."
-                        )
-                        st.session_state.ai_status = result
-                        st.rerun()
-                    except AiRuntimeError as exc:
-                        st.session_state.ai_connection_state = "FAILED"
-                        st.session_state.ai_connection_message = str(exc)
-                        st.session_state.ai_status = f"Connection failed: {exc}"
-                        st.rerun()
-    
-            with clear_col:
-                if st.button("Forget key", use_container_width=True):
-                    if provider == "Google Gemini API":
-                        st.session_state.gemini_api_key = ""
-                    elif provider == "OpenRouter API":
-                        st.session_state.openrouter_api_key = ""
-            
-                    if not is_cloud_haru():
-                        delete_stored_key(provider)
-
-                    st.session_state.ai_applied_signature = ""
-                    st.session_state.ai_connection_state = "UNTESTED"
-                    st.session_state.ai_connection_message = (
-                        "For Streamlit Cloud, remove the key from app Secrets to forget it."
-                        if is_cloud_haru() and server_secret_for_provider(provider)
-                        else "Saved credential removed. Enter a key to reconnect."
-                    )
-                    st.session_state.ai_status = "Credential cleared."
-                    st.rerun()
-    
-        elif not is_cloud_haru() and st.session_state.get("ai_applied_provider") == "Ollama":
-            test_col, disconnect_col = st.columns(2)
-            with test_col:
-                if st.button("Retest Ollama", use_container_width=True):
-                    try:
+                            st.session_state.ai_status = result
+                            st.rerun()
+                        except AiRuntimeError as exc:
+                            st.session_state.ai_connection_state = "FAILED"
+                            st.session_state.ai_connection_message = str(exc)
+                            st.session_state.ai_status = f"Connection failed: {exc}"
+                            st.rerun()
+        
+                with test_col:
+                    if st.button("Retest", use_container_width=True):
                         config = current_ai_config()
-                        result = test_ai(config)
-                        st.session_state.ai_connection_state = "CONNECTED"
-                        st.session_state.ai_runtime_degraded = False
-                        st.session_state.ai_runtime_degraded_reason = ""
-                        st.session_state.ai_connection_message = (
-                            f"Ollama connected. {config.model} is HARU."
-                        )
-                        st.session_state.ai_status = result
-                        st.rerun()
-                    except AiRuntimeError as exc:
-                        st.session_state.ai_connection_state = "FAILED"
-                        st.session_state.ai_connection_message = str(exc)
-                        st.session_state.ai_status = str(exc)
-                        st.rerun()
-            with disconnect_col:
-                if st.button("Disconnect Ollama", use_container_width=True):
-                    st.session_state.ai_applied_signature = ""
-                    st.session_state.ai_applied_mode = "Off"
-                    st.session_state.ai_applied_provider = "Disabled"
-                    st.session_state.ai_applied_model = ""
-                    st.session_state.ai_applied_endpoint = ""
-                    st.session_state.ai_connection_state = "UNTESTED"
-                    st.session_state.ai_connection_message = "Ollama disconnected."
-                    st.rerun()
+                        try:
+                            result = test_ai(config)
+                            st.session_state.ai_connection_state = "CONNECTED"
+                            st.session_state.ai_runtime_degraded = False
+                            st.session_state.ai_runtime_degraded_reason = ""
+                            st.session_state.ai_connection_message = (
+                                f"Connected. {config.provider} · {config.model} is HARU's active brain."
+                            )
+                            st.session_state.ai_status = result
+                            st.rerun()
+                        except AiRuntimeError as exc:
+                            st.session_state.ai_connection_state = "FAILED"
+                            st.session_state.ai_connection_message = str(exc)
+                            st.session_state.ai_status = f"Connection failed: {exc}"
+                            st.rerun()
+        
+                with clear_col:
+                    if st.button("Forget key", use_container_width=True):
+                        if provider == "Google Gemini API":
+                            st.session_state.gemini_api_key = ""
+                        elif provider == "OpenRouter API":
+                            st.session_state.openrouter_api_key = ""
+                
+                        if not is_cloud_haru():
+                            delete_stored_key(provider)
 
-        st.caption(
-            f"Connection status: {st.session_state.ai_status} · Key storage: {api_key_source(provider)}"
-        )
-        if (
-            provider in SECRET_NAME_BY_PROVIDER
-            and is_cloud_haru()
-            and not server_secret_for_provider(provider)
-        ):
+                        st.session_state.ai_applied_signature = ""
+                        st.session_state.ai_connection_state = "UNTESTED"
+                        st.session_state.ai_connection_message = (
+                            "For Streamlit Cloud, remove the key from app Secrets to forget it."
+                            if is_cloud_haru() and server_secret_for_provider(provider)
+                            else "Saved credential removed. Enter a key to reconnect."
+                        )
+                        st.session_state.ai_status = "Credential cleared."
+                        st.rerun()
+        
+            elif not is_cloud_haru() and st.session_state.get("ai_applied_provider") == "Ollama":
+                test_col, disconnect_col = st.columns(2)
+                with test_col:
+                    if st.button("Retest Ollama", use_container_width=True):
+                        try:
+                            config = current_ai_config()
+                            result = test_ai(config)
+                            st.session_state.ai_connection_state = "CONNECTED"
+                            st.session_state.ai_runtime_degraded = False
+                            st.session_state.ai_runtime_degraded_reason = ""
+                            st.session_state.ai_connection_message = (
+                                f"Ollama connected. {config.model} is HARU."
+                            )
+                            st.session_state.ai_status = result
+                            st.rerun()
+                        except AiRuntimeError as exc:
+                            st.session_state.ai_connection_state = "FAILED"
+                            st.session_state.ai_connection_message = str(exc)
+                            st.session_state.ai_status = str(exc)
+                            st.rerun()
+                with disconnect_col:
+                    if st.button("Disconnect Ollama", use_container_width=True):
+                        st.session_state.ai_applied_signature = ""
+                        st.session_state.ai_applied_mode = "Off"
+                        st.session_state.ai_applied_provider = "Disabled"
+                        st.session_state.ai_applied_model = ""
+                        st.session_state.ai_applied_endpoint = ""
+                        st.session_state.ai_connection_state = "UNTESTED"
+                        st.session_state.ai_connection_message = "Ollama disconnected."
+                        st.rerun()
+
             st.caption(
-                f"Cloud connections require {SECRET_NAME_BY_PROVIDER[provider]} in the app's Secrets settings."
+                f"Connection status: {st.session_state.ai_status} · Key storage: {api_key_source(provider)}"
             )
+            if (
+                provider in SECRET_NAME_BY_PROVIDER
+                and is_cloud_haru()
+                and not server_secret_for_provider(provider)
+            ):
+                st.caption(
+                    f"Cloud connections require {SECRET_NAME_BY_PROVIDER[provider]} in the app's Secrets settings."
+                )
 
 
 if os.environ.get("HARU_DEBUG", "").strip() == "1":
