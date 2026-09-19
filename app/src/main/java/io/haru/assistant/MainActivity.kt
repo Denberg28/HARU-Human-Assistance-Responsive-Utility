@@ -1,8 +1,11 @@
 package io.haru.assistant
 
 import android.Manifest
+import android.app.DownloadManager
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.location.Location
 import android.location.LocationListener
@@ -11,6 +14,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Looper
+import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -27,11 +31,6 @@ import io.haru.assistant.content.AndroidHazardBundle
 import io.haru.assistant.content.AndroidHazardService
 import io.haru.assistant.content.AndroidNewsBundle
 import io.haru.assistant.content.AndroidNewsService
-import io.haru.assistant.localai.AndroidLocalAiManager
-import io.haru.assistant.localai.LocalAiStatus
-import io.haru.assistant.localai.LocalModelOption
-import io.haru.assistant.localai.LocalModelDownloadManager
-import io.haru.assistant.localai.LocalModelDownloadState
 import io.haru.assistant.location.TrustedLocation
 import io.haru.assistant.location.TrustedLocationManager
 import io.haru.assistant.onlineai.AndroidOnlineAiManager
@@ -50,8 +49,6 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
     private var activeViewModel: HaruViewModel? = null
 
     private lateinit var voiceController: HaruVoiceController
-    private lateinit var localAiManager: AndroidLocalAiManager
-    private lateinit var localModelDownloadManager: LocalModelDownloadManager
     private lateinit var onlineAiManager: AndroidOnlineAiManager
     private lateinit var appUpdateManager: AndroidAppUpdateManager
     private lateinit var companionStore: AndroidCompanionStore
@@ -66,19 +63,16 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
     private var voiceStatus by mutableStateOf(
         HaruVoiceController.VoiceRuntimeStatus()
     )
-    private var localAiStatus by mutableStateOf(LocalAiStatus())
-    private var localAiBusy by mutableStateOf(false)
-    private var localAiDownloadProgress by mutableStateOf<Float?>(null)
-    private var localAiDownloadLabel by mutableStateOf("")
-    private var localAiDownloadState by mutableStateOf(LocalModelDownloadState())
     private var companionSnapshot by mutableStateOf(CompanionSnapshot())
 
     private var onlineProvider by mutableStateOf(OnlineProvider.ANTIGRAVITY)
-    private var selectedGeminiModel by mutableStateOf(AndroidOnlineAiManager.DEFAULT_GEMINI_MODEL)
+    private var selectedGeminiModel by mutableStateOf(AndroidOnlineAiManager.FALLBACK_GEMINI_MODEL)
+    private var geminiModels by mutableStateOf(listOf(AndroidOnlineAiManager.FALLBACK_GEMINI_MODEL))
     private var onlineStatus by mutableStateOf("Antigravity is the online default.")
     private var hasGeminiKey by mutableStateOf(false)
     private var updateStatus by mutableStateOf("")
     private var updateUrl by mutableStateOf("")
+    private var updateDownloadId: Long? = null
 
     private var newsBundle by mutableStateOf(AndroidNewsBundle())
     private var hazardBundle by mutableStateOf(AndroidHazardBundle())
@@ -87,6 +81,15 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
 
     private var trustedLocations by mutableStateOf(emptyList<TrustedLocation>())
     private var locationShareCode by mutableStateOf("")
+
+    private val updateDownloadReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            val completedId =
+                intent?.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1L) ?: -1L
+            if (completedId <= 0L || completedId != updateDownloadId) return
+            finishDownloadedUpdate(completedId)
+        }
+    }
 
     private val audioPermissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -126,8 +129,6 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
             context = this,
             callbacks = this,
         )
-        localAiManager = AndroidLocalAiManager(applicationContext)
-        localModelDownloadManager = LocalModelDownloadManager(applicationContext)
         onlineAiManager = AndroidOnlineAiManager(applicationContext)
         appUpdateManager = AndroidAppUpdateManager()
         companionStore = AndroidCompanionStore(applicationContext)
@@ -136,24 +137,24 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
         trustedLocationManager = TrustedLocationManager(applicationContext)
 
         companionSnapshot = companionStore.load()
+        purgeLegacyLocalAi()
         val onlineSettings = onlineAiManager.settings()
         onlineProvider = onlineSettings.provider
         selectedGeminiModel = onlineSettings.geminiModel
+        geminiModels = onlineAiManager.geminiModels()
         refreshOnlineKeyState()
         trustedLocations = trustedLocationManager.load()
-        refreshLocalAiStatus()
 
-        localModelDownloadManager.liveData().observe(this) { workInfos ->
-            localAiDownloadState = localModelDownloadManager.stateFrom(workInfos)
-            localAiDownloadProgress = localAiDownloadState.progress
-            localAiDownloadLabel = formatLocalDownloadLabel(localAiDownloadState)
-
-            if (localAiDownloadState.state == "COMPLETE") {
-                refreshLocalAiStatus(
-                    message = localAiDownloadState.modelName + " downloaded. Tap Use model to activate.",
-                    state = "READY",
-                )
-            }
+        val updateFilter = IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(
+                updateDownloadReceiver,
+                updateFilter,
+                Context.RECEIVER_NOT_EXPORTED,
+            )
+        } else {
+            @Suppress("DEPRECATION")
+            registerReceiver(updateDownloadReceiver, updateFilter)
         }
 
         setContent {
@@ -164,17 +165,10 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
                 HaruScreen(
                     viewModel = haruViewModel,
                     voiceStatus = voiceStatus,
-                    localAiStatus = localAiStatus,
-                    localAiBusy = localAiBusy,
-                    localModelOptions = localAiManager.curatedModels(),
-                    localAiDownloadProgress = localAiDownloadProgress,
-                    localAiDownloadLabel = localAiDownloadLabel,
-                    localAiDownloadState = localAiDownloadState.state,
-                    localAiDownloadModelId = localAiDownloadState.modelId,
                     todayLines = companionSnapshot.todayLines(),
                     onlineProvider = onlineProvider,
                     selectedGeminiModel = selectedGeminiModel,
-                    geminiModels = onlineAiManager.geminiModels(),
+                    geminiModels = geminiModels,
                     onlineStatus = onlineStatus,
                     hasGeminiKey = hasGeminiKey,
                     appVersion = currentVersionName(),
@@ -191,18 +185,13 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
                     onSpeakClick = {
                         voiceController.speak(haruViewModel.uiState.message)
                     },
-                    onDownloadLocalModel = ::downloadCuratedLocalModel,
-                    onPauseLocalModelDownload = ::pauseLocalModelDownload,
-                    onResumeLocalModelDownload = ::resumeLocalModelDownload,
-                    onCancelLocalModelDownload = ::cancelLocalModelDownload,
-                    onValidateLocalModel = ::validateLocalModel,
-                    onDeleteLocalModel = ::deleteLocalModel,
                     onSelectOnlineProvider = ::selectOnlineProvider,
                     onSelectGeminiModel = ::selectGeminiModel,
+                    onRefreshGeminiModels = ::refreshGeminiModels,
                     onSaveGeminiKey = ::saveGeminiKey,
                     onTestOnlineAi = ::testOnlineAi,
                     onCheckUpdate = ::checkForUpdate,
-                    onOpenUpdate = ::openUrl,
+                    onInstallUpdate = ::downloadAndInstallUpdate,
                     onRefreshNews = ::refreshNews,
                     onRefreshHazards = ::refreshHazards,
                     onOpenUrl = ::openUrl,
@@ -220,58 +209,35 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
     ) {
         val command = viewModel.uiState.command.trim()
         viewModel.recordLatestUser(command)
+
         val companionReply = handleCompanionCommand(command)
         if (companionReply != null) {
             viewModel.updateCommand("")
-            viewModel.completeLocalAi(companionReply, success = true)
-            if (speakResult) {
-                voiceController.speak(companionReply)
-            }
+            viewModel.completeAi(companionReply, success = true)
+            if (speakResult) voiceController.speak(companionReply)
             return
         }
 
         val prompt = viewModel.prepareAiPrompt() ?: run {
-            if (speakResult) {
-                voiceController.speak(viewModel.uiState.message)
-            }
+            if (speakResult) voiceController.speak(viewModel.uiState.message)
             return
         }
 
         lifecycleScope.launch {
-            val activeModel = localAiStatus.activeModel
             try {
-                val reply = if (onlineProvider == OnlineProvider.LOCAL_ONLY) {
-                    require(activeModel.isNotBlank()) {
-                        "No validated local AI model is active."
-                    }
-                    localAiManager.generate(activeModel, prompt)
-                } else {
-                    try {
-                        val response = onlineAiManager.ask(
-                            onlineProvider,
-                            prompt,
-                            SYSTEM_PROMPT,
-                        )
-                        onlineStatus = providerName(onlineProvider) + " connected."
-                        response
-                    } catch (onlineError: Exception) {
-                        if (activeModel.isBlank()) throw onlineError
-                        onlineStatus =
-                            "Online AI unavailable; HARU used the local model."
-                        localAiManager.generate(activeModel, prompt)
-                    }
-                }
-
-                viewModel.completeLocalAi(reply, success = true)
-                if (speakResult) {
-                    voiceController.speak(reply)
-                }
+                val reply = onlineAiManager.ask(
+                    onlineProvider,
+                    prompt,
+                    SYSTEM_PROMPT,
+                )
+                onlineStatus = providerName(onlineProvider) + " connected."
+                viewModel.completeAi(reply, success = true)
+                if (speakResult) voiceController.speak(reply)
             } catch (exc: Exception) {
-                val message = exc.message ?: "HARU could not complete that request."
-                viewModel.completeLocalAi(message, success = false)
-                if (speakResult) {
-                    voiceController.speak(message)
-                }
+                val message =
+                    exc.message ?: "HARU could not complete that request."
+                viewModel.completeAi(message, success = false)
+                if (speakResult) voiceController.speak(message)
             }
         }
     }
@@ -299,16 +265,24 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
         hasGeminiKey = onlineAiManager.hasGeminiKey()
     }
 
-    private fun testOnlineAi() {
-        if (onlineProvider == OnlineProvider.LOCAL_ONLY) {
-            onlineStatus = if (localAiStatus.activeModel.isBlank()) {
-                "No validated local model is active."
-            } else {
-                "Local AI is ready."
+    private fun refreshGeminiModels() {
+        onlineStatus = "Refreshing Gemini models…"
+        lifecycleScope.launch {
+            try {
+                geminiModels = onlineAiManager.refreshGeminiModels()
+                selectedGeminiModel = onlineAiManager.settings().geminiModel
+                onlineStatus =
+                    "Gemini models refreshed · " +
+                        geminiModels.size +
+                        " available."
+            } catch (exc: Exception) {
+                onlineStatus =
+                    exc.message ?: "Could not refresh Gemini models."
             }
-            return
         }
+    }
 
+    private fun testOnlineAi() {
         onlineStatus = "Testing " + providerName(onlineProvider) + "…"
         lifecycleScope.launch {
             onlineStatus = try {
@@ -365,6 +339,91 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
             } catch (exc: Exception) {
                 exc.message ?: "Could not check for updates."
             }
+        }
+    }
+
+    private fun downloadAndInstallUpdate(url: String) {
+        if (!url.startsWith("https://")) {
+            updateStatus = "Invalid update URL."
+            return
+        }
+
+        if (
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
+            !packageManager.canRequestPackageInstalls()
+        ) {
+            updateStatus =
+                "Allow HARU to install updates, return, then tap Install update again."
+            startActivity(
+                Intent(
+                    Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                    Uri.parse("package:$packageName"),
+                )
+            )
+            return
+        }
+
+        val manager =
+            getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+
+        val request = DownloadManager.Request(Uri.parse(url))
+            .setTitle("HARU update")
+            .setDescription("Downloading the latest HARU APK")
+            .setMimeType(APK_MIME)
+            .setNotificationVisibility(
+                DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED
+            )
+            .setAllowedOverMetered(true)
+            .setAllowedOverRoaming(false)
+
+        updateDownloadId = manager.enqueue(request)
+        updateStatus = "Downloading HARU update…"
+    }
+
+    private fun finishDownloadedUpdate(downloadId: Long) {
+        val manager =
+            getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+
+        manager.query(
+            DownloadManager.Query().setFilterById(downloadId)
+        ).use { cursor ->
+            if (!cursor.moveToFirst()) {
+                updateStatus = "Update download could not be verified."
+                return
+            }
+
+            val status = cursor.getInt(
+                cursor.getColumnIndexOrThrow(
+                    DownloadManager.COLUMN_STATUS
+                )
+            )
+            if (status != DownloadManager.STATUS_SUCCESSFUL) {
+                updateStatus =
+                    "Update download failed. Check again and retry."
+                return
+            }
+        }
+
+        val uri = manager.getUriForDownloadedFile(downloadId)
+        if (uri == null) {
+            updateStatus = "Downloaded APK could not be opened."
+            return
+        }
+
+        updateStatus = "Update downloaded. Opening Android installer…"
+        startActivity(
+            Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(uri, APK_MIME)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+        )
+    }
+
+    private fun purgeLegacyLocalAi() {
+        runCatching {
+            java.io.File(filesDir, "models").deleteRecursively()
+            applicationContext.deleteSharedPreferences("haru_local_ai")
+            applicationContext.deleteSharedPreferences("haru_model_download")
         }
     }
 
@@ -609,128 +668,6 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
         }
     }
 
-    private fun refreshLocalAiStatus(message: String? = null, state: String? = null) {
-        val refreshed = localAiManager.inspect(localAiStatus.activeModel)
-        localAiStatus = refreshed.copy(
-            state = state ?: refreshed.state,
-            message = message ?: refreshed.message,
-        )
-    }
-
-    private fun downloadCuratedLocalModel(option: LocalModelOption) {
-        if (localAiStatus.installedModels.contains(option.fileName)) {
-            validateLocalModel(option.fileName)
-            return
-        }
-
-        requestNotificationPermissionIfNeeded()
-        localModelDownloadManager.start(option)
-        localAiDownloadState = LocalModelDownloadState(
-            modelId = option.id,
-            modelName = option.name,
-            state = "QUEUED",
-            message = "Preparing background download…",
-        )
-        localAiDownloadProgress = null
-        localAiDownloadLabel =
-            option.name + " queued. You can keep using HARU or switch apps."
-    }
-
-    private fun pauseLocalModelDownload() {
-        localModelDownloadManager.pause()
-        localAiDownloadState = localAiDownloadState.copy(
-            state = "PAUSED",
-            message = "Paused · tap Resume to continue.",
-        )
-        localAiDownloadLabel = formatLocalDownloadLabel(localAiDownloadState)
-    }
-
-    private fun resumeLocalModelDownload() {
-        val resumed = localModelDownloadManager.resume(localAiManager.curatedModels())
-        if (!resumed) {
-            localAiDownloadLabel = "No paused model download to resume."
-        }
-    }
-
-    private fun cancelLocalModelDownload() {
-        localModelDownloadManager.cancel()
-        localAiDownloadState = LocalModelDownloadState()
-        localAiDownloadProgress = null
-        localAiDownloadLabel = "Download cancelled. Partial file removed."
-        refreshLocalAiStatus()
-    }
-
-    private fun formatLocalDownloadLabel(state: LocalModelDownloadState): String {
-        val downloadedMb = state.downloadedBytes / (1024f * 1024f)
-        val total = state.totalBytes
-        return when {
-            state.state == "IDLE" -> state.message
-            total != null && total > 0L -> {
-                val totalMb = total / (1024f * 1024f)
-                val pct = ((state.downloadedBytes * 100L) / total).coerceIn(0L, 100L)
-                String.format(
-                    java.util.Locale.US,
-                    "%s · %.0f / %.0f MB · %d%%",
-                    state.state.lowercase().replaceFirstChar { it.uppercase() },
-                    downloadedMb,
-                    totalMb,
-                    pct,
-                )
-            }
-            else -> {
-                val prefix = state.state.lowercase().replaceFirstChar { it.uppercase() }
-                if (state.downloadedBytes > 0L) {
-                    String.format(
-                        java.util.Locale.US,
-                        "%s · %.0f MB",
-                        prefix,
-                        downloadedMb,
-                    )
-                } else {
-                    state.message.ifBlank { prefix }
-                }
-            }
-        }
-    }
-
-
-    private fun validateLocalModel(name: String) {
-        if (localAiBusy || name.isBlank()) return
-        localAiBusy = true
-        localAiStatus = localAiStatus.copy(
-            state = "WORKING",
-            message = "Validating " + name + "…",
-        )
-
-        lifecycleScope.launch {
-            try {
-                val validated = localAiManager.validateInstalledModel(name)
-                localAiStatus = localAiManager.inspect(validated).copy(
-                    activeModel = validated,
-                    state = "READY",
-                    message = validated + " is ready for local inference.",
-                )
-            } catch (exc: Exception) {
-                refreshLocalAiStatus(
-                    message = exc.message ?: "Model validation failed.",
-                    state = "ERROR",
-                )
-            } finally {
-                localAiBusy = false
-            }
-        }
-    }
-
-    private fun deleteLocalModel(name: String) {
-        if (localAiBusy || name.isBlank()) return
-        val deleted = runCatching { localAiManager.deleteModel(name) }.getOrDefault(false)
-        refreshLocalAiStatus(
-            message = if (deleted) name + " removed." else "Could not remove " + name + ".",
-            state = if (deleted) null else "ERROR",
-        )
-    }
-
-
     override fun onResume() {
         super.onResume()
         if (::companionStore.isInitialized) {
@@ -765,6 +702,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
     }
 
     override fun onDestroy() {
+        runCatching { unregisterReceiver(updateDownloadReceiver) }
         voiceController.shutdown()
         super.onDestroy()
     }
@@ -773,10 +711,12 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
         when (provider) {
             OnlineProvider.ANTIGRAVITY -> "Antigravity"
             OnlineProvider.GEMINI -> selectedGeminiModel.label
-            OnlineProvider.LOCAL_ONLY -> "Local AI"
         }
 
     companion object {
+        private const val APK_MIME =
+            "application/vnd.android.package-archive"
+
         private const val SYSTEM_PROMPT =
             "You are HARU, a concise and practical personal companion. " +
                 "Use local device tools for notes, tasks, reminders, voice, hazards, news, and trusted locations. " +
