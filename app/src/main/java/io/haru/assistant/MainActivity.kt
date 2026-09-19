@@ -121,10 +121,10 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
         lifecycleScope.launch {
             try {
                 val name = localAiManager.importModel(uri)
-                localAiStatus = localAiManager.inspect(name).copy(
-                    activeModel = name,
-                    state = "READY",
-                    message = name + " is validated and ready.",
+                localAiStatus = localAiManager.inspect().copy(
+                    activeModel = "",
+                    state = "SETUP",
+                    message = name + " imported. Tap Validate before using it.",
                 )
             } catch (exc: Exception) {
                 refreshLocalAiStatus(
@@ -148,10 +148,10 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
         lifecycleScope.launch {
             try {
                 val name = localAiManager.downloadModel(url)
-                localAiStatus = localAiManager.inspect(name).copy(
-                    activeModel = name,
-                    state = "READY",
-                    message = name + " is downloaded, validated, and ready.",
+                localAiStatus = localAiManager.inspect().copy(
+                    activeModel = "",
+                    state = "SETUP",
+                    message = name + " downloaded. Tap Validate before using it.",
                 )
             } catch (exc: Exception) {
                 refreshLocalAiStatus(
