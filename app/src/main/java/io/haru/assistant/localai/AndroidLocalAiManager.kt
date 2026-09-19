@@ -6,6 +6,8 @@ import android.net.Uri
 import android.os.StatFs
 import com.google.ai.edge.litertlm.Backend
 import com.google.ai.edge.litertlm.Engine
+import com.google.ai.edge.litertlm.Contents
+import com.google.ai.edge.litertlm.ConversationConfig
 import com.google.ai.edge.litertlm.EngineConfig
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -172,6 +174,36 @@ class AndroidLocalAiManager(
         val target = modelFile(fileName)
         validateModel(target)
         target.name
+    }
+
+    suspend fun generate(fileName: String, prompt: String): String = withContext(Dispatchers.IO) {
+        val target = modelFile(fileName)
+        require(prompt.isNotBlank()) { "Prompt is empty." }
+        require(prompt.length <= 12_000) { "Prompt is too large for on-device mode." }
+
+        val config = EngineConfig(
+            modelPath = target.absolutePath,
+            backend = Backend.CPU(),
+            cacheDir = context.cacheDir.absolutePath,
+        )
+
+        Engine(config).use { engine ->
+            engine.initialize()
+            val conversationConfig = ConversationConfig(
+                systemInstruction = Contents.of(
+                    "You are HARU's private on-device assistant. Be concise, useful, and honest. " +
+                        "Do not claim internet access or actions you cannot perform."
+                )
+            )
+            engine.createConversation(conversationConfig).use { conversation ->
+                val response = conversation.sendMessage(
+                    prompt,
+                    maxOutputToken = 1024,
+                ).toString().trim()
+                require(response.isNotBlank()) { "Local model returned no text." }
+                response
+            }
+        }
     }
 
     fun deleteModel(fileName: String): Boolean {
