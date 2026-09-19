@@ -1,5 +1,6 @@
 package io.haru.assistant.ui
 
+import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.compose.animation.core.RepeatMode
@@ -7,13 +8,17 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
@@ -42,6 +47,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -456,15 +465,17 @@ private fun HazardPane(
             Column(Modifier.padding(12.dp)) {
                 Text("🛰️ Live PAGASA PANaHON", fontWeight = FontWeight.SemiBold)
                 Text(
-                    "Open PAGASA’s live operational map for radar, satellite, warnings, rainfall, and weather layers.",
+                    "Interactive PAGASA radar, satellite, warning, rainfall, and weather layers.",
                     style = MaterialTheme.typography.bodySmall,
                 )
+                Spacer(Modifier.height(8.dp))
+                PagasaLiveMap()
                 Spacer(Modifier.height(6.dp))
-                Button(
+                OutlinedButton(
                     onClick = { onOpenUrl("https://www.panahon.gov.ph/") },
                     modifier = Modifier.fillMaxWidth(),
                 ) {
-                    Text("Open live PANaHON map")
+                    Text("Open in browser ↗")
                 }
             }
         }
@@ -639,48 +650,95 @@ private fun MapPane(
 }
 
 @Composable
+private fun PagasaLiveMap() {
+    SafeInteractiveWebView(
+        url = "https://www.panahon.gov.ph/",
+        allowedHostSuffixes = setOf(
+            "panahon.gov.ph",
+            "pagasa.dost.gov.ph",
+        ),
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(320.dp),
+    )
+}
+
+@Composable
 private fun TrustedLocationsMap(locations: List<TrustedLocation>) {
     val focus = locations.lastOrNull()
     val mapUrl = if (focus != null) {
-        "https://www.google.com/maps?q=" +
+        "https://maps.google.com/maps?q=" +
             focus.latitude + "," + focus.longitude +
             "&z=13&output=embed"
     } else {
-        "https://www.google.com/maps?q=Philippines&z=5&output=embed"
+        "https://maps.google.com/maps?q=Philippines&z=5&output=embed"
     }
 
     Card(modifier = Modifier.fillMaxWidth()) {
-        AndroidView(
+        SafeInteractiveWebView(
+            url = mapUrl,
+            allowedHostSuffixes = setOf(
+                "google.com",
+                "google.com.ph",
+                "gstatic.com",
+                "googleusercontent.com",
+                "googleapis.com",
+            ),
             modifier = Modifier
                 .fillMaxWidth()
                 .height(280.dp),
-            factory = { context ->
-                WebView(context).apply {
-                    settings.javaScriptEnabled = true
-                    settings.domStorageEnabled = false
-                    settings.allowFileAccess = false
-                    settings.allowContentAccess = false
-                    webViewClient = object : WebViewClient() {
-                        override fun shouldOverrideUrlLoading(
-                            view: WebView?,
-                            request: android.webkit.WebResourceRequest?,
-                        ): Boolean {
-                            val host = request?.url?.host.orEmpty()
-                            return !(host.endsWith("google.com") ||
-                                host.endsWith("googleusercontent.com") ||
-                                host.endsWith("gstatic.com"))
-                        }
-                    }
-                    loadUrl(mapUrl)
-                }
-            },
-            update = { webView ->
-                if (webView.url != mapUrl) {
-                    webView.loadUrl(mapUrl)
-                }
-            },
         )
     }
+}
+
+@Composable
+private fun SafeInteractiveWebView(
+    url: String,
+    allowedHostSuffixes: Set<String>,
+    modifier: Modifier = Modifier,
+) {
+    AndroidView(
+        modifier = modifier,
+        factory = { context ->
+            WebView(context).apply {
+                settings.apply {
+                    javaScriptEnabled = true
+                    domStorageEnabled = true
+                    allowFileAccess = false
+                    allowContentAccess = false
+                    javaScriptCanOpenWindowsAutomatically = false
+                    setSupportMultipleWindows(false)
+                    mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
+                    builtInZoomControls = true
+                    displayZoomControls = false
+                    setGeolocationEnabled(false)
+                }
+                webViewClient = object : WebViewClient() {
+                    override fun shouldOverrideUrlLoading(
+                        view: WebView?,
+                        request: android.webkit.WebResourceRequest?,
+                    ): Boolean {
+                        val uri = request?.url ?: return true
+                        if (!uri.scheme.equals("https", ignoreCase = true)) return true
+                        val host = uri.host?.lowercase().orEmpty()
+                        return allowedHostSuffixes.none { suffix ->
+                            host == suffix || host.endsWith("." + suffix)
+                        }
+                    }
+                }
+                tag = url
+                loadUrl(url)
+            }
+        },
+        update = { webView ->
+            // Compare with the requested URL, not webView.url. Google/PAGASA
+            // may redirect internally; comparing webView.url caused reload loops.
+            if (webView.tag != url) {
+                webView.tag = url
+                webView.loadUrl(url)
+            }
+        },
+    )
 }
 
 @Composable
@@ -1109,24 +1167,74 @@ private fun AssistantResponseText(message: String) {
         .replace(Regex("\\*\\*(.*?)\\*\\*"), "$1")
         .replace(Regex("__(.*?)__"), "$1")
         .trim()
+    val scrollState = rememberScrollState()
+    var viewportHeightPx by remember { mutableIntStateOf(0) }
+    val trackColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)
+    val thumbColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.65f)
 
-    Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
-        clean.lines().forEach { raw ->
-            val line = raw.trimEnd()
-            when {
-                line.isBlank() -> Spacer(Modifier.height(3.dp))
-                line.startsWith("#") -> Text(
-                    text = line.trimStart('#', ' '),
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.SemiBold,
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(max = 220.dp)
+            .onSizeChanged { viewportHeightPx = it.height },
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .verticalScroll(scrollState)
+                .padding(end = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(3.dp),
+        ) {
+            clean.lines().forEach { raw ->
+                val line = raw.trimEnd()
+                when {
+                    line.isBlank() -> Spacer(Modifier.height(3.dp))
+                    line.startsWith("#") -> Text(
+                        text = line.trimStart('#', ' '),
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    line.startsWith("- ") || line.startsWith("* ") -> Text(
+                        text = "• " + line.drop(2).trim(),
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    else -> Text(
+                        text = line.replace("`", ""),
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                }
+            }
+        }
+
+        if (scrollState.maxValue > 0 && viewportHeightPx > 0) {
+            Canvas(
+                modifier = Modifier
+                    .align(Alignment.CenterEnd)
+                    .width(4.dp)
+                    .fillMaxHeight(),
+            ) {
+                val viewport = viewportHeightPx.toFloat()
+                val content = viewport + scrollState.maxValue.toFloat()
+                val thumbHeight = (viewport * viewport / content)
+                    .coerceAtLeast(24.dp.toPx())
+                    .coerceAtMost(viewport)
+                val maxOffset = (viewport - thumbHeight).coerceAtLeast(0f)
+                val fraction =
+                    (scrollState.value.toFloat() / scrollState.maxValue.toFloat())
+                        .coerceIn(0f, 1f)
+                val radius = size.width / 2f
+
+                drawRoundRect(
+                    color = trackColor,
+                    topLeft = Offset.Zero,
+                    size = Size(size.width, viewport),
+                    cornerRadius = CornerRadius(radius, radius),
                 )
-                line.startsWith("- ") || line.startsWith("* ") -> Text(
-                    text = "• " + line.drop(2).trim(),
-                    style = MaterialTheme.typography.bodyMedium,
-                )
-                else -> Text(
-                    text = line.replace("`", ""),
-                    style = MaterialTheme.typography.bodyMedium,
+                drawRoundRect(
+                    color = thumbColor,
+                    topLeft = Offset(0f, maxOffset * fraction),
+                    size = Size(size.width, thumbHeight),
+                    cornerRadius = CornerRadius(radius, radius),
                 )
             }
         }

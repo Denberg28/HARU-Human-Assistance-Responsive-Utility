@@ -36,6 +36,7 @@ jobs:
         shell: bash
         run: |
           test ! -f .streamlit/secrets.toml
+          test ! -f local.properties
 
           if grep -n -E 'haru_animation|haru_cute_theme|generate_haru_media|HARU_THEME|music_enabled' \
             streamlit_app.py ai_runtime.py run_haru_local.bat README.md; then
@@ -43,7 +44,7 @@ jobs:
             exit 1
           fi
 
-          if git grep -n -E 'AIza[0-9A-Za-z_-]{20,}|sk-or-v1-[0-9A-Za-z_-]{20,}|BEGIN (RSA|OPENSSH|EC) PRIVATE KEY'; then
+          if git grep -n -E 'AIza[0-9A-Za-z_-]{20,}|sk-or-v1-[0-9A-Za-z_-]{20,}|hf_[0-9A-Za-z]{20,}|BEGIN (RSA|OPENSSH|EC) PRIVATE KEY'; then
             echo "Found a high-confidence committed secret pattern."
             exit 1
           fi

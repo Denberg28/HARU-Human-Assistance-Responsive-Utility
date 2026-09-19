@@ -3,45 +3,25 @@ package io.haru.assistant.localai
 /**
  * HARU local-model policy.
  *
- * The native inference engine is implemented separately. This file defines
- * the model identities and the default selection policy shared by the app.
+ * HARU Android uses GGUF + llama.cpp so the phone model can be downloaded,
+ * resumed, integrity checked, and loaded fully on-device.
  */
 object LocalAiModelPolicy {
-    const val DEFAULT_MODEL_ID = "google/gemma-4-E4B-it"
-    const val LIGHTWEIGHT_MODEL_ID = "google/gemma-4-E2B-it"
+    const val DEFAULT_MODEL_ID = "unsloth/Qwen3.5-2B-GGUF"
+    const val LIGHTWEIGHT_MODEL_ID = DEFAULT_MODEL_ID
 
     val supportedModels = listOf(
         LocalAiModel(
             id = DEFAULT_MODEL_ID,
-            displayName = "Gemma 4 E4B Instruct",
+            displayName = "Qwen3.5 2B Q4_K_M",
             tier = LocalAiTier.RECOMMENDED,
-            multimodal = true,
-        ),
-        LocalAiModel(
-            id = LIGHTWEIGHT_MODEL_ID,
-            displayName = "Gemma 4 E2B Instruct",
-            tier = LocalAiTier.LIGHTWEIGHT,
-            multimodal = true,
-        ),
-        LocalAiModel(
-            id = "Qwen/Qwen3-4B",
-            displayName = "Qwen3 4B",
-            tier = LocalAiTier.ALTERNATIVE,
-            multimodal = false,
-        ),
-        LocalAiModel(
-            id = "microsoft/Phi-4-mini-instruct",
-            displayName = "Phi-4 Mini",
-            tier = LocalAiTier.ALTERNATIVE,
             multimodal = false,
         ),
     )
 
-    fun recommendedForLowMemoryDevice(): LocalAiModel =
-        supportedModels.first { it.id == LIGHTWEIGHT_MODEL_ID }
+    fun recommendedForLowMemoryDevice(): LocalAiModel = supportedModels.first()
 
-    fun recommendedDefault(): LocalAiModel =
-        supportedModels.first { it.id == DEFAULT_MODEL_ID }
+    fun recommendedDefault(): LocalAiModel = supportedModels.first()
 }
 
 enum class LocalAiTier {

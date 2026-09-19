@@ -5,14 +5,12 @@ import android.content.Context
 import android.net.Uri
 import android.os.StatFs
 import android.provider.OpenableColumns
-import com.google.ai.edge.litertlm.Backend
-import com.google.ai.edge.litertlm.Engine
-import com.google.ai.edge.litertlm.Contents
-import com.google.ai.edge.litertlm.ConversationConfig
-import com.google.ai.edge.litertlm.EngineConfig
+import dev.ffmpegkit.llama.Llama
+import dev.ffmpegkit.llama.LlamaConfig
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.io.FileInputStream
 import java.net.HttpURLConnection
 import java.net.URI
 
@@ -22,6 +20,7 @@ data class LocalModelOption(
     val description: String,
     val fileName: String,
     val downloadUrl: String,
+    val sha256: String,
     val minRamGb: Int,
     val minFreeStorageGb: Int,
 )
@@ -52,15 +51,14 @@ class AndroidLocalAiManager(
 
         val stat = StatFs(context.filesDir.absolutePath)
         val freeGb = (stat.availableBytes / 1_073_741_824L).toInt().coerceAtLeast(0)
-
-        val recommended = when {
-            ramGb >= 12 && freeGb >= 6 -> CURATED_MODELS[2]
-            ramGb >= 8 && freeGb >= 4 -> CURATED_MODELS[1]
-            else -> CURATED_MODELS[0]
-        }
+        val recommended = CURATED_MODELS.first()
 
         val installed = modelDir
-            .listFiles { file -> file.isFile && file.extension.equals("litertlm", ignoreCase = true) }
+            .listFiles { file ->
+                file.isFile &&
+                    file.extension.equals("gguf", ignoreCase = true) &&
+                    isSafeModelName(file.name)
+            }
             ?.sortedBy { it.name.lowercase() }
             ?.map { it.name }
             ?: emptyList()
@@ -78,22 +76,20 @@ class AndroidLocalAiManager(
             activeModel = preferredModel.takeIf { installed.contains(it) } ?: "",
             state = if (installed.isEmpty()) "SETUP" else "READY",
             message = if (installed.isEmpty()) {
-                "Import or download a .litertlm model to enable on-device AI."
+                "Download Qwen3.5 2B Q4_K_M GGUF to enable private on-device AI."
             } else {
-                installed.size.toString() + " local model(s) available."
+                installed.size.toString() + " local GGUF model(s) available."
             },
         )
     }
 
     suspend fun importModel(uri: Uri): String = withContext(Dispatchers.IO) {
-        val displayName = resolveDisplayName(uri)
-            ?.takeIf { it.endsWith(".litertlm", ignoreCase = true) }
-            ?: "haru-model.litertlm"
+        val displayName = resolveDisplayName(uri).orEmpty()
+        require(displayName.endsWith(".gguf", ignoreCase = true)) {
+            "Select a .gguf model file."
+        }
 
-        val safeName = displayName
-            .replace(Regex("[^A-Za-z0-9._-]"), "_")
-            .take(120)
-
+        val safeName = sanitizeModelName(displayName)
         val target = File(modelDir, safeName)
         val temp = File(modelDir, safeName + ".partial")
 
@@ -105,7 +101,12 @@ class AndroidLocalAiManager(
                 }
             }
 
-            require(temp.length() > 1_000_000L) { "Selected model file is unexpectedly small." }
+            require(temp.length() > 1_000_000L) {
+                "Selected model file is unexpectedly small."
+            }
+            require(hasGgufMagic(temp)) {
+                "Selected file is not a valid GGUF model."
+            }
 
             if (target.exists()) target.delete()
             require(temp.renameTo(target)) { "Could not finalize imported model." }
@@ -128,14 +129,11 @@ class AndroidLocalAiManager(
         }
 
         val rawName = parsed.path.substringAfterLast('/').substringBefore('?')
-        require(rawName.endsWith(".litertlm", ignoreCase = true)) {
-            "The download URL must point to a .litertlm model."
+        require(rawName.endsWith(".gguf", ignoreCase = true)) {
+            "The download URL must point to a .gguf model."
         }
 
-        val safeName = rawName
-            .replace(Regex("[^A-Za-z0-9._-]"), "_")
-            .take(120)
-
+        val safeName = sanitizeModelName(rawName)
         val target = File(modelDir, safeName)
         val temp = File(modelDir, safeName + ".partial")
 
@@ -144,7 +142,7 @@ class AndroidLocalAiManager(
         connection.connectTimeout = 20_000
         connection.readTimeout = 120_000
         connection.requestMethod = "GET"
-        connection.setRequestProperty("User-Agent", "HARU-Android/0.1")
+        connection.setRequestProperty("User-Agent", "HARU-Android/0.2")
 
         try {
             connection.connect()
@@ -184,7 +182,12 @@ class AndroidLocalAiManager(
                 }
             }
 
-            require(temp.length() > 1_000_000L) { "Downloaded model is unexpectedly small." }
+            require(temp.length() > 1_000_000L) {
+                "Downloaded model is unexpectedly small."
+            }
+            require(hasGgufMagic(temp)) {
+                "Downloaded file is not a valid GGUF model."
+            }
             if (target.exists()) target.delete()
             require(temp.renameTo(target)) { "Could not finalize downloaded model." }
             target.name
@@ -206,30 +209,35 @@ class AndroidLocalAiManager(
     suspend fun generate(fileName: String, prompt: String): String = withContext(Dispatchers.IO) {
         val target = modelFile(fileName)
         require(prompt.isNotBlank()) { "Prompt is empty." }
-        require(prompt.length <= 12_000) { "Prompt is too large for on-device mode." }
+        require(prompt.length <= 12_000) {
+            "Prompt is too large for on-device mode."
+        }
+        require(hasGgufMagic(target)) {
+            "Local model is not a valid GGUF file."
+        }
 
-        val config = EngineConfig(
-            modelPath = target.absolutePath,
-            backend = Backend.CPU(),
-            cacheDir = context.cacheDir.absolutePath,
+        val config = LlamaConfig(
+            contextSize = 2048,
+            threads = Runtime.getRuntime().availableProcessors().coerceIn(2, 4),
+            gpuLayers = 0,
+            temperature = 0.65f,
+            topP = 0.90f,
+            topK = 40,
         )
-
-        Engine(config).use { engine ->
-            engine.initialize()
-            val conversationConfig = ConversationConfig(
-                systemInstruction = Contents.of(
+        val model = Llama.loadModel(target.absolutePath, config)
+        try {
+            val response = Llama.complete(
+                model = model,
+                prompt = prompt,
+                systemPrompt =
                     "You are HARU's private on-device assistant. Be concise, useful, and honest. " +
-                        "Do not claim internet access or actions you cannot perform."
-                )
-            )
-            engine.createConversation(conversationConfig).use { conversation ->
-                val response = conversation.sendMessage(
-                    prompt,
-                    maxOutputToken = 1024,
-                ).toString().trim()
-                require(response.isNotBlank()) { "Local model returned no text." }
-                response
-            }
+                        "Do not claim internet access or actions you cannot perform.",
+                maxTokens = 512,
+            ).text.trim()
+            require(response.isNotBlank()) { "Local model returned no text." }
+            response
+        } finally {
+            Llama.releaseModel(model)
         }
     }
 
@@ -264,56 +272,72 @@ class AndroidLocalAiManager(
     }
 
     private fun modelFile(fileName: String): File {
-        val safe = fileName.substringAfterLast('/').substringAfterLast('\\')
-        require(safe == fileName && safe.endsWith(".litertlm", ignoreCase = true)) {
-            "Invalid local model name."
+        require(isSafeModelName(fileName)) { "Invalid local model name." }
+        val candidate = File(modelDir, fileName).canonicalFile
+        require(candidate.parentFile == modelDir.canonicalFile) {
+            "Invalid local model path."
         }
-        return File(modelDir, safe)
+        return candidate
     }
 
-    private fun validateModel(file: File) {
+    private suspend fun validateModel(file: File) {
         require(file.exists() && file.isFile) { "Local model file does not exist." }
+        require(file.length() > 1_000_000L) { "Local model file is unexpectedly small." }
+        require(hasGgufMagic(file)) { "Local model is not a valid GGUF file." }
 
-        val config = EngineConfig(
+        val model = Llama.loadModel(
             modelPath = file.absolutePath,
-            backend = Backend.CPU(),
-            cacheDir = context.cacheDir.absolutePath,
+            config = LlamaConfig(
+                contextSize = 512,
+                threads = 2,
+                gpuLayers = 0,
+                temperature = 0f,
+            ),
         )
-
-        Engine(config).use { engine ->
-            engine.initialize()
-        }
+        Llama.releaseModel(model)
     }
+
+    private fun hasGgufMagic(file: File): Boolean {
+        if (!file.exists() || file.length() < 4L) return false
+        val header = ByteArray(4)
+        val read = FileInputStream(file).use { it.read(header) }
+        return read == 4 &&
+            header[0] == 'G'.code.toByte() &&
+            header[1] == 'G'.code.toByte() &&
+            header[2] == 'U'.code.toByte() &&
+            header[3] == 'F'.code.toByte()
+    }
+
+    private fun sanitizeModelName(value: String): String {
+        val safe = value
+            .substringAfterLast('/')
+            .substringAfterLast('\\')
+            .replace(Regex("[^A-Za-z0-9._-]"), "_")
+            .take(120)
+        require(isSafeModelName(safe)) { "Invalid local model name." }
+        return safe
+    }
+
+    private fun isSafeModelName(value: String): Boolean =
+        value.length in 1..120 &&
+            value.endsWith(".gguf", ignoreCase = true) &&
+            Regex("^[A-Za-z0-9._-]+$").matches(value) &&
+            !value.contains("..")
+
     companion object {
         val CURATED_MODELS = listOf(
             LocalModelOption(
-                id = "smollm2-1.7b",
-                name = "SmolLM2 1.7B",
-                description = "Lightweight · best for lower-RAM phones",
-                fileName = "SmolLM2-1_7B-Instruct_dynamic_wi8_afp32.litertlm",
-                downloadUrl = "https://huggingface.co/litert-community/SmolLM2-1.7B-Instruct/resolve/main/SmolLM2-1_7B-Instruct_dynamic_wi8_afp32.litertlm?download=true",
+                id = "unsloth-qwen3.5-2b-q4-k-m",
+                name = "Qwen3.5 2B Q4_K_M",
+                description = "Unsloth GGUF · ~1.28 GB · recommended for POCO-class phones",
+                fileName = "Qwen3.5-2B-Q4_K_M.gguf",
+                downloadUrl =
+                    "https://huggingface.co/unsloth/Qwen3.5-2B-GGUF/resolve/main/" +
+                        "Qwen3.5-2B-Q4_K_M.gguf?download=true",
+                sha256 = "aaf42c8b7c3cab2bf3d69c355048d4a0ee9973d48f16c731c0520ee914699223",
                 minRamGb = 6,
                 minFreeStorageGb = 3,
             ),
-            LocalModelOption(
-                id = "gemma4-e2b",
-                name = "Gemma 4 E2B",
-                description = "Balanced · recommended for most capable phones",
-                fileName = "gemma-4-E2B-it.litertlm",
-                downloadUrl = "https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm/resolve/main/gemma-4-E2B-it.litertlm?download=true",
-                minRamGb = 8,
-                minFreeStorageGb = 4,
-            ),
-            LocalModelOption(
-                id = "gemma4-e4b",
-                name = "Gemma 4 E4B",
-                description = "Strongest · intended for high-RAM phones",
-                fileName = "gemma-4-E4B-it.litertlm",
-                downloadUrl = "https://huggingface.co/litert-community/gemma-4-E4B-it-litert-lm/resolve/main/gemma-4-E4B-it.litertlm?download=true",
-                minRamGb = 12,
-                minFreeStorageGb = 6,
-            ),
         )
     }
-
 }

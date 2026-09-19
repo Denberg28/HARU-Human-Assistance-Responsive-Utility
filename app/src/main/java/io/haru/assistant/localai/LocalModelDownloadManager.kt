@@ -41,6 +41,7 @@ class LocalModelDownloadManager(context: Context) {
                     LocalModelDownloadWorker.KEY_MODEL_NAME to option.name,
                     LocalModelDownloadWorker.KEY_FILE_NAME to option.fileName,
                     LocalModelDownloadWorker.KEY_URL to option.downloadUrl,
+                    LocalModelDownloadWorker.KEY_SHA256 to option.sha256,
                 )
             )
             .setConstraints(

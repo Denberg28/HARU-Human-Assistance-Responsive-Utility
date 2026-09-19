@@ -15,9 +15,11 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.net.HttpURLConnection
 import java.net.URI
+import java.security.MessageDigest
 
 class LocalModelDownloadWorker(
     appContext: Context,
@@ -29,17 +31,27 @@ class LocalModelDownloadWorker(
         val modelName = inputData.getString(KEY_MODEL_NAME).orEmpty()
         val fileName = inputData.getString(KEY_FILE_NAME).orEmpty()
         val url = inputData.getString(KEY_URL).orEmpty()
+        val expectedSha256 = inputData.getString(KEY_SHA256).orEmpty().lowercase()
 
-        if (modelId.isBlank() || modelName.isBlank() || fileName.isBlank() ||
-            !fileName.endsWith(".litertlm", ignoreCase = true)
+        if (
+            modelId.isBlank() ||
+            modelName.isBlank() ||
+            !isSafeGgufName(fileName) ||
+            !Regex("^[0-9a-f]{64}$").matches(expectedSha256)
         ) {
-            return@withContext Result.failure(workDataOf(KEY_ERROR to "Invalid model download request."))
+            return@withContext Result.failure(
+                workDataOf(KEY_ERROR to "Invalid model download request.")
+            )
         }
 
         val parsed = runCatching { URI(url) }.getOrNull()
-            ?: return@withContext Result.failure(workDataOf(KEY_ERROR to "Invalid model URL."))
+            ?: return@withContext Result.failure(
+                workDataOf(KEY_ERROR to "Invalid model URL.")
+            )
         if (!parsed.scheme.equals("https", ignoreCase = true)) {
-            return@withContext Result.failure(workDataOf(KEY_ERROR to "Only HTTPS model downloads are allowed."))
+            return@withContext Result.failure(
+                workDataOf(KEY_ERROR to "Only HTTPS model downloads are allowed.")
+            )
         }
 
         val modelDir = File(applicationContext.filesDir, "models").apply { mkdirs() }
@@ -47,7 +59,16 @@ class LocalModelDownloadWorker(
         val partial = File(modelDir, fileName + ".partial")
 
         if (target.exists() && target.length() > 1_000_000L) {
-            return@withContext Result.success(workDataOf(KEY_FILE_NAME to target.name))
+            if (hasGgufMagic(target) && sha256(target) == expectedSha256) {
+                return@withContext Result.success(
+                    workDataOf(
+                        KEY_MODEL_ID to modelId,
+                        KEY_MODEL_NAME to modelName,
+                        KEY_FILE_NAME to target.name,
+                    )
+                )
+            }
+            target.delete()
         }
 
         var existing = partial.length().coerceAtLeast(0L)
@@ -61,7 +82,7 @@ class LocalModelDownloadWorker(
             connection.connectTimeout = 20_000
             connection.readTimeout = 120_000
             connection.requestMethod = "GET"
-            connection.setRequestProperty("User-Agent", "HARU-Android/0.1")
+            connection.setRequestProperty("User-Agent", "HARU-Android/0.2")
             if (existing > 0L) {
                 connection.setRequestProperty("Range", "bytes=" + existing + "-")
             }
@@ -129,6 +150,16 @@ class LocalModelDownloadWorker(
             require(partial.length() > 1_000_000L) {
                 "Downloaded model is unexpectedly small."
             }
+            require(hasGgufMagic(partial)) {
+                "Downloaded file is not a valid GGUF model."
+            }
+
+            val actualSha256 = sha256(partial)
+            if (actualSha256 != expectedSha256) {
+                partial.delete()
+                error("Model integrity check failed. Please download again.")
+            }
+
             if (target.exists()) target.delete()
             require(partial.renameTo(target)) {
                 "Could not finalize downloaded model."
@@ -218,6 +249,38 @@ class LocalModelDownloadWorker(
         KEY_TOTAL to (total ?: -1L),
     )
 
+    private fun hasGgufMagic(file: File): Boolean {
+        if (!file.exists() || file.length() < 4L) return false
+        val header = ByteArray(4)
+        val read = FileInputStream(file).use { it.read(header) }
+        return read == 4 &&
+            header[0] == 'G'.code.toByte() &&
+            header[1] == 'G'.code.toByte() &&
+            header[2] == 'U'.code.toByte() &&
+            header[3] == 'F'.code.toByte()
+    }
+
+    private fun sha256(file: File): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+        FileInputStream(file).buffered().use { input ->
+            val buffer = ByteArray(1024 * 1024)
+            while (true) {
+                val read = input.read(buffer)
+                if (read < 0) break
+                digest.update(buffer, 0, read)
+            }
+        }
+        return digest.digest().joinToString("") {
+            "%02x".format(it.toInt() and 0xff)
+        }
+    }
+
+    private fun isSafeGgufName(value: String): Boolean =
+        value.length in 1..120 &&
+            value.endsWith(".gguf", ignoreCase = true) &&
+            Regex("^[A-Za-z0-9._-]+$").matches(value) &&
+            !value.contains("..")
+
     private fun mb(bytes: Long): Long = bytes / (1024L * 1024L)
 
     companion object {
@@ -226,6 +289,7 @@ class LocalModelDownloadWorker(
         const val KEY_MODEL_NAME = "model_name"
         const val KEY_FILE_NAME = "file_name"
         const val KEY_URL = "url"
+        const val KEY_SHA256 = "sha256"
         const val KEY_DOWNLOADED = "downloaded"
         const val KEY_TOTAL = "total"
         const val KEY_ERROR = "error"

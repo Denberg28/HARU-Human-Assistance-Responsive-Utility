@@ -52,6 +52,8 @@ HARU_LOCATION_SHARE_SECRET = "use-a-long-random-secret"
 
 Open the repository in Android Studio, allow Gradle sync, and run the `app` configuration. Microphone permission is requested only when voice input is used.
 
+HARU Android v0.2 uses **Unsloth Qwen3.5 2B Q4_K_M GGUF** for the curated on-device model. The model is downloaded in the background with pause/resume support, verified against a pinned SHA-256 digest, and loaded through a CPU/NEON llama.cpp runtime. Model files stay in app-private storage.
+
 ## APK build
 
 HARU uses a simple reproducible GitHub Actions build instead of committing Gradle wrapper binaries.
