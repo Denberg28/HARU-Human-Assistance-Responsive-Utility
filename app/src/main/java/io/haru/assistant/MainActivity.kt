@@ -128,6 +128,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
                             "Location permission is needed to create a share."
                     }
                     LocationRequestPurpose.MAP -> {
+                        mapGpsActive = false
                         mapLocationStatus =
                             "Location permission is needed to show your GPS position."
                     }
