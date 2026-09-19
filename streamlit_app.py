@@ -1244,16 +1244,19 @@ with st.expander("AI selector"):
             elif openrouter_saved_key:
                 st.success("OpenRouter key loaded securely from this PC's credential store.")
                 st.session_state.openrouter_api_key = ""
+            elif is_cloud_haru():
+                st.session_state.openrouter_api_key = ""
+                st.warning(
+                    "OpenRouter is locked to Streamlit Secrets on HARU Cloud. "
+                    "Set OPENROUTER_API_KEY in the app's Secrets settings."
+                )
             else:
                 st.session_state.openrouter_api_key = st.text_input(
                     "OpenRouter API key",
                     value=st.session_state.openrouter_api_key,
                     type="password",
                     placeholder="sk-or-v1-…",
-                    help=(
-                        "Local Windows HARU saves a successfully connected key to Windows Credential Manager. "
-                        "On Streamlit Cloud, use Streamlit Secrets for persistence."
-                    ),
+                    help="A successful local connection is saved to Windows Credential Manager.",
                 )
 
             free_modes = [
@@ -1417,15 +1420,18 @@ with st.expander("AI selector"):
             elif provider_saved_key:
                 st.success(f"{provider} key loaded securely from this PC's credential store.")
                 st.session_state.gemini_api_key = ""
+            elif is_cloud_haru():
+                st.session_state.gemini_api_key = ""
+                st.warning(
+                    "Google AI is locked to Streamlit Secrets on HARU Cloud. "
+                    "Set GEMINI_API_KEY in the app's Secrets settings."
+                )
             else:
                 st.session_state.gemini_api_key = st.text_input(
                     "API key",
                     value=st.session_state.gemini_api_key,
                     type="password",
-                    help=(
-                        "Local Windows HARU saves a successfully connected key to Windows Credential Manager. "
-                        "On Streamlit Cloud, use Streamlit Secrets for persistence."
-                    ),
+                    help="A successful local connection is saved to Windows Credential Manager.",
                 )
         elif provider == "OpenRouter API":
             # OpenRouter renders its dedicated key field above. Preserve that
@@ -1567,8 +1573,7 @@ with st.expander("AI selector"):
             and not server_secret_for_provider(provider)
         ):
             st.caption(
-                f"To keep this key across Streamlit Cloud sessions, add "
-                f"{SECRET_NAME_BY_PROVIDER[provider]} in the app's Secrets settings."
+                f"Cloud connections require {SECRET_NAME_BY_PROVIDER[provider]} in the app's Secrets settings."
             )
 
 
