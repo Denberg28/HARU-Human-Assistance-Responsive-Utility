@@ -30,6 +30,8 @@ import io.haru.assistant.content.AndroidNewsService
 import io.haru.assistant.localai.AndroidLocalAiManager
 import io.haru.assistant.localai.LocalAiStatus
 import io.haru.assistant.localai.LocalModelOption
+import io.haru.assistant.localai.LocalModelDownloadManager
+import io.haru.assistant.localai.LocalModelDownloadState
 import io.haru.assistant.location.TrustedLocation
 import io.haru.assistant.location.TrustedLocationManager
 import io.haru.assistant.onlineai.AndroidOnlineAiManager
@@ -47,6 +49,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
 
     private lateinit var voiceController: HaruVoiceController
     private lateinit var localAiManager: AndroidLocalAiManager
+    private lateinit var localModelDownloadManager: LocalModelDownloadManager
     private lateinit var onlineAiManager: AndroidOnlineAiManager
     private lateinit var companionStore: AndroidCompanionStore
     private lateinit var newsService: AndroidNewsService
@@ -64,6 +67,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
     private var localAiBusy by mutableStateOf(false)
     private var localAiDownloadProgress by mutableStateOf<Float?>(null)
     private var localAiDownloadLabel by mutableStateOf("")
+    private var localAiDownloadState by mutableStateOf(LocalModelDownloadState())
     private var companionSnapshot by mutableStateOf(CompanionSnapshot())
 
     private var onlineProvider by mutableStateOf(OnlineProvider.ANTIGRAVITY)
@@ -118,6 +122,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
         voiceController.initialize()
 
         localAiManager = AndroidLocalAiManager(applicationContext)
+        localModelDownloadManager = LocalModelDownloadManager(applicationContext)
         onlineAiManager = AndroidOnlineAiManager(applicationContext)
         companionStore = AndroidCompanionStore(applicationContext)
         newsService = AndroidNewsService()
@@ -132,6 +137,19 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
         refreshNews()
         refreshHazards()
 
+        localModelDownloadManager.liveData().observe(this) { workInfos ->
+            localAiDownloadState = localModelDownloadManager.stateFrom(workInfos)
+            localAiDownloadProgress = localAiDownloadState.progress
+            localAiDownloadLabel = formatLocalDownloadLabel(localAiDownloadState)
+
+            if (localAiDownloadState.state == "COMPLETE") {
+                refreshLocalAiStatus(
+                    message = localAiDownloadState.modelName + " downloaded. Tap Use model to activate.",
+                    state = "READY",
+                )
+            }
+        }
+
         setContent {
             HaruTheme {
                 val haruViewModel: HaruViewModel = viewModel()
@@ -145,6 +163,8 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
                     localModelOptions = localAiManager.curatedModels(),
                     localAiDownloadProgress = localAiDownloadProgress,
                     localAiDownloadLabel = localAiDownloadLabel,
+                    localAiDownloadState = localAiDownloadState.state,
+                    localAiDownloadModelId = localAiDownloadState.modelId,
                     todayLines = companionSnapshot.todayLines(),
                     onlineProvider = onlineProvider,
                     onlineStatus = onlineStatus,
@@ -162,6 +182,9 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
                         voiceController.speak(haruViewModel.uiState.message)
                     },
                     onDownloadLocalModel = ::downloadCuratedLocalModel,
+                    onPauseLocalModelDownload = ::pauseLocalModelDownload,
+                    onResumeLocalModelDownload = ::resumeLocalModelDownload,
+                    onCancelLocalModelDownload = ::cancelLocalModelDownload,
                     onValidateLocalModel = ::validateLocalModel,
                     onDeleteLocalModel = ::deleteLocalModel,
                     onSelectOnlineProvider = ::selectOnlineProvider,
@@ -548,71 +571,77 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
     }
 
     private fun downloadCuratedLocalModel(option: LocalModelOption) {
-        if (localAiBusy) return
-
-        val alreadyInstalled = localAiStatus.installedModels.contains(option.fileName)
-        if (alreadyInstalled) {
+        if (localAiStatus.installedModels.contains(option.fileName)) {
             validateLocalModel(option.fileName)
             return
         }
 
-        localAiBusy = true
-        localAiDownloadProgress = 0f
-        localAiDownloadLabel = "Starting " + option.name + " download…"
-        localAiStatus = localAiStatus.copy(
-            state = "WORKING",
-            message = "Downloading " + option.name + "…",
+        requestNotificationPermissionIfNeeded()
+        localModelDownloadManager.start(option)
+        localAiDownloadState = LocalModelDownloadState(
+            modelId = option.id,
+            modelName = option.name,
+            state = "QUEUED",
+            message = "Preparing background download…",
         )
+        localAiDownloadProgress = null
+        localAiDownloadLabel =
+            option.name + " queued. You can keep using HARU or switch apps."
+    }
 
-        lifecycleScope.launch {
-            try {
-                val name = localAiManager.downloadModel(option.downloadUrl) { downloaded, total ->
-                    runOnUiThread {
-                        val downloadedMb = downloaded / (1024f * 1024f)
-                        localAiDownloadProgress = if (total != null && total > 0) {
-                            (downloaded.toFloat() / total.toFloat()).coerceIn(0f, 1f)
-                        } else {
-                            null
-                        }
-                        localAiDownloadLabel = if (total != null && total > 0) {
-                            val totalMb = total / (1024f * 1024f)
-                            String.format(
-                                java.util.Locale.US,
-                                "%.0f / %.0f MB · %.0f%%",
-                                downloadedMb,
-                                totalMb,
-                                localAiDownloadProgress!! * 100f,
-                            )
-                        } else {
-                            String.format(
-                                java.util.Locale.US,
-                                "%.0f MB downloaded",
-                                downloadedMb,
-                            )
-                        }
-                    }
-                }
+    private fun pauseLocalModelDownload() {
+        localModelDownloadManager.pause()
+        localAiDownloadState = localAiDownloadState.copy(
+            state = "PAUSED",
+            message = "Paused · tap Resume to continue.",
+        )
+        localAiDownloadLabel = formatLocalDownloadLabel(localAiDownloadState)
+    }
 
-                runOnUiThread {
-                    localAiDownloadLabel = "Validating " + option.name + "…"
-                    localAiDownloadProgress = 1f
-                }
+    private fun resumeLocalModelDownload() {
+        val resumed = localModelDownloadManager.resume(localAiManager.curatedModels())
+        if (!resumed) {
+            localAiDownloadLabel = "No paused model download to resume."
+        }
+    }
 
-                val validated = localAiManager.validateInstalledModel(name)
-                localAiStatus = localAiManager.inspect(validated).copy(
-                    activeModel = validated,
-                    state = "READY",
-                    message = option.name + " is installed and active.",
+    private fun cancelLocalModelDownload() {
+        localModelDownloadManager.cancel()
+        localAiDownloadState = LocalModelDownloadState()
+        localAiDownloadProgress = null
+        localAiDownloadLabel = "Download cancelled. Partial file removed."
+        refreshLocalAiStatus()
+    }
+
+    private fun formatLocalDownloadLabel(state: LocalModelDownloadState): String {
+        val downloadedMb = state.downloadedBytes / (1024f * 1024f)
+        val total = state.totalBytes
+        return when {
+            state.state == "IDLE" -> state.message
+            total != null && total > 0L -> {
+                val totalMb = total / (1024f * 1024f)
+                val pct = ((state.downloadedBytes * 100L) / total).coerceIn(0L, 100L)
+                String.format(
+                    java.util.Locale.US,
+                    "%s · %.0f / %.0f MB · %d%%",
+                    state.state.lowercase().replaceFirstChar { it.uppercase() },
+                    downloadedMb,
+                    totalMb,
+                    pct,
                 )
-                localAiDownloadLabel = option.name + " ready."
-            } catch (exc: Exception) {
-                refreshLocalAiStatus(
-                    message = exc.message ?: "Model download failed.",
-                    state = "ERROR",
-                )
-                localAiDownloadLabel = exc.message ?: "Download failed."
-            } finally {
-                localAiBusy = false
+            }
+            else -> {
+                val prefix = state.state.lowercase().replaceFirstChar { it.uppercase() }
+                if (state.downloadedBytes > 0L) {
+                    String.format(
+                        java.util.Locale.US,
+                        "%s · %.0f MB",
+                        prefix,
+                        downloadedMb,
+                    )
+                } else {
+                    state.message.ifBlank { prefix }
+                }
             }
         }
     }
