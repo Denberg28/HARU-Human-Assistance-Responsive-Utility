@@ -1,6 +1,7 @@
 package io.haru.assistant
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.app.DownloadManager
 import android.content.BroadcastReceiver
 import android.content.Context
@@ -462,6 +463,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
                 Manifest.permission.ACCESS_COARSE_LOCATION,
             ) == PackageManager.PERMISSION_GRANTED
 
+    @SuppressLint("MissingPermission")
     private fun captureLocationForShare() {
         if (!hasLocationPermission()) return
 
