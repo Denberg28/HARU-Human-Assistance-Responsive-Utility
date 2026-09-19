@@ -13,6 +13,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -78,8 +79,11 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
 
     private var trustedLocations by mutableStateOf(emptyList<TrustedLocation>())
     private var currentDeviceLocation by mutableStateOf<TrustedLocation?>(null)
+    private var mapGpsActive by mutableStateOf(false)
     private var locationShareCode by mutableStateOf("")
+    private var locationShareMapUrl by mutableStateOf("")
     private var mapLocationStatus by mutableStateOf("")
+    private var awaitingLocationSettings = false
 
     private enum class LocationRequestPurpose {
         NONE,
@@ -177,7 +181,9 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
                     hazardBundle = hazardBundle,
                     trustedLocations = trustedLocations,
                     currentDeviceLocation = currentDeviceLocation,
+                    mapGpsActive = mapGpsActive,
                     locationShareCode = locationShareCode,
+                    locationShareMapUrl = locationShareMapUrl,
                     mapLocationStatus = mapLocationStatus,
                     onSubmitClick = {
                         submitWithAi(haruViewModel, speakResult = false)
@@ -196,8 +202,9 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
                     onRefreshNews = ::refreshNews,
                     onRefreshHazards = ::refreshHazards,
                     onOpenUrl = ::openUrl,
-                    onLocateMe = ::requestMapLocation,
+                    onLocateMe = ::toggleMapGps,
                     onCreateLocationShare = ::requestLocationShare,
+                    onShareLocation = ::shareLocationText,
                     onImportLocationShare = ::importLocationShare,
                     onClearTrustedLocations = ::clearTrustedLocations,
                 )
@@ -400,11 +407,58 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
         requestOrCaptureLocation()
     }
 
-    private fun requestMapLocation() {
-        pendingLocationPurpose =
-            LocationRequestPurpose.MAP
-        mapLocationStatus = "Getting GPS location…"
+    private fun toggleMapGps() {
+        if (mapGpsActive) {
+            disableMapGps()
+            return
+        }
+
+        pendingLocationPurpose = LocationRequestPurpose.MAP
+        mapLocationStatus = "Preparing GPS…"
+
+        if (!isLocationServiceEnabled()) {
+            awaitingLocationSettings = true
+            mapLocationStatus =
+                "Phone location is off. Enable Location, then return to HARU."
+            runCatching {
+                startActivity(
+                    Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS)
+                )
+            }
+            return
+        }
+
+        mapGpsActive = true
         requestOrCaptureLocation()
+    }
+
+    private fun disableMapGps() {
+        val manager =
+            getSystemService(Context.LOCATION_SERVICE) as LocationManager
+
+        activeLocationListener?.let {
+            runCatching { manager.removeUpdates(it) }
+        }
+        activeLocationListener = null
+        mainHandler.removeCallbacksAndMessages(LOCATION_TIMEOUT_TOKEN)
+        pendingLocationPurpose = LocationRequestPurpose.NONE
+        currentDeviceLocation = null
+        mapGpsActive = false
+        mapLocationStatus = "GPS marker off."
+    }
+
+    private fun isLocationServiceEnabled(): Boolean {
+        val manager =
+            getSystemService(Context.LOCATION_SERVICE) as LocationManager
+
+        return listOf(
+            LocationManager.GPS_PROVIDER,
+            LocationManager.NETWORK_PROVIDER,
+        ).any { provider ->
+            runCatching {
+                manager.isProviderEnabled(provider)
+            }.getOrDefault(false)
+        }
     }
 
     private fun requestOrCaptureLocation() {
@@ -436,9 +490,10 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
 
         val manager =
             getSystemService(Context.LOCATION_SERVICE) as LocationManager
+
         val providers = listOf(
-            LocationManager.NETWORK_PROVIDER,
             LocationManager.GPS_PROVIDER,
+            LocationManager.NETWORK_PROVIDER,
         ).filter { provider ->
             runCatching {
                 manager.isProviderEnabled(provider)
@@ -446,19 +501,28 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
         }
 
         if (providers.isEmpty()) {
-            when (pendingLocationPurpose) {
-                LocationRequestPurpose.MAP ->
-                    mapLocationStatus =
-                        "Turn on phone location services to show your position."
-                LocationRequestPurpose.SHARE ->
-                    onlineStatus =
-                        "Turn on phone location services to create a share."
-                LocationRequestPurpose.NONE -> Unit
+            if (pendingLocationPurpose == LocationRequestPurpose.MAP) {
+                mapGpsActive = false
+                awaitingLocationSettings = true
+                mapLocationStatus =
+                    "Phone location is off. Enable Location, then return to HARU."
+                runCatching {
+                    startActivity(
+                        Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS)
+                    )
+                }
+            } else {
+                onlineStatus =
+                    "Turn on phone location services to create a share."
             }
-            pendingLocationPurpose =
-                LocationRequestPurpose.NONE
             return
         }
+
+        activeLocationListener?.let {
+            runCatching { manager.removeUpdates(it) }
+        }
+        activeLocationListener = null
+        mainHandler.removeCallbacksAndMessages(LOCATION_TIMEOUT_TOKEN)
 
         val lastLocation = providers
             .mapNotNull { provider ->
@@ -466,97 +530,196 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
                     manager.getLastKnownLocation(provider)
                 }.getOrNull()
             }
-            .maxByOrNull { it.time }
+            .filter {
+                it.latitude in -90.0..90.0 &&
+                    it.longitude in -180.0..180.0
+            }
+            .minWithOrNull(
+                compareBy<Location> { it.accuracy }
+                    .thenByDescending { it.time }
+            )
 
         if (
+            pendingLocationPurpose == LocationRequestPurpose.MAP &&
             lastLocation != null &&
-            System.currentTimeMillis() - lastLocation.time <= 5 * 60_000L
+            System.currentTimeMillis() - lastLocation.time <=
+                MAP_CACHE_PREVIEW_MAX_AGE_MS
+        ) {
+            updateMapLocation(
+                lastLocation,
+                prefix = "Recent fix",
+            )
+        }
+
+        if (
+            pendingLocationPurpose == LocationRequestPurpose.SHARE &&
+            lastLocation != null &&
+            System.currentTimeMillis() - lastLocation.time <=
+                SHARE_CACHE_MAX_AGE_MS &&
+            lastLocation.accuracy <= SHARE_MAX_ACCURACY_M
         ) {
             handleCapturedLocation(lastLocation)
             return
         }
 
-        activeLocationListener?.let {
-            runCatching { manager.removeUpdates(it) }
-        }
-
         val listener = object : LocationListener {
             override fun onLocationChanged(location: Location) {
-                runCatching { manager.removeUpdates(this) }
-                if (activeLocationListener === this) {
-                    activeLocationListener = null
+                if (
+                    location.latitude !in -90.0..90.0 ||
+                    location.longitude !in -180.0..180.0
+                ) {
+                    return
                 }
-                mainHandler.removeCallbacksAndMessages(LOCATION_TIMEOUT_TOKEN)
-                handleCapturedLocation(location)
+
+                when (pendingLocationPurpose) {
+                    LocationRequestPurpose.MAP -> {
+                        updateMapLocation(
+                            location,
+                            prefix = "GPS",
+                        )
+
+                        if (
+                            location.accuracy <=
+                            MAP_TARGET_ACCURACY_M
+                        ) {
+                            runCatching {
+                                manager.removeUpdates(this)
+                            }
+                            activeLocationListener = null
+                            mainHandler.removeCallbacksAndMessages(
+                                LOCATION_TIMEOUT_TOKEN
+                            )
+                            pendingLocationPurpose =
+                                LocationRequestPurpose.NONE
+                        }
+                    }
+
+                    LocationRequestPurpose.SHARE -> {
+                        runCatching {
+                            manager.removeUpdates(this)
+                        }
+                        activeLocationListener = null
+                        mainHandler.removeCallbacksAndMessages(
+                            LOCATION_TIMEOUT_TOKEN
+                        )
+                        handleCapturedLocation(location)
+                    }
+
+                    LocationRequestPurpose.NONE -> {
+                        runCatching {
+                            manager.removeUpdates(this)
+                        }
+                        activeLocationListener = null
+                    }
+                }
             }
 
             override fun onProviderDisabled(provider: String) = Unit
             override fun onProviderEnabled(provider: String) = Unit
         }
+
         activeLocationListener = listener
 
         val timeout = Runnable {
             if (activeLocationListener === listener) {
-                runCatching { manager.removeUpdates(listener) }
+                runCatching {
+                    manager.removeUpdates(listener)
+                }
                 activeLocationListener = null
+
                 when (pendingLocationPurpose) {
-                    LocationRequestPurpose.MAP ->
+                    LocationRequestPurpose.MAP -> {
                         mapLocationStatus =
-                            "GPS request timed out. Try again outdoors or enable precise location."
-                    LocationRequestPurpose.SHARE ->
+                            currentDeviceLocation?.accuracyM?.let {
+                                "Using best available fix · ±" +
+                                    it.toInt() +
+                                    " m"
+                            } ?: "GPS timed out. Try again with a clearer sky view."
+                    }
+
+                    LocationRequestPurpose.SHARE -> {
+                        if (lastLocation != null) {
+                            handleCapturedLocation(lastLocation)
+                            return@Runnable
+                        }
                         onlineStatus =
                             "Location request timed out. Try again."
+                    }
+
                     LocationRequestPurpose.NONE -> Unit
                 }
+
                 pendingLocationPurpose =
                     LocationRequestPurpose.NONE
             }
         }
 
         runCatching {
-            manager.requestSingleUpdate(
+            manager.requestLocationUpdates(
                 providers.first(),
+                LOCATION_MIN_TIME_MS,
+                0f,
                 listener,
                 Looper.getMainLooper(),
             )
+
             mainHandler.postAtTime(
                 timeout,
                 LOCATION_TIMEOUT_TOKEN,
-                System.currentTimeMillis() + LOCATION_TIMEOUT_MS,
+                System.currentTimeMillis() +
+                    LOCATION_TIMEOUT_MS,
             )
         }.onFailure {
-            runCatching { manager.removeUpdates(listener) }
-            activeLocationListener = null
-            mainHandler.removeCallbacksAndMessages(LOCATION_TIMEOUT_TOKEN)
-            when (pendingLocationPurpose) {
-                LocationRequestPurpose.MAP ->
-                    mapLocationStatus =
-                        "HARU could not obtain your GPS location."
-                LocationRequestPurpose.SHARE ->
-                    onlineStatus =
-                        "HARU could not obtain a phone location."
-                LocationRequestPurpose.NONE -> Unit
+            runCatching {
+                manager.removeUpdates(listener)
             }
+            activeLocationListener = null
+            mainHandler.removeCallbacksAndMessages(
+                LOCATION_TIMEOUT_TOKEN
+            )
+
+            if (pendingLocationPurpose == LocationRequestPurpose.MAP) {
+                mapGpsActive = false
+                mapLocationStatus =
+                    "HARU could not start GPS."
+            } else {
+                onlineStatus =
+                    "HARU could not obtain a phone location."
+            }
+
             pendingLocationPurpose =
                 LocationRequestPurpose.NONE
         }
     }
 
+    private fun updateMapLocation(
+        location: Location,
+        prefix: String,
+    ) {
+        currentDeviceLocation = TrustedLocation(
+            id = "haru-current-device",
+            name = "My location",
+            latitude = location.latitude,
+            longitude = location.longitude,
+            accuracyM = location.accuracy.toDouble(),
+            expiresAt = Long.MAX_VALUE,
+        )
+
+        mapGpsActive = true
+        mapLocationStatus =
+            prefix +
+                " location · ±" +
+                location.accuracy.toInt() +
+                " m"
+    }
+
     private fun handleCapturedLocation(location: Location) {
         when (pendingLocationPurpose) {
             LocationRequestPurpose.MAP -> {
-                currentDeviceLocation = TrustedLocation(
-                    id = "haru-current-device",
-                    name = "My location",
-                    latitude = location.latitude,
-                    longitude = location.longitude,
-                    accuracyM = location.accuracy.toDouble(),
-                    expiresAt = Long.MAX_VALUE,
+                updateMapLocation(
+                    location,
+                    prefix = "GPS",
                 )
-                mapLocationStatus =
-                    "GPS location marked · ±" +
-                        location.accuracy.toInt() +
-                        " m"
             }
 
             LocationRequestPurpose.SHARE -> {
@@ -571,17 +734,41 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
     }
 
     private fun finishLocationShare(location: Location) {
-        locationShareCode = runCatching {
-            trustedLocationManager.createShareCode(
+        runCatching {
+            trustedLocationManager.createShareBundle(
                 name = pendingShareName,
                 latitude = location.latitude,
                 longitude = location.longitude,
                 accuracyM = location.accuracy.toDouble(),
                 expiresMinutes = pendingShareMinutes,
             )
-        }.getOrElse {
-            onlineStatus = it.message ?: "Could not create location share."
-            ""
+        }.onSuccess { bundle ->
+            locationShareCode = bundle.shareText
+            locationShareMapUrl = bundle.googleMapsUrl
+            onlineStatus =
+                "Location snapshot ready to share."
+        }.onFailure {
+            locationShareCode = ""
+            locationShareMapUrl = ""
+            onlineStatus =
+                it.message ?: "Could not create location share."
+        }
+    }
+
+    private fun shareLocationText() {
+        val text = locationShareCode.trim()
+        if (text.isBlank()) return
+
+        runCatching {
+            startActivity(
+                Intent.createChooser(
+                    Intent(Intent.ACTION_SEND).apply {
+                        type = "text/plain"
+                        putExtra(Intent.EXTRA_TEXT, text)
+                    },
+                    "Share HARU location",
+                )
+            )
         }
     }
 
@@ -589,8 +776,10 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
         if (code.isBlank()) return
         runCatching {
             trustedLocationManager.importShareCode(code)
-        }.onSuccess {
+        }.onSuccess { item ->
             trustedLocations = trustedLocationManager.load()
+            onlineStatus =
+                "Shared location added: " + item.name
         }.onFailure {
             onlineStatus = it.message ?: "Could not import location share."
         }
@@ -730,6 +919,18 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
 
     override fun onResume() {
         super.onResume()
+
+        if (
+            awaitingLocationSettings &&
+            isLocationServiceEnabled()
+        ) {
+            awaitingLocationSettings = false
+            mapGpsActive = true
+            pendingLocationPurpose =
+                LocationRequestPurpose.MAP
+            requestOrCaptureLocation()
+        }
+
         if (::companionStore.isInitialized) {
             companionSnapshot = companionStore.load()
         }
@@ -761,6 +962,8 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
         currentDeviceLocation = null
         mapLocationStatus = ""
         locationShareCode = ""
+        locationShareMapUrl = ""
+        mapGpsActive = false
 
         if (::trustedLocationManager.isInitialized) {
             val manager =
@@ -791,7 +994,12 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
 
     companion object {
         private const val MAX_EXTERNAL_URL_CHARS = 4096
-        private const val LOCATION_TIMEOUT_MS = 15_000L
+        private const val LOCATION_TIMEOUT_MS = 20_000L
+        private const val LOCATION_MIN_TIME_MS = 750L
+        private const val MAP_TARGET_ACCURACY_M = 25f
+        private const val SHARE_MAX_ACCURACY_M = 80f
+        private const val MAP_CACHE_PREVIEW_MAX_AGE_MS = 120_000L
+        private const val SHARE_CACHE_MAX_AGE_MS = 30_000L
         private val LOCATION_TIMEOUT_TOKEN = Any()
 
         private const val SYSTEM_PROMPT =
