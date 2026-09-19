@@ -15,5 +15,6 @@ data class HaruUiState(
     val mood: HaruMood = HaruMood.IDLE,
     val message: String = "Hello. I'm HARU.",
     val command: String = "",
+    val latestUserMessage: String = "",
     val isBusy: Boolean = false
 )
