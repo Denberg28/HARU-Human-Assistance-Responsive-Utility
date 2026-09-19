@@ -12,8 +12,8 @@ android {
         applicationId = "io.haru.assistant"
         minSdk = 26
         targetSdk = 36
-        versionCode = 14
-        versionName = "0.3.8"
+        versionCode = 15
+        versionName = "0.3.9"
 
         ndk {
             abiFilters += "arm64-v8a"
