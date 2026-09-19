@@ -1,5 +1,6 @@
 package io.haru.assistant.ui
 
+import android.webkit.CookieManager
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -28,6 +29,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -65,6 +68,7 @@ import io.haru.assistant.core.HaruMood
 import io.haru.assistant.localai.LocalAiStatus
 import io.haru.assistant.localai.LocalModelOption
 import io.haru.assistant.location.TrustedLocation
+import io.haru.assistant.onlineai.GeminiModel
 import io.haru.assistant.onlineai.OnlineProvider
 import io.haru.assistant.voice.HaruVoiceController
 import java.text.DateFormat
@@ -83,9 +87,13 @@ fun HaruScreen(
     localAiDownloadModelId: String,
     todayLines: List<String>,
     onlineProvider: OnlineProvider,
+    selectedGeminiModel: GeminiModel,
+    geminiModels: List<GeminiModel>,
     onlineStatus: String,
     hasGeminiKey: Boolean,
-    hasOpenRouterKey: Boolean,
+    appVersion: String,
+    updateStatus: String,
+    updateUrl: String,
     newsBundle: AndroidNewsBundle,
     hazardBundle: AndroidHazardBundle,
     trustedLocations: List<TrustedLocation>,
@@ -100,9 +108,11 @@ fun HaruScreen(
     onValidateLocalModel: (String) -> Unit,
     onDeleteLocalModel: (String) -> Unit,
     onSelectOnlineProvider: (OnlineProvider) -> Unit,
+    onSelectGeminiModel: (GeminiModel) -> Unit,
     onSaveGeminiKey: (String) -> Unit,
-    onSaveOpenRouterKey: (String) -> Unit,
     onTestOnlineAi: () -> Unit,
+    onCheckUpdate: () -> Unit,
+    onOpenUpdate: (String) -> Unit,
     onRefreshNews: () -> Unit,
     onRefreshHazards: () -> Unit,
     onOpenUrl: (String) -> Unit,
@@ -114,6 +124,7 @@ fun HaruScreen(
     var selectedTab by remember { mutableIntStateOf(0) }
     var showLocalAi by remember { mutableStateOf(false) }
     var showOnlineAi by remember { mutableStateOf(false) }
+    var showUpdate by remember { mutableStateOf(false) }
     val tabs = listOf("Assistant", "News", "Hazard Advisories", "Map")
 
     Surface(modifier = modifier.fillMaxSize()) {
@@ -160,8 +171,10 @@ fun HaruScreen(
                     onSubmitClick = onSubmitClick,
                     onMicClick = onMicClick,
                     onSpeakClick = onSpeakClick,
+                    appVersion = appVersion,
                     onOpenLocalAi = { showLocalAi = true },
                     onOpenOnlineAi = { showOnlineAi = true },
+                    onOpenUpdate = { showUpdate = true },
                 )
                 1 -> NewsPane(
                     bundle = newsBundle,
@@ -207,14 +220,26 @@ fun HaruScreen(
     if (showOnlineAi) {
         OnlineAiDialog(
             provider = onlineProvider,
+            selectedGeminiModel = selectedGeminiModel,
+            geminiModels = geminiModels,
             status = onlineStatus,
             hasGeminiKey = hasGeminiKey,
-            hasOpenRouterKey = hasOpenRouterKey,
             onDismiss = { showOnlineAi = false },
             onSelectProvider = onSelectOnlineProvider,
+            onSelectGeminiModel = onSelectGeminiModel,
             onSaveGeminiKey = onSaveGeminiKey,
-            onSaveOpenRouterKey = onSaveOpenRouterKey,
             onTest = onTestOnlineAi,
+        )
+    }
+
+    if (showUpdate) {
+        AppUpdateDialog(
+            appVersion = appVersion,
+            status = updateStatus,
+            updateUrl = updateUrl,
+            onDismiss = { showUpdate = false },
+            onCheck = onCheckUpdate,
+            onOpenUpdate = onOpenUpdate,
         )
     }
 }
@@ -230,8 +255,10 @@ private fun AssistantPane(
     onSubmitClick: () -> Unit,
     onMicClick: () -> Unit,
     onSpeakClick: () -> Unit,
+    appVersion: String,
     onOpenLocalAi: () -> Unit,
     onOpenOnlineAi: () -> Unit,
+    onOpenUpdate: () -> Unit,
 ) {
     val state = viewModel.uiState
 
@@ -296,6 +323,9 @@ private fun AssistantPane(
                 onlineStatus,
                 style = MaterialTheme.typography.labelSmall,
             )
+        }
+        TextButton(onClick = onOpenUpdate) {
+            Text("HARU v$appVersion · App update")
         }
 
         Spacer(Modifier.height(8.dp))
@@ -651,8 +681,6 @@ private fun MapPane(
 
 @Composable
 private fun PagasaLiveMap() {
-    // PANaHON is a full interactive web application. Load it as a top-level
-    // browser document instead of placing it inside another iframe.
     BrowserWebView(
         url = "https://panahon.gov.ph/",
         allowedHostSuffixes = setOf(
@@ -693,26 +721,21 @@ private fun GoogleMapsIframe(
 ) {
     val escapedUrl = mapUrl
         .replace("&", "&amp;")
-        .replace(""", "&quot;")
+        .replace("\"", "&quot;")
 
     val html = """
         <!doctype html>
         <html>
           <head>
-            <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
             <style>
-              html, body { margin:0; padding:0; width:100%; height:100%; overflow:hidden; background:#f7f7f7; }
-              iframe { width:100%; height:100%; border:0; }
+              html,body{margin:0;padding:0;width:100%;height:100%;overflow:hidden;background:#f7f7f7}
+              iframe{width:100%;height:100%;border:0}
             </style>
           </head>
           <body>
-            <iframe
-              src="$escapedUrl"
-              title="Google Maps"
-              loading="eager"
-              allowfullscreen
-              referrerpolicy="no-referrer-when-downgrade">
-            </iframe>
+            <iframe src="$escapedUrl" title="Google Maps" loading="eager"
+              allowfullscreen referrerpolicy="no-referrer-when-downgrade"></iframe>
           </body>
         </html>
     """.trimIndent()
@@ -721,7 +744,7 @@ private fun GoogleMapsIframe(
         modifier = modifier,
         factory = { context ->
             WebView(context).apply {
-                configureMapWebView()
+                configureInteractiveWebView()
                 tag = mapUrl
                 loadDataWithBaseURL(
                     "https://maps.google.com/",
@@ -756,15 +779,14 @@ private fun BrowserWebView(
     AndroidView(
         modifier = modifier,
         factory = { context ->
-            WebView(context).apply {
-                configureMapWebView()
-
-                // Some interactive map sites degrade or reject the Android WebView
-                // marker. Use the normal mobile Chromium UA while retaining the
-                // app's HTTPS-only navigation policy.
+            WebView(context).apply webView@{
+                configureInteractiveWebView()
                 settings.userAgentString =
                     WebSettings.getDefaultUserAgent(context).replace("; wv", "")
-
+                CookieManager.getInstance().apply {
+                    setAcceptCookie(true)
+                    setAcceptThirdPartyCookies(this@webView, true)
+                }
                 webViewClient = object : WebViewClient() {
                     override fun shouldOverrideUrlLoading(
                         view: WebView?,
@@ -772,14 +794,12 @@ private fun BrowserWebView(
                     ): Boolean {
                         val uri = request?.url ?: return true
                         if (!uri.scheme.equals("https", ignoreCase = true)) return true
-
                         val host = uri.host?.lowercase().orEmpty()
                         return allowedHostSuffixes.none { suffix ->
                             host == suffix || host.endsWith("." + suffix)
                         }
                     }
                 }
-
                 tag = url
                 loadUrl(url)
             }
@@ -793,7 +813,7 @@ private fun BrowserWebView(
     )
 }
 
-private fun WebView.configureMapWebView() {
+private fun WebView.configureInteractiveWebView() {
     settings.apply {
         javaScriptEnabled = true
         domStorageEnabled = true
@@ -816,17 +836,18 @@ private fun WebView.configureMapWebView() {
 @Composable
 private fun OnlineAiDialog(
     provider: OnlineProvider,
+    selectedGeminiModel: GeminiModel,
+    geminiModels: List<GeminiModel>,
     status: String,
     hasGeminiKey: Boolean,
-    hasOpenRouterKey: Boolean,
     onDismiss: () -> Unit,
     onSelectProvider: (OnlineProvider) -> Unit,
+    onSelectGeminiModel: (GeminiModel) -> Unit,
     onSaveGeminiKey: (String) -> Unit,
-    onSaveOpenRouterKey: (String) -> Unit,
     onTest: () -> Unit,
 ) {
     var geminiKey by remember { mutableStateOf("") }
-    var openRouterKey by remember { mutableStateOf("") }
+    var modelMenuExpanded by remember { mutableStateOf(false) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -840,26 +861,53 @@ private fun OnlineAiDialog(
                     .fillMaxWidth()
                     .verticalScroll(rememberScrollState()),
             ) {
-                Text("Online default", fontWeight = FontWeight.SemiBold)
+                Text("Online AI", fontWeight = FontWeight.SemiBold)
                 listOf(
                     OnlineProvider.ANTIGRAVITY,
-                    OnlineProvider.GEMINI_FLASH_LITE,
-                    OnlineProvider.OPENROUTER_FREE,
+                    OnlineProvider.GEMINI,
                     OnlineProvider.LOCAL_ONLY,
                 ).forEach { option ->
                     OutlinedButton(
                         onClick = { onSelectProvider(option) },
                         modifier = Modifier.fillMaxWidth(),
                     ) {
-                        Text(
-                            (if (provider == option) "✓ " else "") + providerLabel(option)
-                        )
+                        Text((if (provider == option) "✓ " else "") + providerLabel(option))
+                    }
+                }
+
+                Spacer(Modifier.height(10.dp))
+                Text("Gemini model", fontWeight = FontWeight.SemiBold)
+                Box(modifier = Modifier.fillMaxWidth()) {
+                    OutlinedButton(
+                        onClick = { modelMenuExpanded = true },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(selectedGeminiModel.label + " ▾")
+                    }
+                    DropdownMenu(
+                        expanded = modelMenuExpanded,
+                        onDismissRequest = { modelMenuExpanded = false },
+                    ) {
+                        geminiModels.forEach { model ->
+                            DropdownMenuItem(
+                                text = {
+                                    Text(
+                                        (if (model.id == selectedGeminiModel.id) "✓ " else "") +
+                                            model.label
+                                    )
+                                },
+                                onClick = {
+                                    onSelectGeminiModel(model)
+                                    modelMenuExpanded = false
+                                },
+                            )
+                        }
                     }
                 }
 
                 Spacer(Modifier.height(10.dp))
                 Text(
-                    "Gemini key" + if (hasGeminiKey) " · saved securely" else "",
+                    "Gemini API key" + if (hasGeminiKey) " · saved securely" else "",
                     fontWeight = FontWeight.SemiBold,
                 )
                 OutlinedTextField(
@@ -880,29 +928,6 @@ private fun OnlineAiDialog(
                     Text("Save Gemini key")
                 }
 
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    "OpenRouter key" + if (hasOpenRouterKey) " · saved securely" else "",
-                    fontWeight = FontWeight.SemiBold,
-                )
-                OutlinedTextField(
-                    value = openRouterKey,
-                    onValueChange = { openRouterKey = it.take(400) },
-                    visualTransformation = PasswordVisualTransformation(),
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                Button(
-                    onClick = {
-                        onSaveOpenRouterKey(openRouterKey)
-                        openRouterKey = ""
-                    },
-                    enabled = openRouterKey.isNotBlank(),
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text("Save OpenRouter key")
-                }
-
                 Spacer(Modifier.height(10.dp))
                 Button(
                     onClick = onTest,
@@ -910,11 +935,62 @@ private fun OnlineAiDialog(
                 ) {
                     Text("Test selected AI")
                 }
+
                 if (status.isNotBlank()) {
                     Text(status, style = MaterialTheme.typography.bodySmall)
                 }
                 Text(
-                    "OpenRouter is locked to its free router. Paid models are not exposed.",
+                    "Antigravity remains the default. OpenRouter has been removed.",
+                    style = MaterialTheme.typography.labelSmall,
+                )
+            }
+        },
+    )
+}
+
+@Composable
+private fun AppUpdateDialog(
+    appVersion: String,
+    status: String,
+    updateUrl: String,
+    onDismiss: () -> Unit,
+    onCheck: () -> Unit,
+    onOpenUpdate: (String) -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("HARU update") },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("Done") }
+        },
+        text = {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                Text("Installed: v$appVersion", fontWeight = FontWeight.SemiBold)
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    status.ifBlank { "Check GitHub for the latest HARU APK." },
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                Spacer(Modifier.height(10.dp))
+                Button(
+                    onClick = onCheck,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text("Check for update")
+                }
+                if (updateUrl.isNotBlank()) {
+                    Spacer(Modifier.height(6.dp))
+                    Button(
+                        onClick = { onOpenUpdate(updateUrl) },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text("Download latest APK")
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "Install the APK over HARU without uninstalling it. Normal Android updates keep " +
+                        "HARU's app-private local AI model and companion data.",
                     style = MaterialTheme.typography.labelSmall,
                 )
             }
@@ -1316,8 +1392,7 @@ private fun AssistantResponseText(message: String) {
 private fun providerLabel(provider: OnlineProvider): String =
     when (provider) {
         OnlineProvider.ANTIGRAVITY -> "Antigravity"
-        OnlineProvider.GEMINI_FLASH_LITE -> "Gemini Flash-Lite"
-        OnlineProvider.OPENROUTER_FREE -> "OpenRouter Free"
+        OnlineProvider.GEMINI -> "Gemini"
         OnlineProvider.LOCAL_ONLY -> "Local only"
     }
 

@@ -10,14 +10,18 @@ import java.net.URL
 
 enum class OnlineProvider {
     ANTIGRAVITY,
-    GEMINI_FLASH_LITE,
-    OPENROUTER_FREE,
+    GEMINI,
     LOCAL_ONLY,
 }
 
+data class GeminiModel(
+    val id: String,
+    val label: String,
+)
+
 data class OnlineAiSettings(
     val provider: OnlineProvider = OnlineProvider.ANTIGRAVITY,
-    val model: String = "antigravity-preview-09-2026",
+    val geminiModel: GeminiModel = AndroidOnlineAiManager.DEFAULT_GEMINI_MODEL,
 )
 
 class AndroidOnlineAiManager(
@@ -27,39 +31,49 @@ class AndroidOnlineAiManager(
         context.getSharedPreferences("haru_online_ai", Context.MODE_PRIVATE)
     private val credentials = SecureCredentialStore(context)
 
+    init {
+        credentials.delete("openrouter")
+    }
+
     fun settings(): OnlineAiSettings {
-        val provider = runCatching {
-            OnlineProvider.valueOf(
-                preferences.getString("provider", OnlineProvider.ANTIGRAVITY.name)
-                    ?: OnlineProvider.ANTIGRAVITY.name
-            )
-        }.getOrDefault(OnlineProvider.ANTIGRAVITY)
+        val storedProvider = preferences.getString("provider", "").orEmpty()
+        val provider = when (storedProvider) {
+            OnlineProvider.GEMINI.name,
+            "GEMINI_FLASH_LITE" -> OnlineProvider.GEMINI
+            OnlineProvider.LOCAL_ONLY.name -> OnlineProvider.LOCAL_ONLY
+            else -> OnlineProvider.ANTIGRAVITY
+        }
+
+        val modelId = preferences
+            .getString(KEY_GEMINI_MODEL, DEFAULT_GEMINI_MODEL.id)
+            .orEmpty()
+        val model = GEMINI_MODELS.firstOrNull { it.id == modelId }
+            ?: DEFAULT_GEMINI_MODEL
 
         return OnlineAiSettings(
             provider = provider,
-            model = modelFor(provider),
+            geminiModel = model,
         )
     }
 
+    fun geminiModels(): List<GeminiModel> = GEMINI_MODELS
+
     fun saveProvider(provider: OnlineProvider) {
         preferences.edit().putString("provider", provider.name).apply()
+    }
+
+    fun saveGeminiModel(model: GeminiModel) {
+        require(GEMINI_MODELS.any { it.id == model.id }) {
+            "Unsupported Gemini model."
+        }
+        preferences.edit().putString(KEY_GEMINI_MODEL, model.id).apply()
     }
 
     fun saveGeminiKey(value: String) {
         credentials.put("gemini", value)
     }
 
-    fun saveOpenRouterKey(value: String) {
-        credentials.put("openrouter", value)
-    }
-
     fun hasGeminiKey(): Boolean = credentials.get("gemini").isNotBlank()
-
-    fun hasOpenRouterKey(): Boolean = credentials.get("openrouter").isNotBlank()
-
-    fun clearGeminiKey() = credentials.delete("gemini")
-
-    fun clearOpenRouterKey() = credentials.delete("openrouter")
 
     suspend fun ask(
         provider: OnlineProvider,
@@ -68,8 +82,11 @@ class AndroidOnlineAiManager(
     ): String = withContext(Dispatchers.IO) {
         when (provider) {
             OnlineProvider.ANTIGRAVITY -> askAntigravity(prompt, systemPrompt)
-            OnlineProvider.GEMINI_FLASH_LITE -> askGemini(prompt, systemPrompt)
-            OnlineProvider.OPENROUTER_FREE -> askOpenRouter(prompt, systemPrompt)
+            OnlineProvider.GEMINI -> askGemini(
+                settings().geminiModel.id,
+                prompt,
+                systemPrompt,
+            )
             OnlineProvider.LOCAL_ONLY -> error("Local-only mode selected.")
         }
     }
@@ -134,7 +151,11 @@ class AndroidOnlineAiManager(
         }
     }
 
-    private fun askGemini(prompt: String, systemPrompt: String): String {
+    private fun askGemini(
+        modelId: String,
+        prompt: String,
+        systemPrompt: String,
+    ): String {
         val key = credentials.get("gemini")
         require(key.isNotBlank()) { "Gemini API key is required." }
 
@@ -164,7 +185,8 @@ class AndroidOnlineAiManager(
         }
 
         val response = postJson(
-            "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent",
+            "https://generativelanguage.googleapis.com/v1beta/models/" +
+                modelId + ":generateContent",
             payload,
             mapOf("x-goog-api-key" to key),
         )
@@ -190,50 +212,6 @@ class AndroidOnlineAiManager(
         return text
     }
 
-    private fun askOpenRouter(prompt: String, systemPrompt: String): String {
-        val key = credentials.get("openrouter")
-        require(key.isNotBlank()) { "OpenRouter API key is required." }
-
-        val messages = JSONArray()
-        if (systemPrompt.isNotBlank()) {
-            messages.put(
-                JSONObject()
-                    .put("role", "system")
-                    .put("content", systemPrompt)
-            )
-        }
-        messages.put(
-            JSONObject()
-                .put("role", "user")
-                .put("content", prompt)
-        )
-
-        val payload = JSONObject()
-            .put("model", "openrouter/free")
-            .put("messages", messages)
-            .put("temperature", 0.3)
-
-        val response = postJson(
-            "https://openrouter.ai/api/v1/chat/completions",
-            payload,
-            mapOf(
-                "Authorization" to "Bearer $key",
-                "HTTP-Referer" to "https://github.com/Denberg28/HARU-Human-Assistance-Responsive-Utility",
-                "X-Title" to "HARU",
-            ),
-        )
-
-        val text = response.optJSONArray("choices")
-            ?.optJSONObject(0)
-            ?.optJSONObject("message")
-            ?.optString("content")
-            ?.trim()
-            .orEmpty()
-
-        if (text.isBlank()) error("OpenRouter returned no text.")
-        return text
-    }
-
     private fun postJson(
         url: String,
         payload: JSONObject,
@@ -247,7 +225,7 @@ class AndroidOnlineAiManager(
         connection.doOutput = true
         connection.setRequestProperty("Content-Type", "application/json")
         connection.setRequestProperty("Accept", "application/json")
-        connection.setRequestProperty("User-Agent", "HARU-Android/0.1")
+        connection.setRequestProperty("User-Agent", "HARU-Android/0.2.2")
         headers.forEach { (name, value) ->
             connection.setRequestProperty(name, value)
         }
@@ -258,11 +236,7 @@ class AndroidOnlineAiManager(
             }
 
             val code = connection.responseCode
-            val stream = if (code in 200..299) {
-                connection.inputStream
-            } else {
-                connection.errorStream
-            }
+            val stream = if (code in 200..299) connection.inputStream else connection.errorStream
             val raw = stream?.bufferedReader(Charsets.UTF_8)?.use { reader ->
                 reader.readText().take(4_000_000)
             }.orEmpty()
@@ -287,11 +261,23 @@ class AndroidOnlineAiManager(
         }
     }
 
-    private fun modelFor(provider: OnlineProvider): String =
-        when (provider) {
-            OnlineProvider.ANTIGRAVITY -> "antigravity-preview-09-2026"
-            OnlineProvider.GEMINI_FLASH_LITE -> "gemini-3.5-flash-lite"
-            OnlineProvider.OPENROUTER_FREE -> "openrouter/free"
-            OnlineProvider.LOCAL_ONLY -> "on-device"
-        }
+    companion object {
+        private const val KEY_GEMINI_MODEL = "gemini_model"
+
+        val GEMINI_MODELS = listOf(
+            GeminiModel("gemini-3.8-flash", "Gemini 3.8 Flash"),
+            GeminiModel("gemini-3.7-flash", "Gemini 3.7 Flash"),
+            GeminiModel("gemini-3.6-flash", "Gemini 3.6 Flash"),
+            GeminiModel("gemini-3.5-flash", "Gemini 3.5 Flash"),
+            GeminiModel("gemini-3.5-flash-lite", "Gemini 3.5 Flash-Lite"),
+            GeminiModel("gemini-3.1-flash-lite", "Gemini 3.1 Flash-Lite"),
+            GeminiModel("gemini-3.1-pro-preview", "Gemini 3.1 Pro Preview"),
+            GeminiModel("gemini-2.5-pro", "Gemini 2.5 Pro"),
+            GeminiModel("gemini-2.5-flash", "Gemini 2.5 Flash"),
+            GeminiModel("gemini-2.5-flash-lite", "Gemini 2.5 Flash-Lite"),
+        )
+
+        val DEFAULT_GEMINI_MODEL =
+            GEMINI_MODELS.first { it.id == "gemini-3.5-flash-lite" }
+    }
 }

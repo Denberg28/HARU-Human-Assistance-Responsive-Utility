@@ -35,7 +35,9 @@ import io.haru.assistant.localai.LocalModelDownloadState
 import io.haru.assistant.location.TrustedLocation
 import io.haru.assistant.location.TrustedLocationManager
 import io.haru.assistant.onlineai.AndroidOnlineAiManager
+import io.haru.assistant.onlineai.GeminiModel
 import io.haru.assistant.onlineai.OnlineProvider
+import io.haru.assistant.update.AndroidAppUpdateManager
 import io.haru.assistant.ui.HaruScreen
 import io.haru.assistant.ui.HaruTheme
 import io.haru.assistant.voice.HaruVoiceController
@@ -51,6 +53,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
     private lateinit var localAiManager: AndroidLocalAiManager
     private lateinit var localModelDownloadManager: LocalModelDownloadManager
     private lateinit var onlineAiManager: AndroidOnlineAiManager
+    private lateinit var appUpdateManager: AndroidAppUpdateManager
     private lateinit var companionStore: AndroidCompanionStore
     private lateinit var newsService: AndroidNewsService
     private lateinit var hazardService: AndroidHazardService
@@ -71,9 +74,11 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
     private var companionSnapshot by mutableStateOf(CompanionSnapshot())
 
     private var onlineProvider by mutableStateOf(OnlineProvider.ANTIGRAVITY)
+    private var selectedGeminiModel by mutableStateOf(AndroidOnlineAiManager.DEFAULT_GEMINI_MODEL)
     private var onlineStatus by mutableStateOf("Antigravity is the online default.")
     private var hasGeminiKey by mutableStateOf(false)
-    private var hasOpenRouterKey by mutableStateOf(false)
+    private var updateStatus by mutableStateOf("")
+    private var updateUrl by mutableStateOf("")
 
     private var newsBundle by mutableStateOf(AndroidNewsBundle())
     private var hazardBundle by mutableStateOf(AndroidHazardBundle())
@@ -124,13 +129,16 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
         localAiManager = AndroidLocalAiManager(applicationContext)
         localModelDownloadManager = LocalModelDownloadManager(applicationContext)
         onlineAiManager = AndroidOnlineAiManager(applicationContext)
+        appUpdateManager = AndroidAppUpdateManager()
         companionStore = AndroidCompanionStore(applicationContext)
         newsService = AndroidNewsService()
         hazardService = AndroidHazardService()
         trustedLocationManager = TrustedLocationManager(applicationContext)
 
         companionSnapshot = companionStore.load()
-        onlineProvider = onlineAiManager.settings().provider
+        val onlineSettings = onlineAiManager.settings()
+        onlineProvider = onlineSettings.provider
+        selectedGeminiModel = onlineSettings.geminiModel
         refreshOnlineKeyState()
         trustedLocations = trustedLocationManager.load()
         refreshLocalAiStatus()
@@ -167,9 +175,13 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
                     localAiDownloadModelId = localAiDownloadState.modelId,
                     todayLines = companionSnapshot.todayLines(),
                     onlineProvider = onlineProvider,
+                    selectedGeminiModel = selectedGeminiModel,
+                    geminiModels = onlineAiManager.geminiModels(),
                     onlineStatus = onlineStatus,
                     hasGeminiKey = hasGeminiKey,
-                    hasOpenRouterKey = hasOpenRouterKey,
+                    appVersion = currentVersionName(),
+                    updateStatus = updateStatus,
+                    updateUrl = updateUrl,
                     newsBundle = newsBundle,
                     hazardBundle = hazardBundle,
                     trustedLocations = trustedLocations,
@@ -188,9 +200,11 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
                     onValidateLocalModel = ::validateLocalModel,
                     onDeleteLocalModel = ::deleteLocalModel,
                     onSelectOnlineProvider = ::selectOnlineProvider,
+                    onSelectGeminiModel = ::selectGeminiModel,
                     onSaveGeminiKey = ::saveGeminiKey,
-                    onSaveOpenRouterKey = ::saveOpenRouterKey,
                     onTestOnlineAi = ::testOnlineAi,
+                    onCheckUpdate = ::checkForUpdate,
+                    onOpenUpdate = ::openUrl,
                     onRefreshNews = ::refreshNews,
                     onRefreshHazards = ::refreshHazards,
                     onOpenUrl = ::openUrl,
@@ -277,16 +291,14 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
         onlineStatus = "Gemini key saved securely on this phone."
     }
 
-    private fun saveOpenRouterKey(value: String) {
-        if (value.isBlank()) return
-        onlineAiManager.saveOpenRouterKey(value)
-        refreshOnlineKeyState()
-        onlineStatus = "OpenRouter key saved securely on this phone."
+    private fun selectGeminiModel(model: GeminiModel) {
+        selectedGeminiModel = model
+        onlineAiManager.saveGeminiModel(model)
+        onlineStatus = model.label + " selected."
     }
 
     private fun refreshOnlineKeyState() {
         hasGeminiKey = onlineAiManager.hasGeminiKey()
-        hasOpenRouterKey = onlineAiManager.hasOpenRouterKey()
     }
 
     private fun testOnlineAi() {
@@ -319,6 +331,30 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
     private fun refreshHazards() {
         lifecycleScope.launch {
             hazardBundle = hazardService.fetch()
+        }
+    }
+
+
+    private fun currentVersionName(): String =
+        runCatching {
+            packageManager.getPackageInfo(packageName, 0).versionName ?: "0.0.0"
+        }.getOrDefault("0.0.0")
+
+    private fun checkForUpdate() {
+        updateStatus = "Checking for the latest HARU release…"
+        updateUrl = ""
+        lifecycleScope.launch {
+            updateStatus = try {
+                val info = appUpdateManager.check(currentVersionName())
+                if (info.updateAvailable) {
+                    updateUrl = info.apkUrl.ifBlank { info.releaseUrl }
+                    "HARU v" + info.remoteVersion + " is available."
+                } else {
+                    "HARU is up to date (v" + currentVersionName() + ")."
+                }
+            } catch (exc: Exception) {
+                exc.message ?: "Could not check for updates."
+            }
         }
     }
 
@@ -721,8 +757,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
     private fun providerName(provider: OnlineProvider): String =
         when (provider) {
             OnlineProvider.ANTIGRAVITY -> "Antigravity"
-            OnlineProvider.GEMINI_FLASH_LITE -> "Gemini Flash-Lite"
-            OnlineProvider.OPENROUTER_FREE -> "OpenRouter Free"
+            OnlineProvider.GEMINI -> selectedGeminiModel.label
             OnlineProvider.LOCAL_ONLY -> "Local AI"
         }
 

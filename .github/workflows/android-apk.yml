@@ -1,5 +1,4 @@
 name: Build Android APK
-# HARU APK packaging gate
 
 on:
   workflow_dispatch:
@@ -13,12 +12,12 @@ on:
       - ".github/workflows/android-apk.yml"
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   debug-apk:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 35
 
     steps:
       - name: Checkout
@@ -36,18 +35,49 @@ jobs:
           test -d "$ANDROID_HOME"
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --version
 
+      - name: Restore stable HARU debug signing key
+        uses: actions/cache@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: haru-debug-signing-v1
+
       - name: Set up Gradle 9.6
         uses: gradle/actions/setup-gradle@v5
         with:
           gradle-version: "9.6.0"
 
-      - name: Build HARU debug APK
+      - name: Build HARU update APK
         run: gradle --no-daemon :app:assembleDebug --stacktrace
 
-      - name: Upload APK
+      - name: Package APK
+        shell: bash
+        run: |
+          VERSION=$(grep -m1 'versionName = ' app/build.gradle.kts | sed -E 's/.*"([^"]+)".*/\1/')
+          cp app/build/outputs/apk/debug/app-debug.apk "HARU-v__VERSION__-arm64.apk"
+          mv "HARU-v__VERSION__-arm64.apk" "HARU-v$VERSION-arm64.apk"
+          sha256sum "HARU-v$VERSION-arm64.apk" > "HARU-v$VERSION-arm64.apk.sha256"
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "APK=HARU-v$VERSION-arm64.apk" >> "$GITHUB_ENV"
+
+      - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: HARU-debug-apk
-          path: app/build/outputs/apk/debug/app-debug.apk
+          name: HARU-v\${{ env.VERSION }}-arm64
+          path: |
+            \${{ env.APK }}
+            \${{ env.APK }}.sha256
+            tools/haru_model_migrate.py
           if-no-files-found: error
           retention-days: 14
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: \${{ github.token }}
+        shell: bash
+        run: |
+          TAG="v$VERSION"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$APK" "$APK.sha256" --clobber
+          else
+            gh release create "$TAG" "$APK" "$APK.sha256"               --title "HARU $TAG"               --notes "HARU Android update APK. Install over the existing HARU app to preserve local model and app data."               --latest
+          fi
