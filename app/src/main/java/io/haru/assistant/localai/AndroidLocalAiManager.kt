@@ -4,6 +4,7 @@ import android.app.ActivityManager
 import android.content.Context
 import android.net.Uri
 import android.os.StatFs
+import android.provider.OpenableColumns
 import com.google.ai.edge.litertlm.Backend
 import com.google.ai.edge.litertlm.Engine
 import com.google.ai.edge.litertlm.Contents
@@ -29,6 +30,8 @@ class AndroidLocalAiManager(
     private val context: Context,
 ) {
     private val modelDir = File(context.filesDir, "models").apply { mkdirs() }
+    private val preferences =
+        context.getSharedPreferences("haru_local_ai", Context.MODE_PRIVATE)
 
     fun inspect(activeModel: String = ""): LocalAiStatus {
         val activityManager = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
@@ -51,12 +54,16 @@ class AndroidLocalAiManager(
             ?.map { it.name }
             ?: emptyList()
 
+        val preferredModel = activeModel.ifBlank {
+            preferences.getString("active_model", "").orEmpty()
+        }
+
         return LocalAiStatus(
             ramGb = ramGb,
             freeStorageGb = freeGb,
             recommendedTier = recommendation,
             installedModels = installed,
-            activeModel = activeModel.takeIf { installed.contains(it) } ?: "",
+            activeModel = preferredModel.takeIf { installed.contains(it) } ?: "",
             state = if (installed.isEmpty()) "SETUP" else "READY",
             message = if (installed.isEmpty()) {
                 "Import or download a .litertlm model to enable on-device AI."
@@ -67,8 +74,7 @@ class AndroidLocalAiManager(
     }
 
     suspend fun importModel(uri: Uri): String = withContext(Dispatchers.IO) {
-        val displayName = uri.lastPathSegment
-            ?.substringAfterLast('/')
+        val displayName = resolveDisplayName(uri)
             ?.takeIf { it.endsWith(".litertlm", ignoreCase = true) }
             ?: "haru-model.litertlm"
 
@@ -173,6 +179,7 @@ class AndroidLocalAiManager(
     suspend fun validateInstalledModel(fileName: String): String = withContext(Dispatchers.IO) {
         val target = modelFile(fileName)
         validateModel(target)
+        preferences.edit().putString("active_model", target.name).apply()
         target.name
     }
 
@@ -208,10 +215,33 @@ class AndroidLocalAiManager(
 
     fun deleteModel(fileName: String): Boolean {
         val target = modelFile(fileName)
-        return target.exists() && target.delete()
+        val deleted = target.exists() && target.delete()
+        if (
+            deleted &&
+            preferences.getString("active_model", "").orEmpty() == target.name
+        ) {
+            preferences.edit().remove("active_model").apply()
+        }
+        return deleted
     }
 
     fun modelPath(fileName: String): String = modelFile(fileName).absolutePath
+
+    private fun resolveDisplayName(uri: Uri): String? {
+        return runCatching {
+            context.contentResolver.query(
+                uri,
+                arrayOf(OpenableColumns.DISPLAY_NAME),
+                null,
+                null,
+                null,
+            )?.use { cursor ->
+                if (!cursor.moveToFirst()) return@use null
+                val index = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                if (index < 0) null else cursor.getString(index)
+            }
+        }.getOrNull()
+    }
 
     private fun modelFile(fileName: String): File {
         val safe = fileName.substringAfterLast('/').substringAfterLast('\\')
