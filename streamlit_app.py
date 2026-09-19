@@ -160,7 +160,7 @@ def render_news_items(items, section_key: str, limit: int = 6):
     for index, item in enumerate(items[:limit]):
         st.markdown(f"**{item.title}**")
         st.caption(f"{item.source} · {friendly_time(item)}")
-        st.link_button("Open story", item.link, key=f"{section_key}_{index}")
+        st.link_button("Open story", item.link, use_container_width=False)
         if index < min(limit, len(items)) - 1:
             st.divider()
 
