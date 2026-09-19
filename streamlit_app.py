@@ -387,13 +387,13 @@ with st.expander("Developer panel"):
         st.session_state.ai_provider = provider
 
         default_models = {
-            "Ollama": "qwen3:4b",
-            "Local OpenAI-compatible": "local-model",
+            "Ollama": "",
+            "Local OpenAI-compatible": "",
             "Android on-device (APK only)": "phone-local",
-            "OpenAI API": "gpt-5.6",
-            "Google Gemini API": "gemini-2.5-flash",
-            "Anthropic Claude API": "claude-sonnet-4-5",
-            "Cloud OpenAI-compatible": "model-id",
+            "OpenAI API": "",
+            "Google Gemini API": "",
+            "Anthropic Claude API": "",
+            "Cloud OpenAI-compatible": "",
         }
 
         default_endpoints = {
@@ -415,7 +415,7 @@ with st.expander("Developer panel"):
                 st.session_state.ai_model = st.text_input(
                     "Model",
                     value=st.session_state.ai_model or default_models[provider],
-                    placeholder="e.g. qwen3:4b",
+                    placeholder="Installed Ollama model name",
                 )
             with refresh_col:
                 if st.button("List models"):
@@ -428,7 +428,8 @@ with st.expander("Developer panel"):
             st.session_state.ai_model = st.text_input(
                 "Model ID",
                 value=st.session_state.ai_model or default_models.get(provider, ""),
-                help="Model IDs change over time; you can enter the exact model exposed by your account/provider.",
+                placeholder="Enter provider model ID",
+                help="Model IDs change over time; enter the exact model exposed by your account/provider.",
             )
 
         if provider in {"OpenAI API", "Google Gemini API", "Anthropic Claude API", "Cloud OpenAI-compatible"}:
