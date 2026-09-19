@@ -1,5 +1,7 @@
 from datetime import datetime
+import ast
 import html
+import operator
 import re
 
 import streamlit as st
@@ -38,6 +40,8 @@ DEFAULTS = {
     "news_last_seen": 0.0,
     "news_refresh_nonce": 0,
     "explicit_interests": {},
+    "local_notes": [],
+    "local_tasks": [],
     "ai_mode": "Off",
     "ai_provider": "Disabled",
     "ai_model": "",
@@ -60,6 +64,79 @@ for key, value in DEFAULTS.items():
         st.session_state[key] = value.copy() if isinstance(value, (list, dict)) else value
 
 
+def _safe_calc(expression: str) -> float:
+    allowed_binary = {
+        ast.Add: operator.add,
+        ast.Sub: operator.sub,
+        ast.Mult: operator.mul,
+        ast.Div: operator.truediv,
+        ast.Mod: operator.mod,
+        ast.Pow: operator.pow,
+    }
+    allowed_unary = {
+        ast.UAdd: operator.pos,
+        ast.USub: operator.neg,
+    }
+
+    def evaluate(node):
+        if isinstance(node, ast.Expression):
+            return evaluate(node.body)
+        if isinstance(node, ast.Constant) and isinstance(node.value, (int, float)):
+            return float(node.value)
+        if isinstance(node, ast.BinOp) and type(node.op) in allowed_binary:
+            left = evaluate(node.left)
+            right = evaluate(node.right)
+            if isinstance(node.op, ast.Pow) and abs(right) > 12:
+                raise ValueError("Exponent too large")
+            return allowed_binary[type(node.op)](left, right)
+        if isinstance(node, ast.UnaryOp) and type(node.op) in allowed_unary:
+            return allowed_unary[type(node.op)](evaluate(node.operand))
+        raise ValueError("Unsupported expression")
+
+    tree = ast.parse(expression, mode="eval")
+    return float(evaluate(tree))
+
+
+def _format_number(value: float) -> str:
+    if abs(value - round(value)) < 1e-10:
+        return str(int(round(value)))
+    return f"{value:.6f}".rstrip("0").rstrip(".")
+
+
+def _convert_units(value: float, source: str, target: str):
+    aliases = {
+        "m": "m", "meter": "m", "meters": "m",
+        "km": "km", "kilometer": "km", "kilometers": "km",
+        "cm": "cm", "centimeter": "cm", "centimeters": "cm",
+        "mm": "mm", "millimeter": "mm", "millimeters": "mm",
+        "in": "in", "inch": "in", "inches": "in",
+        "ft": "ft", "foot": "ft", "feet": "ft",
+        "yd": "yd", "yard": "yd", "yards": "yd",
+        "mi": "mi", "mile": "mi", "miles": "mi",
+        "g": "g", "gram": "g", "grams": "g",
+        "kg": "kg", "kilogram": "kg", "kilograms": "kg",
+        "lb": "lb", "lbs": "lb", "pound": "lb", "pounds": "lb",
+        "oz": "oz", "ounce": "oz", "ounces": "oz",
+    }
+    length_to_m = {
+        "m": 1.0, "km": 1000.0, "cm": 0.01, "mm": 0.001,
+        "in": 0.0254, "ft": 0.3048, "yd": 0.9144, "mi": 1609.344,
+    }
+    mass_to_kg = {
+        "kg": 1.0, "g": 0.001, "lb": 0.45359237, "oz": 0.028349523125,
+    }
+
+    s = aliases.get(source.lower())
+    t = aliases.get(target.lower())
+    if not s or not t:
+        return None
+    if s in length_to_m and t in length_to_m:
+        return value * length_to_m[s] / length_to_m[t]
+    if s in mass_to_kg and t in mass_to_kg:
+        return value * mass_to_kg[s] / mass_to_kg[t]
+    return None
+
+
 def local_tool_result(command: str):
     clean = command.strip()
     low = clean.lower()
@@ -67,50 +144,164 @@ def local_tool_result(command: str):
     if not clean:
         return "CONFUSED", "Type or say a command first."
 
-    if low in {"hi", "hello", "hey", "haru", "hello haru", "good morning", "good afternoon", "good evening"}:
-        return "HAPPY", "Ready. What can I help you with?"
+    if low in {
+        "hi", "hello", "hey", "haru", "hello haru",
+        "good morning", "good afternoon", "good evening",
+    }:
+        return "HAPPY", "Ready. HARU Local is active. What can I help you with?"
 
-    if "what time" in low or "current time" in low:
+    if low in {"who are you", "what are you"}:
+        return (
+            "HAPPY",
+            "I'm HARU. In Local mode I can handle offline utility tasks; connect a local or online AI model for open-ended reasoning.",
+        )
+
+    if "what time" in low or "current time" in low or low == "time":
         return "HAPPY", datetime.now().strftime("%I:%M %p").lstrip("0")
 
-    if "what date" in low or low == "today":
+    if "what date" in low or low in {"today", "date"}:
         return "HAPPY", datetime.now().strftime("%A, %B %d, %Y").replace(" 0", " ")
 
     if low in {"news", "latest news", "brief me", "news briefing"}:
-        return "HAPPY", (
-            "Live news is available in HARU's News tab. "
-            "Use that feed for current local, international, and interest-aware headlines."
-        )
-
-    if low in {"help", "commands", "what can you do"}:
         return (
             "HAPPY",
-            "HARU can answer through the connected AI brain and also use local tools for time/date, "
-            "simple calculations, and the live News tab.",
+            "Open HARU's News tab for live local, international, and interest-aware headlines.",
         )
 
-    m = re.fullmatch(
-        r"\s*(?:calculate|compute|what is)?\s*(-?\d+(?:\.\d+)?)\s*([+\-*/x×])\s*(-?\d+(?:\.\d+)?)\s*\??\s*",
+    # Notes
+    if low in {"show notes", "list notes", "my notes", "what did you remember"}:
+        notes = st.session_state.local_notes
+        if not notes:
+            return "HAPPY", "You don't have any HARU Local notes yet."
+        return "HAPPY", "Notes:\n" + "\n".join(f"{i + 1}. {note}" for i, note in enumerate(notes))
+
+    if low in {"clear notes", "delete all notes"}:
+        st.session_state.local_notes = []
+        return "HAPPY", "All HARU Local notes cleared."
+
+    note_match = re.match(
+        r"^(?:remember that|remember|note|save note)\s+(.+)$",
         clean,
         re.IGNORECASE,
     )
-    if m:
-        a = float(m.group(1))
-        b = float(m.group(3))
-        op = m.group(2).lower()
-        if op == "+":
-            value = a + b
-        elif op == "-":
-            value = a - b
-        elif op in {"*", "x", "×"}:
-            value = a * b
-        else:
-            if b == 0:
-                return "CONFUSED", "I can't divide by zero."
-            value = a / b
+    if note_match:
+        note = note_match.group(1).strip()
+        st.session_state.local_notes.append(note)
+        return "HAPPY", f"Noted: {note}"
 
-        shown = str(int(value)) if value.is_integer() else f"{value:.4f}".rstrip("0").rstrip(".")
-        return "HAPPY", f"{m.group(1)} {m.group(2)} {m.group(3)} = {shown}"
+    # Tasks / to-do list
+    if low in {"show tasks", "list tasks", "my tasks", "show todo", "show to-do"}:
+        tasks = st.session_state.local_tasks
+        if not tasks:
+            return "HAPPY", "Your HARU Local task list is empty."
+        lines = []
+        for i, task in enumerate(tasks):
+            mark = "✓" if task.get("done") else "○"
+            lines.append(f"{i + 1}. {mark} {task.get('text', '')}")
+        return "HAPPY", "Tasks:\n" + "\n".join(lines)
+
+    if low in {"clear tasks", "delete all tasks", "clear todo", "clear to-do"}:
+        st.session_state.local_tasks = []
+        return "HAPPY", "All HARU Local tasks cleared."
+
+    done_match = re.match(r"^(?:done|complete|finish)\s+(?:task\s+)?(\d+)$", low)
+    if done_match:
+        index = int(done_match.group(1)) - 1
+        tasks = st.session_state.local_tasks
+        if 0 <= index < len(tasks):
+            tasks[index]["done"] = True
+            return "HAPPY", f"Completed task {index + 1}: {tasks[index]['text']}"
+        return "CONFUSED", "That task number doesn't exist."
+
+    task_match = re.match(
+        r"^(?:add task|todo|to-do|add to tasks)\s+(.+)$",
+        clean,
+        re.IGNORECASE,
+    )
+    if task_match:
+        task = task_match.group(1).strip()
+        st.session_state.local_tasks.append({"text": task, "done": False})
+        return "HAPPY", f"Added task: {task}"
+
+    # Percentages
+    percent_match = re.fullmatch(
+        r"(?:what is|calculate)?\s*(-?\d+(?:\.\d+)?)\s*%\s*(?:of|x|\*)\s*(-?\d+(?:\.\d+)?)\s*\??",
+        low,
+    )
+    if percent_match:
+        pct = float(percent_match.group(1))
+        base = float(percent_match.group(2))
+        result = pct / 100.0 * base
+        return "HAPPY", f"{_format_number(pct)}% of {_format_number(base)} = {_format_number(result)}"
+
+    # Temperature
+    temp_match = re.fullmatch(
+        r"(?:convert\s+)?(-?\d+(?:\.\d+)?)\s*°?\s*([cf])\s+(?:to|in)\s+°?\s*([cf])",
+        low,
+    )
+    if temp_match:
+        value = float(temp_match.group(1))
+        source = temp_match.group(2)
+        target = temp_match.group(3)
+        if source == target:
+            result = value
+        elif source == "c":
+            result = value * 9 / 5 + 32
+        else:
+            result = (value - 32) * 5 / 9
+        return "HAPPY", f"{_format_number(value)}°{source.upper()} = {_format_number(result)}°{target.upper()}"
+
+    # Length / mass conversion
+    convert_match = re.fullmatch(
+        r"(?:convert\s+)?(-?\d+(?:\.\d+)?)\s*([a-z]+)\s+(?:to|in)\s+([a-z]+)",
+        low,
+    )
+    if convert_match:
+        value = float(convert_match.group(1))
+        source = convert_match.group(2)
+        target = convert_match.group(3)
+        result = _convert_units(value, source, target)
+        if result is not None:
+            return "HAPPY", f"{_format_number(value)} {source} = {_format_number(result)} {target}"
+
+    # Safe arithmetic expression
+    calc_text = clean
+    calc_text = re.sub(r"^(?:calculate|compute|what is)\s+", "", calc_text, flags=re.IGNORECASE)
+    calc_text = calc_text.rstrip(" ?")
+    if re.fullmatch(r"[\d\s\.\+\-\*\/\(\)%]+", calc_text) and any(op in calc_text for op in "+-*/%"):
+        try:
+            result = _safe_calc(calc_text)
+            return "HAPPY", f"{calc_text} = {_format_number(result)}"
+        except (ValueError, ZeroDivisionError, SyntaxError, OverflowError):
+            return "CONFUSED", "I couldn't safely evaluate that expression."
+
+    if low in {"last command", "what was my last command", "repeat last command"}:
+        history = st.session_state.history
+        if not history:
+            return "HAPPY", "No previous command yet."
+        return "HAPPY", f"Your last command was: {history[-1][0]}"
+
+    if low in {"clear history", "clear conversation"}:
+        st.session_state.history = []
+        return "HAPPY", "Local conversation history cleared."
+
+    if low in {"status", "local status", "haru status"}:
+        return (
+            "HAPPY",
+            f"HARU Local is ready. Notes: {len(st.session_state.local_notes)}. "
+            f"Tasks: {len(st.session_state.local_tasks)}. "
+            "No external AI is required for these tools.",
+        )
+
+    if low in {"help", "commands", "what can you do", "local help"}:
+        return (
+            "HAPPY",
+            "HARU Local can work offline with: time/date, safe calculations, percentages, "
+            "length/mass/temperature conversions, notes, task lists, command history, status, and news-tab routing. "
+            "Examples: “remember buy propellers”, “show notes”, “add task charge batteries”, "
+            "“done 1”, “15% of 240”, “convert 10 km to miles”, or “25 C to F”. "
+            "For open-ended knowledge and reasoning, connect Gemma/Ollama or an online AI in AI selector.",
+        )
 
     return None
 
@@ -225,7 +416,7 @@ def route_command(command: str):
 
     return (
         "CONFUSED",
-        "Connect and apply an AI model in AI selector. Once connected, HARU acts as the shell for that model.",
+        "HARU Local didn't match that request. Type “help” to see offline commands, or connect a local/online AI model for open-ended questions.",
     )
 
 
@@ -317,7 +508,7 @@ def active_model_display_name() -> str:
     provider = st.session_state.get("ai_applied_provider", "").strip()
 
     if not st.session_state.get("ai_applied_signature"):
-        return "Local tools"
+        return "HARU Local"
 
     friendly = {
         "gpt-5.6-sol": "GPT-5.6 Sol",
@@ -976,4 +1167,4 @@ with st.expander("Developer panel"):
             st.write(f"**You:** {q}")
             st.write(f"**HARU:** {a}")
 
-st.markdown("<div class=\"footer\">HARU Lab v1.3 • Enter-to-send chat input</div>", unsafe_allow_html=True)
+st.markdown("<div class=\"footer\">HARU Lab v1.4 • capable HARU Local mode</div>", unsafe_allow_html=True)
