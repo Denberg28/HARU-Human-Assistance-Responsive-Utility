@@ -33,8 +33,19 @@ class _TextExtractor(HTMLParser):
     def __init__(self) -> None:
         super().__init__()
         self.parts: list[str] = []
+        self._skip_depth = 0
+
+    def handle_starttag(self, tag: str, attrs) -> None:
+        if tag.lower() in {"style", "script", "noscript", "svg"}:
+            self._skip_depth += 1
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag.lower() in {"style", "script", "noscript", "svg"} and self._skip_depth:
+            self._skip_depth -= 1
 
     def handle_data(self, data: str) -> None:
+        if self._skip_depth:
+            return
         clean = re.sub(r"\s+", " ", unescape(data or "")).strip()
         if clean:
             self.parts.append(clean)
@@ -293,13 +304,29 @@ def fetch_hazard_bundle() -> tuple[
     try:
         pagasa = pagasa_events()
     except Exception as exc:
-        pagasa = []
+        pagasa = [
+            HazardEvent(
+                source="DOST-PAGASA",
+                title="PAGASA advisory unavailable",
+                summary="Open the official PAGASA page for the latest weather and warning information.",
+                url=PAGASA_WEATHER_URL,
+                severity="info",
+            )
+        ]
         errors.append(f"PAGASA: {exc}")
 
     try:
         phivolcs = phivolcs_earthquakes()
     except Exception as exc:
-        phivolcs = []
+        phivolcs = [
+            HazardEvent(
+                source="DOST-PHIVOLCS",
+                title="PHIVOLCS feed unavailable",
+                summary="Open the official PHIVOLCS earthquake page for the latest bulletins.",
+                url=PHIVOLCS_EQ_URL,
+                severity="info",
+            )
+        ]
         errors.append(f"PHIVOLCS: {exc}")
 
     noah = noah_resources()
