@@ -3,7 +3,7 @@
 HARU is a lightweight, free-first personal assistant prototype with two front ends:
 
 - **Streamlit HARU Lab** for rapid testing and cloud/local use.
-- **Native Android app** for low-power voice, deterministic skills, Gemini/Antigravity AI, OpenStreetMap, hazards, reminders, and in-app updates.
+- **Native Android app** for low-power voice, deterministic skills, Gemini/Antigravity AI, OpenStreetMap, hazards, reminders, and standalone APK distribution.
 
 ## Design principles
 
@@ -51,8 +51,8 @@ HARU Android v0.3.0 removes the on-device LLM stack entirely to reduce APK size,
 HARU uses a simple reproducible GitHub Actions build instead of committing Gradle wrapper binaries.
 
 - GitHub: run **Build Android APK** from Actions, or push an Android code change to `main`.
-- Output artifact: **HARU-v0.3.0-arm64**
-- APK: `HARU-v0.3.0-arm64.apk`
+- Output artifact: **HARU-v0.3.3-Standalone-arm64**
+- APK: `HARU-v0.3.3-Standalone-arm64.apk`
 
 For a local build, open the project in Android Studio and use **Build > Build APK(s)**.
 
@@ -74,3 +74,7 @@ HARU keeps the companion loop intentionally small:
 Desktop/local Streamlit stores companion state privately in `~/.haru/companion.json`.
 Streamlit Cloud keeps notes, tasks, and reminders session-only to avoid cross-user persistence.
 Android stores companion state in app-private preferences.
+
+## Standalone Android install
+
+HARU Android is distributed as a standalone APK. Uninstall the previous HARU build before installing a standalone APK if Android presents it as an update. The app does not request package-install permission and contains no in-app updater.
