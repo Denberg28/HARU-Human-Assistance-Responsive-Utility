@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import json
+
+MAX_JSON_RESPONSE_BYTES = 4_000_000
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote
 from urllib.request import Request, urlopen
@@ -40,7 +42,13 @@ def _json_request(url: str, *, payload=None, headers=None, timeout=25, method=No
 
     try:
         with urlopen(request, timeout=timeout) as response:
-            raw = response.read().decode("utf-8")
+            raw_bytes = response.read(MAX_JSON_RESPONSE_BYTES + 1)
+            if len(raw_bytes) > MAX_JSON_RESPONSE_BYTES:
+                raise AiRuntimeError(
+                    "Provider response was unexpectedly large.",
+                    kind="response_too_large",
+                )
+            raw = raw_bytes.decode("utf-8")
             return json.loads(raw) if raw else {}
     except HTTPError as exc:
         try:
@@ -288,15 +296,18 @@ def ask_ai(
                 if not system_prompt
                 else f"{system_prompt}\n\nUser: {prompt}"
             )
+            token_budget = (
+                2500
+                if prompt.strip() == "Reply with exactly: HARU OK"
+                else 12000
+            )
             payload = {
                 "agent": model,
                 "input": interaction_input,
                 "environment": "remote",
                 "agent_config": {
                     "type": "antigravity",
-                    # Keep agent runs economical for HARU's free-first objective.
-                    "model": "gemini-3.5-flash-lite",
-                    "max_total_tokens": 12000,
+                    "max_total_tokens": token_budget,
                 },
             }
             if enable_native_tools:
@@ -309,7 +320,7 @@ def ask_ai(
                 "https://generativelanguage.googleapis.com/v1beta/interactions",
                 payload=payload,
                 headers={"x-goog-api-key": config.api_key},
-                timeout=max(config.timeout_s, 120),
+                timeout=max(config.timeout_s, 180),
             )
             text = _interaction_output_text(data)
             if not text:
