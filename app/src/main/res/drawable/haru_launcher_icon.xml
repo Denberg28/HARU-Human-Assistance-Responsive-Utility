@@ -5,70 +5,93 @@
     android:viewportWidth="108"
     android:viewportHeight="108">
 
-    <!-- HARU chibi: light, neutral, no orange-cat artwork. -->
+    <!-- Soft HARU background -->
     <path
         android:fillColor="#FFF9FF"
         android:pathData="M0,0h108v108h-108z" />
-
     <path
-        android:fillColor="#F0E8FA"
-        android:pathData="M54,10a44,44 0,1 0,0 88a44,44 0,1 0,0 -88" />
+        android:fillColor="#F1E9FA"
+        android:pathData="M54,8a46,46 0,1 0,0 92a46,46 0,1 0,0 -92" />
 
-    <!-- soft chibi face -->
+    <!-- Idle HARU chibi cat silhouette: ₍^. .^₎⟆ -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:strokeColor="#57486F"
+        android:strokeWidth="2.6"
+        android:strokeLineJoin="round"
+        android:pathData="M29,44 L37,30 L45,42
+                          C48,39 51,38 54,38
+                          C57,38 60,39 63,42
+                          L71,30 L79,44
+                          C83,49 85,56 84,64
+                          C82,77 70,86 54,86
+                          C38,86 26,77 24,64
+                          C23,56 25,49 29,44 Z" />
+
+    <!-- tiny body -->
     <path
         android:fillColor="#FFFFFF"
         android:strokeColor="#57486F"
         android:strokeWidth="2.4"
-        android:pathData="M30,42 C31,28 41,20 54,20 C67,20 77,28 78,42 C86,48 89,58 86,68 C82,82 70,90 54,90 C38,90 26,82 22,68 C19,58 22,48 30,42 Z" />
+        android:pathData="M39,81
+                          C37,90 41,96 54,96
+                          C67,96 71,90 69,81
+                          C64,85 59,87 54,87
+                          C49,87 44,85 39,81 Z" />
 
-    <!-- ^   ^ ears from the Streamlit chibi pack -->
+    <!-- tail like the idle chibi ending ⟆ -->
     <path
         android:fillColor="#00000000"
         android:strokeColor="#57486F"
-        android:strokeWidth="3.2"
+        android:strokeWidth="3"
         android:strokeLineCap="round"
-        android:strokeLineJoin="round"
-        android:pathData="M31,42 L39,31 L46,42 M62,42 L69,31 L77,42" />
+        android:pathData="M68,87
+                          C80,87 86,91 84,96
+                          C82,100 75,100 72,97" />
 
     <!-- eyes -->
     <path
         android:fillColor="#3E354D"
-        android:pathData="M41,56m-3.2,0a3.2,3.2 0,1 0,6.4 0a3.2,3.2 0,1 0,-6.4 0" />
+        android:pathData="M41,58m-2.7,0a2.7,2.7 0,1 0,5.4 0a2.7,2.7 0,1 0,-5.4 0" />
     <path
         android:fillColor="#3E354D"
-        android:pathData="M67,56m-3.2,0a3.2,3.2 0,1 0,6.4 0a3.2,3.2 0,1 0,-6.4 0" />
+        android:pathData="M67,58m-2.7,0a2.7,2.7 0,1 0,5.4 0a2.7,2.7 0,1 0,-5.4 0" />
 
-    <!-- tiny highlights -->
+    <!-- eye highlights -->
     <path
         android:fillColor="#FFFFFF"
-        android:pathData="M40.2,54.9m-0.9,0a0.9,0.9 0,1 0,1.8 0a0.9,0.9 0,1 0,-1.8 0" />
+        android:pathData="M40.2,57.1m-0.7,0a0.7,0.7 0,1 0,1.4 0a0.7,0.7 0,1 0,-1.4 0" />
     <path
         android:fillColor="#FFFFFF"
-        android:pathData="M66.2,54.9m-0.9,0a0.9,0.9 0,1 0,1.8 0a0.9,0.9 0,1 0,-1.8 0" />
+        android:pathData="M66.2,57.1m-0.7,0a0.7,0.7 0,1 0,1.4 0a0.7,0.7 0,1 0,-1.4 0" />
 
     <!-- cheeks -->
     <path
-        android:fillColor="#F5C9DA"
-        android:fillAlpha="0.72"
-        android:pathData="M33,66m-5,0a5,2.8 0,1 0,10 0a5,2.8 0,1 0,-10 0" />
+        android:fillColor="#F4C8D9"
+        android:fillAlpha="0.75"
+        android:pathData="M32,68m-4,0a4,2.2 0,1 0,8 0a4,2.2 0,1 0,-8 0" />
     <path
-        android:fillColor="#F5C9DA"
-        android:fillAlpha="0.72"
-        android:pathData="M75,66m-5,0a5,2.8 0,1 0,10 0a5,2.8 0,1 0,-10 0" />
+        android:fillColor="#F4C8D9"
+        android:fillAlpha="0.75"
+        android:pathData="M76,68m-4,0a4,2.2 0,1 0,8 0a4,2.2 0,1 0,-8 0" />
 
-    <!-- small chibi mouth -->
+    <!-- small neutral idle mouth -->
     <path
         android:fillColor="#00000000"
         android:strokeColor="#57486F"
-        android:strokeWidth="2.6"
+        android:strokeWidth="2.2"
         android:strokeLineCap="round"
-        android:pathData="M47,68 C49,73 52,73 54,69 C56,73 59,73 61,68" />
+        android:pathData="M49,68
+                          C51,70 53,70 54,68
+                          C55,70 57,70 59,68" />
 
-    <!-- subtle H mark for HARU -->
+    <!-- HARU forehead mark -->
     <path
         android:fillColor="#00000000"
         android:strokeColor="#8C73B6"
-        android:strokeWidth="2.2"
+        android:strokeWidth="2"
         android:strokeLineCap="round"
-        android:pathData="M50,35 L50,43 M58,35 L58,43 M50,39 L58,39" />
+        android:pathData="M50,47 L50,52
+                          M58,47 L58,52
+                          M50,49.5 L58,49.5" />
 </vector>
