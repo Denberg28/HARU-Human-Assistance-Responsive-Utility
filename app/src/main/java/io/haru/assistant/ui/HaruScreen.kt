@@ -44,6 +44,7 @@ fun HaruScreen(
     voiceStatus: HaruVoiceController.VoiceRuntimeStatus,
     localAiStatus: LocalAiStatus,
     localAiBusy: Boolean,
+    todayLines: List<String>,
     onSubmitClick: () -> Unit,
     onMicClick: () -> Unit,
     onSpeakClick: () -> Unit,
@@ -93,6 +94,26 @@ fun HaruScreen(
             }
 
             Spacer(Modifier.height(10.dp))
+
+            if (todayLines.isNotEmpty()) {
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
+                        Text(
+                            text = "Today",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        todayLines.take(3).forEach { line ->
+                            Text(
+                                text = line,
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                        }
+                    }
+                }
+                Spacer(Modifier.height(10.dp))
+            }
 
             Text(
                 text = "Voice: " + voiceStatus.speechInput + " STT • " + voiceStatus.speechOutput,
