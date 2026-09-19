@@ -1,6 +1,7 @@
 package io.haru.assistant.ui
 
 import android.view.MotionEvent
+import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -170,41 +171,47 @@ fun HaruScreen(
                 }
             }
 
-            when (selectedTab) {
-                0 -> AssistantPane(
-                    viewModel = viewModel,
-                    voiceStatus = voiceStatus,
-                    todayLines = todayLines,
-                    onlineProvider = onlineProvider,
-                    onlineStatus = onlineStatus,
-                    onSubmitClick = onSubmitClick,
-                    onMicClick = onMicClick,
-                    onSpeakClick = onSpeakClick,
-                    appVersion = appVersion,
-                    onOpenOnlineAi = { showOnlineAi = true },
-                    onOpenUpdate = { showUpdate = true },
-                )
-                1 -> NewsPane(
-                    bundle = newsBundle,
-                    onRefresh = onRefreshNews,
-                    onOpenUrl = onOpenUrl,
-                )
-                2 -> HazardPane(
-                    bundle = hazardBundle,
-                    onRefresh = onRefreshHazards,
-                    onOpenUrl = onOpenUrl,
-                )
-                else -> MapPane(
-                    locations = trustedLocations,
-                    currentDeviceLocation = currentDeviceLocation,
-                    shareCode = locationShareCode,
-                    mapLocationStatus = mapLocationStatus,
-                    onLocateMe = onLocateMe,
-                    onCreateShare = onCreateLocationShare,
-                    onImportShare = onImportLocationShare,
-                    onClear = onClearTrustedLocations,
-                    onOpenUrl = onOpenUrl,
-                )
+            Crossfade(
+                targetState = selectedTab,
+                animationSpec = tween(durationMillis = 160),
+                label = "haru-tab-transition",
+            ) { tab ->
+                    when (tab) {
+                    0 -> AssistantPane(
+                        viewModel = viewModel,
+                        voiceStatus = voiceStatus,
+                        todayLines = todayLines,
+                        onlineProvider = onlineProvider,
+                        onlineStatus = onlineStatus,
+                        onSubmitClick = onSubmitClick,
+                        onMicClick = onMicClick,
+                        onSpeakClick = onSpeakClick,
+                        appVersion = appVersion,
+                        onOpenOnlineAi = { showOnlineAi = true },
+                        onOpenUpdate = { showUpdate = true },
+                    )
+                    1 -> NewsPane(
+                        bundle = newsBundle,
+                        onRefresh = onRefreshNews,
+                        onOpenUrl = onOpenUrl,
+                    )
+                    2 -> HazardPane(
+                        bundle = hazardBundle,
+                        onRefresh = onRefreshHazards,
+                        onOpenUrl = onOpenUrl,
+                    )
+                    else -> MapPane(
+                        locations = trustedLocations,
+                        currentDeviceLocation = currentDeviceLocation,
+                        shareCode = locationShareCode,
+                        mapLocationStatus = mapLocationStatus,
+                        onLocateMe = onLocateMe,
+                        onCreateShare = onCreateLocationShare,
+                        onImportShare = onImportLocationShare,
+                        onClear = onClearTrustedLocations,
+                        onOpenUrl = onOpenUrl,
+                    )
+            }
             }
         }
     }
