@@ -147,16 +147,12 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
         trustedLocations = trustedLocationManager.load()
 
         val updateFilter = IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            registerReceiver(
-                updateDownloadReceiver,
-                updateFilter,
-                Context.RECEIVER_NOT_EXPORTED,
-            )
-        } else {
-            @Suppress("DEPRECATION")
-            registerReceiver(updateDownloadReceiver, updateFilter)
-        }
+        ContextCompat.registerReceiver(
+            this,
+            updateDownloadReceiver,
+            updateFilter,
+            ContextCompat.RECEIVER_NOT_EXPORTED,
+        )
 
         setContent {
             HaruTheme {
