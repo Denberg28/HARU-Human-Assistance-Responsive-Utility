@@ -1,32 +1,54 @@
 # HARU — Human Assistance & Responsive Utility
 
-HARU is a lightweight Android companion focused on fast, local-first assistance with an expressive animated face.
+HARU is a lightweight, free-first personal assistant prototype with two front ends:
 
-## v0.1 goals
+- **Streamlit HARU Lab** for rapid testing and cloud/local use.
+- **Native Android app** for local voice, deterministic skills, and future device actions.
 
-- Native Android app using Kotlin + Jetpack Compose
-- Lightweight animated HARU face
-- Explicit state machine: idle, listening, thinking, working, success, confused, alert, sleepy
-- Text command input
-- Deterministic local skill router
-- Time, calculator, notes, and help skills
-- Clean interfaces for Android speech recognition and TTS
-- AI remains an optional future fallback, never a dependency for basic commands
+## Design principles
 
-## Design principle
+- Keep the UI simple and responsive.
+- Local deterministic skills continue to work without an AI provider.
+- Online AI is optional and provider-isolated.
+- Google online mode defaults to **Antigravity**, with **Gemini 3.5 Flash-Lite** as the lightweight alternative.
+- OpenRouter exposes **free routes/models only** in HARU.
+- API keys are never committed. Streamlit Cloud uses app Secrets; local Windows uses the OS credential store after a successful connection.
+- AI providers receive text context only. Android microphone and TTS remain in the device voice layer.
 
-**Local deterministic skills first. AI only when it adds value.**
+## Streamlit
 
-HARU is intentionally independent from Cube OS and MCore. Future bridge skills can connect to those systems without making the phone app heavy.
+```powershell
+python -m venv .venv
+.\.venv\Scripts\activate
+python -m pip install -r requirements.txt
+python -m streamlit run streamlit_app.py
+```
 
-## Planned progression
+For local Ollama setup, run:
 
-- v0.1: face + text commands + local skills
-- v0.2: tap-to-talk + text-to-speech
-- v0.3: reminders/notifications and persistent notes
-- v0.4: optional AI fallback
-- v0.5: Cube OS / MCore bridge
+```powershell
+.\run_haru_local.bat
+```
 
-## Development
+## Secrets
 
-Open the repository in Android Studio, allow Gradle sync, then run the `app` configuration on an Android emulator or physical device.
+Never commit API keys. The repository ignores:
+
+- `.streamlit/secrets.toml`
+- `.env`
+- `.env.*`
+
+For Streamlit Cloud, configure:
+
+```toml
+GEMINI_API_KEY = "..."
+OPENROUTER_API_KEY = "..."
+```
+
+## Android
+
+Open the repository in Android Studio, allow Gradle sync, and run the `app` configuration. Microphone permission is requested only when voice input is used.
+
+## Reliability scope
+
+HARU is intentionally small: one UI shell, deterministic local skills, provider adapters, bounded external requests, and minimal persistent state. Add integrations as isolated adapters rather than expanding the core UI.
