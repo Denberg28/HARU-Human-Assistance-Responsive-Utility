@@ -627,6 +627,8 @@ def active_model_display_name() -> str:
         "gemini-3.6-flash": "Gemini 3.6 Flash",
         "gemini-3.5-flash": "Gemini 3.5 Flash",
         "gemini-3.5-flash-lite": "Gemini 3.5 Flash-Lite",
+        "gemma-4-31b-it": "Gemma 4 31B",
+        "antigravity-preview-09-2026": "Antigravity",
         "gemini-3.1-flash-lite": "Gemini 3.1 Flash-Lite",
         "gemini-3.1-pro-preview": "Gemini 3.1 Pro Preview",
         "claude-fable-5": "Claude Fable 5",
@@ -1099,13 +1101,9 @@ with st.expander("AI selector"):
 
         model_catalogs = {
             "Google Gemini API": {
-                "Gemini 3.8 Flash — newest stable Flash": "gemini-3.8-flash",
-                "Gemini 3.7 Flash — previous stable": "gemini-3.7-flash",
-                "Gemini 3.6 Flash — balanced stable": "gemini-3.6-flash",
-                "Gemini 3.5 Flash — stable general model": "gemini-3.5-flash",
-                "Gemini 3.5 Flash-Lite — low-cost/high-throughput": "gemini-3.5-flash-lite",
-                "Gemini 3.1 Flash-Lite — very low-cost stable": "gemini-3.1-flash-lite",
-                "Gemini 3.1 Pro Preview — higher capability preview": "gemini-3.1-pro-preview",
+                "Gemma 4 31B — highest free daily quota": "gemma-4-31b-it",
+                "Gemini 3.5 Flash-Lite — long context / tools": "gemini-3.5-flash-lite",
+                "Antigravity — agent workflows": "antigravity-preview-09-2026",
             },
             "Android on-device (APK only)": {
                 "Gemma 4 E4B Instruct — HARU recommended": "google/gemma-4-E4B-it",
@@ -1364,26 +1362,48 @@ with st.expander("AI selector"):
 
         else:
             catalog = model_catalogs.get(provider, {})
-            labels = list(catalog.keys()) + ["Custom model…"]
-            current_label = next(
-                (label for label, model_id in catalog.items() if model_id == st.session_state.ai_model),
-                labels[0] if catalog and not st.session_state.ai_model else "Custom model…",
-            )
-            selected_label = st.selectbox(
-                "Model type",
-                labels,
-                index=labels.index(current_label),
-                help="Friendly model names are mapped internally to the provider's API model ID.",
-            )
 
-            if selected_label == "Custom model…":
-                st.session_state.ai_model = st.text_input(
-                    "Custom model ID",
-                    value=st.session_state.ai_model if st.session_state.ai_model not in catalog.values() else "",
-                    placeholder="Enter provider model ID",
+            if provider == "Google Gemini API":
+                labels = list(catalog.keys())
+                current_label = next(
+                    (label for label, model_id in catalog.items() if model_id == st.session_state.ai_model),
+                    labels[0],
                 )
-            else:
+                selected_label = st.selectbox(
+                    "Model type",
+                    labels,
+                    index=labels.index(current_label),
+                    help="HARU is limited to three free-first Google options.",
+                )
                 st.session_state.ai_model = catalog[selected_label]
+
+                if st.session_state.ai_model == "gemma-4-31b-it":
+                    st.caption("30 RPM · 16K TPM · 14.4K RPD — best default for free daily usage.")
+                elif st.session_state.ai_model == "gemini-3.5-flash-lite":
+                    st.caption("15 RPM · 250K TPM · 500 RPD — use for long context and Gemini-native tools.")
+                else:
+                    st.caption("60 RPM · 100K TPM · 100 RPD — use for agent-style workflows.")
+            else:
+                labels = list(catalog.keys()) + ["Custom model…"]
+                current_label = next(
+                    (label for label, model_id in catalog.items() if model_id == st.session_state.ai_model),
+                    labels[0] if catalog and not st.session_state.ai_model else "Custom model…",
+                )
+                selected_label = st.selectbox(
+                    "Model type",
+                    labels,
+                    index=labels.index(current_label),
+                    help="Friendly model names are mapped internally to the provider's API model ID.",
+                )
+
+                if selected_label == "Custom model…":
+                    st.session_state.ai_model = st.text_input(
+                        "Custom model ID",
+                        value=st.session_state.ai_model if st.session_state.ai_model not in catalog.values() else "",
+                        placeholder="Enter provider model ID",
+                    )
+                else:
+                    st.session_state.ai_model = catalog[selected_label]
 
             if st.session_state.ai_model:
                 st.caption(f"API model: {st.session_state.ai_model}")
@@ -1422,8 +1442,9 @@ with st.expander("AI selector"):
 
         if provider != "Ollama":
             st.info(
-                "When applied, HARU becomes the shell for this model. Gemini keeps native web-search grounding; "
-                "OpenRouter uses the selected routed model. HARU local tools remain available for device-specific tasks."
+                "When applied, HARU becomes the shell for the selected model/agent. "
+                "Gemma 4 31B is the free-volume default, Gemini 3.5 Flash-Lite handles long-context/tool-heavy requests, "
+                "and Antigravity is reserved for agent workflows. HARU local tools remain available for device-specific tasks."
             )
 
         if provider != "Ollama":
@@ -1573,4 +1594,4 @@ with st.expander("Developer panel"):
             st.write(f"**You:** {q}")
             st.write(f"**HARU:** {a}")
 
-st.markdown("<div class=\"footer\">HARU Lab v2.7 • chibi cat mood set</div>", unsafe_allow_html=True)
+st.markdown("<div class=\"footer\">HARU Lab v2.8 • free-first 3-model Google selector</div>", unsafe_allow_html=True)
