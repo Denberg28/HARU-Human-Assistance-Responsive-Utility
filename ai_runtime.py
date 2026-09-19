@@ -61,6 +61,24 @@ def list_ollama_models(endpoint: str, timeout_s: int = 5) -> list[str]:
     return names
 
 
+def list_openai_compatible_models(
+    endpoint: str,
+    api_key: str = "",
+    timeout_s: int = 5,
+) -> list[str]:
+    base = _normalize_endpoint(endpoint, "http://localhost:1234")
+    headers = {}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+    data = _json_request(f"{base}/v1/models", headers=headers, timeout=timeout_s)
+    names = []
+    for item in data.get("data", []):
+        name = item.get("id")
+        if name:
+            names.append(name)
+    return names
+
+
 def ask_ai(config: AiConfig, prompt: str, system_prompt: str = "") -> str:
     provider = config.provider
     model = config.model.strip()
