@@ -51,6 +51,17 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
+# Optional persistent signing key for cross-session trusted-location codes.
+if not os.environ.get("HARU_LOCATION_SHARE_SECRET", "").strip():
+    try:
+        location_secret = str(
+            st.secrets.get("HARU_LOCATION_SHARE_SECRET", "")
+        ).strip()
+    except Exception:
+        location_secret = ""
+    if location_secret:
+        os.environ["HARU_LOCATION_SHARE_SECRET"] = location_secret
+
 SECRET_NAME_BY_PROVIDER = {
     "Google Gemini API": "GEMINI_API_KEY",
     "OpenRouter API": "OPENROUTER_API_KEY",
