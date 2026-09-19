@@ -8,6 +8,11 @@ import re
 
 import streamlit as st
 
+from credential_store import (
+    delete_key as delete_stored_key,
+    get_key as get_stored_key,
+    save_key as save_stored_key,
+)
 from ai_runtime import (
     AiConfig,
     AiRuntimeError,
@@ -59,12 +64,26 @@ def server_secret_for_provider(provider: str) -> str:
     return value
 
 
+def local_stored_key_for_provider(provider: str) -> str:
+    if is_cloud_haru():
+        return ""
+    return get_stored_key(provider)
+
+
 def resolved_api_key(provider: str, session_key: str = "") -> str:
-    return server_secret_for_provider(provider) or (session_key or "").strip()
+    return (
+        server_secret_for_provider(provider)
+        or local_stored_key_for_provider(provider)
+        or (session_key or "").strip()
+    )
 
 
 def api_key_source(provider: str) -> str:
-    return "server secret" if server_secret_for_provider(provider) else "session only"
+    if server_secret_for_provider(provider):
+        return "server secret"
+    if local_stored_key_for_provider(provider):
+        return "OS credential store"
+    return "session only"
 
 
 DEFAULTS = {
@@ -1186,8 +1205,12 @@ with st.expander("AI selector"):
             st.session_state.ai_endpoint = "https://openrouter.ai/api"
 
             openrouter_server_key = server_secret_for_provider("OpenRouter API")
+            openrouter_saved_key = local_stored_key_for_provider("OpenRouter API")
             if openrouter_server_key:
-                st.success("OpenRouter key loaded securely from server secrets.")
+                st.success("OpenRouter key loaded securely from Streamlit/server secrets.")
+                st.session_state.ai_api_key = ""
+            elif openrouter_saved_key:
+                st.success("OpenRouter key loaded securely from this PC's credential store.")
                 st.session_state.ai_api_key = ""
             else:
                 st.session_state.ai_api_key = st.text_input(
@@ -1195,7 +1218,10 @@ with st.expander("AI selector"):
                     value=st.session_state.ai_api_key,
                     type="password",
                     placeholder="sk-or-v1-…",
-                    help="Session only. For best security, store OPENROUTER_API_KEY in Streamlit Secrets.",
+                    help=(
+                        "Local Windows HARU saves a successfully connected key to Windows Credential Manager. "
+                        "On Streamlit Cloud, use Streamlit Secrets for persistence."
+                    ),
                 )
 
             openrouter_mode = st.radio(
@@ -1222,7 +1248,7 @@ with st.expander("AI selector"):
                     try:
                         names = list_openai_compatible_models(
                             st.session_state.ai_endpoint,
-                            st.session_state.ai_api_key,
+                            resolved_api_key("OpenRouter API", st.session_state.ai_api_key),
                         )
                         st.session_state["openrouter_models"] = names
                         st.session_state.ai_status = (
@@ -1347,8 +1373,12 @@ with st.expander("AI selector"):
 
         if provider in {"OpenAI API", "Google Gemini API", "Anthropic Claude API", "Cloud OpenAI-compatible"}:
             provider_server_key = server_secret_for_provider(provider)
+            provider_saved_key = local_stored_key_for_provider(provider)
             if provider_server_key:
-                st.success(f"{provider} key loaded securely from server secrets.")
+                st.success(f"{provider} key loaded securely from Streamlit/server secrets.")
+                st.session_state.ai_api_key = ""
+            elif provider_saved_key:
+                st.success(f"{provider} key loaded securely from this PC's credential store.")
                 st.session_state.ai_api_key = ""
             else:
                 st.session_state.ai_api_key = st.text_input(
@@ -1356,8 +1386,8 @@ with st.expander("AI selector"):
                     value=st.session_state.ai_api_key,
                     type="password",
                     help=(
-                        "Session only. For best security, store the provider key in Streamlit Secrets "
-                        "instead of typing it into the page."
+                        "Local Windows HARU saves a successfully connected key to Windows Credential Manager. "
+                        "On Streamlit Cloud, use Streamlit Secrets for persistence."
                     ),
                 )
         elif provider == "OpenRouter API":
@@ -1388,9 +1418,23 @@ with st.expander("AI selector"):
                         st.session_state.ai_applied_provider = candidate.provider
                         st.session_state.ai_applied_model = candidate.model
                         st.session_state.ai_applied_endpoint = candidate.endpoint
+
+                        if (
+                            candidate.api_key
+                            and not is_cloud_haru()
+                            and not server_secret_for_provider(candidate.provider)
+                            and st.session_state.get("ai_api_key")
+                        ):
+                            save_stored_key(candidate.provider, candidate.api_key)
+
                         st.session_state.ai_applied_api_key = (
-                        "" if server_secret_for_provider(candidate.provider) else candidate.api_key
-                    )
+                            ""
+                            if (
+                                server_secret_for_provider(candidate.provider)
+                                or local_stored_key_for_provider(candidate.provider)
+                            )
+                            else candidate.api_key
+                        )
                         st.session_state.ai_applied_signature = ai_config_signature(candidate)
                         st.session_state.ai_connection_state = "CONNECTED"
                         st.session_state.ai_runtime_degraded = False
@@ -1426,13 +1470,21 @@ with st.expander("AI selector"):
                         st.rerun()
     
             with clear_col:
-                if st.button("Clear key", use_container_width=True):
+                if st.button("Forget key", use_container_width=True):
                     st.session_state.ai_api_key = ""
                     st.session_state.ai_applied_api_key = ""
+
+                    if not is_cloud_haru():
+                        delete_stored_key(provider)
+
                     st.session_state.ai_applied_signature = ""
                     st.session_state.ai_connection_state = "UNTESTED"
-                    st.session_state.ai_connection_message = "API key cleared. Apply a configuration again."
-                    st.session_state.ai_status = "API key cleared for this session."
+                    st.session_state.ai_connection_message = (
+                        "For Streamlit Cloud, remove the key from app Secrets to forget it."
+                        if is_cloud_haru() and server_secret_for_provider(provider)
+                        else "Saved credential removed. Enter a key to reconnect."
+                    )
+                    st.session_state.ai_status = "Credential cleared."
                     st.rerun()
     
         elif not is_cloud_haru() and st.session_state.get("ai_applied_provider") == "Ollama":
@@ -1469,6 +1521,15 @@ with st.expander("AI selector"):
         st.caption(
             f"Connection status: {st.session_state.ai_status} · Key storage: {api_key_source(provider)}"
         )
+        if (
+            provider in SECRET_NAME_BY_PROVIDER
+            and is_cloud_haru()
+            and not server_secret_for_provider(provider)
+        ):
+            st.caption(
+                f"To keep this key across Streamlit Cloud sessions, add "
+                f"{SECRET_NAME_BY_PROVIDER[provider]} in the app's Secrets settings."
+            )
 
 
 with st.expander("Developer panel"):
@@ -1489,4 +1550,4 @@ with st.expander("Developer panel"):
             st.write(f"**You:** {q}")
             st.write(f"**HARU:** {a}")
 
-st.markdown("<div class=\"footer\">HARU Lab v2.0 • hardened API-key security</div>", unsafe_allow_html=True)
+st.markdown("<div class=\"footer\">HARU Lab v2.1 • persistent secure API credentials</div>", unsafe_allow_html=True)
