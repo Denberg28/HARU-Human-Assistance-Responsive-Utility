@@ -113,18 +113,6 @@ def local_tool_result(command: str):
     return None
 
 
-def needs_live_search(command: str) -> bool:
-    text = command.lower()
-    freshness_terms = {
-        "latest", "current", "today", "tonight", "this week", "recent", "recently",
-        "breaking", "news", "update", "updates", "incident", "accident", "outage",
-        "restoration", "restore", "weather", "storm", "typhoon", "earthquake",
-        "price", "prices", "market", "score", "scores", "schedule", "traffic",
-        "status", "now", "happening", "pipeline", "airport", "flight", "delay",
-    }
-    return any(term in text for term in freshness_terms)
-
-
 def ai_is_active() -> bool:
     return bool(
         st.session_state.get("ai_applied_signature")
@@ -138,12 +126,16 @@ def route_command(command: str):
     if not clean:
         return "CONFUSED", "Type or say a command first."
 
+    # HARU shell mode:
+    # - Connected provider is the primary agent.
+    # - HARU only adds identity, recent conversation context, and local deterministic tool context.
+    # - If no provider is connected, HARU falls back to its lightweight local tools.
     tool_result = local_tool_result(clean)
 
     if ai_is_active():
         config = current_ai_config()
 
-        recent_history = st.session_state.get("history", [])[-4:]
+        recent_history = st.session_state.get("history", [])[-6:]
         history_text = ""
         if recent_history:
             lines = []
@@ -156,42 +148,40 @@ def route_command(command: str):
         if tool_result is not None:
             _mood, tool_text = tool_result
             tool_context = (
-                "\n\nHARU LOCAL TOOL RESULT (authoritative for this request):\n"
+                "\n\nHARU LOCAL TOOL CONTEXT:\n"
                 f"{tool_text}\n"
-                "Use this result rather than inventing or recalculating it."
+                "Use this when relevant, but otherwise answer with your own native capabilities."
             )
 
         prompt = clean
         if history_text:
-            prompt = f"Recent HARU conversation:\n{history_text}\n\nCurrent user request:\n{clean}"
+            prompt = (
+                f"Recent HARU conversation:\n{history_text}"
+                f"\n\nCurrent user request:\n{clean}"
+            )
         prompt += tool_context
 
         system_prompt = (
-            "You are HARU, the user's primary phone assistant. The currently selected AI model is HARU's brain, "
-            "so answer the user's query or address the task directly as HARU. Be concise, practical, warm, and factual. "
-            "Do not describe yourself as a fallback model or separate provider. "
-            "HARU has deterministic local tools for exact time/date, calculations, and a live News tab. "
-            "When a HARU LOCAL TOOL RESULT is supplied, treat it as authoritative. "
-            "Do not claim that you completed phone actions, sent messages, changed settings, or accessed live information "
-            "unless HARU actually provides that tool/result."
+            "You are operating as HARU's active intelligence. HARU is the shell, UI, voice, local tools, "
+            "and device integration around you. Answer the user's query or address the task using your native model "
+            "capabilities and provider tools when available. Do not claim you are a separate assistant unless the user asks. "
+            "Do not say you lack live internet if your provider-native search tool is available and enabled. "
+            "Use HARU local tool context when supplied. Never claim that a phone action was completed unless HARU actually "
+            "provides a tool result confirming it."
         )
 
-        try:
-            live_search = (
-                config.provider == "Google Gemini API"
-                and needs_live_search(clean)
-            )
-            if live_search:
-                system_prompt += (
-                    " For this request, use live Google Search grounding and answer from current sources. "
-                    "Include concrete dates when they help disambiguate what is current."
-                )
+        enable_native_tools = config.provider in {
+            "OpenAI API",
+            "Google Gemini API",
+            "Anthropic Claude API",
+        }
 
+        try:
             reply = ask_ai(
                 config,
                 prompt,
                 system_prompt,
-                enable_live_search=live_search,
+                enable_native_tools=enable_native_tools,
             )
             return "HAPPY", reply
         except AiRuntimeError as exc:
@@ -201,15 +191,15 @@ def route_command(command: str):
 
             if tool_result is not None:
                 mood, tool_text = tool_result
-                return mood, f"{tool_text}\n\nAI connection failed, so I used my local tool."
-            return "CONFUSED", f"My AI connection failed: {exc}"
+                return mood, f"{tool_text}\n\nThe connected AI failed, so HARU used its local tool."
+            return "CONFUSED", f"The connected AI failed: {exc}"
 
     if tool_result is not None:
         return tool_result
 
     return (
         "CONFUSED",
-        "Connect and apply an AI model in AI selector so it can become HARU's primary brain for general queries and tasks.",
+        "Connect and apply an AI model in AI selector. Once connected, HARU acts as the shell for that model.",
     )
 
 
@@ -677,8 +667,8 @@ with news_tab:
 with st.expander("AI selector"):
     st.markdown("#### AI runtime")
     st.caption(
-        "Apply a model to make it HARU's primary brain for queries and tasks. "
-        "HARU's local functions remain available as deterministic tools."
+        "Apply a model to make HARU a shell for that AI agent. The selected provider handles queries with its own "
+        "native capabilities and tools; HARU supplies the UI, conversation context, and local device functions."
     )
 
     connection_state, connection_message = effective_ai_connection_state()
@@ -884,8 +874,8 @@ with st.expander("AI selector"):
             st.session_state.ai_api_key = ""
 
         st.info(
-            "When this connection is applied successfully, the selected model becomes HARU's primary brain. "
-            "Local skills remain available as tools for exact time/date, calculations, and news routing."
+            "When applied, HARU becomes the shell for this model. Supported online providers keep their native "
+            "web-search capability; HARU local tools remain available for device-specific and deterministic tasks."
         )
 
         apply_col, test_col, clear_col = st.columns([1.35, 1, 1])
@@ -964,4 +954,4 @@ with st.expander("Developer panel"):
             st.write(f"**You:** {q}")
             st.write(f"**HARU:** {a}")
 
-st.markdown("<div class=\"footer\">HARU Lab v1.0 • live-grounded connected AI</div>", unsafe_allow_html=True)
+st.markdown("<div class=\"footer\">HARU Lab v1.1 • provider-shell mode</div>", unsafe_allow_html=True)
