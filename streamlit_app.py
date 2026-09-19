@@ -58,7 +58,7 @@ for key, value in DEFAULTS.items():
         st.session_state[key] = value.copy() if isinstance(value, (list, dict)) else value
 
 
-def route_command(command: str):
+def local_tool_result(command: str):
     clean = command.strip()
     low = clean.lower()
 
@@ -75,13 +75,16 @@ def route_command(command: str):
         return "HAPPY", datetime.now().strftime("%A, %B %d, %Y").replace(" 0", " ")
 
     if low in {"news", "latest news", "brief me", "news briefing"}:
-        return "HAPPY", "Open the News tab for your local-first briefing."
+        return "HAPPY", (
+            "Live news is available in HARU's News tab. "
+            "Use that feed for current local, international, and interest-aware headlines."
+        )
 
     if low in {"help", "commands", "what can you do"}:
         return (
             "HAPPY",
-            "I can tell the time/date, do simple calculations, show a local-first news briefing, "
-            "and respond to basic greetings. Notes, reminders, and connected skills are next.",
+            "HARU can answer through the connected AI brain and also use local tools for time/date, "
+            "simple calculations, and the live News tab.",
         )
 
     m = re.fullmatch(
@@ -107,20 +110,80 @@ def route_command(command: str):
         shown = str(int(value)) if value.is_integer() else f"{value:.4f}".rstrip("0").rstrip(".")
         return "HAPPY", f"{m.group(1)} {m.group(2)} {m.group(3)} = {shown}"
 
-    if st.session_state.get("ai_fallback") and st.session_state.get("ai_mode") != "Off":
+    return None
+
+
+def ai_is_active() -> bool:
+    return bool(
+        st.session_state.get("ai_applied_signature")
+        and st.session_state.get("ai_connection_state") == "CONNECTED"
+        and st.session_state.get("ai_applied_mode") != "Off"
+    )
+
+
+def route_command(command: str):
+    clean = command.strip()
+    if not clean:
+        return "CONFUSED", "Type or say a command first."
+
+    tool_result = local_tool_result(clean)
+
+    if ai_is_active():
         config = current_ai_config()
-        try:
-            reply = ask_ai(
-                config,
-                clean,
-                "You are HARU, a compact helpful phone assistant. Be concise, practical, and factual. "
-                "Use the deterministic HARU tools for time, calculations, and news when available.",
+
+        recent_history = st.session_state.get("history", [])[-4:]
+        history_text = ""
+        if recent_history:
+            lines = []
+            for question, answer in recent_history:
+                lines.append(f"User: {question}")
+                lines.append(f"HARU: {answer}")
+            history_text = "\n".join(lines)
+
+        tool_context = ""
+        if tool_result is not None:
+            _mood, tool_text = tool_result
+            tool_context = (
+                "\n\nHARU LOCAL TOOL RESULT (authoritative for this request):\n"
+                f"{tool_text}\n"
+                "Use this result rather than inventing or recalculating it."
             )
+
+        prompt = clean
+        if history_text:
+            prompt = f"Recent HARU conversation:\n{history_text}\n\nCurrent user request:\n{clean}"
+        prompt += tool_context
+
+        system_prompt = (
+            "You are HARU, the user's primary phone assistant. The currently selected AI model is HARU's brain, "
+            "so answer the user's query or address the task directly as HARU. Be concise, practical, warm, and factual. "
+            "Do not describe yourself as a fallback model or separate provider. "
+            "HARU has deterministic local tools for exact time/date, calculations, and a live News tab. "
+            "When a HARU LOCAL TOOL RESULT is supplied, treat it as authoritative. "
+            "Do not claim that you completed phone actions, sent messages, changed settings, or accessed live information "
+            "unless HARU actually provides that tool/result."
+        )
+
+        try:
+            reply = ask_ai(config, prompt, system_prompt)
             return "HAPPY", reply
         except AiRuntimeError as exc:
-            return "CONFUSED", f"AI fallback failed: {exc}"
+            st.session_state.ai_connection_state = "FAILED"
+            st.session_state.ai_connection_message = f"AI request failed: {exc}"
+            st.session_state.ai_status = f"AI request failed: {exc}"
 
-    return "CONFUSED", "I don't have a local skill for that yet. Try “help” or enable AI fallback in Developer panel."
+            if tool_result is not None:
+                mood, tool_text = tool_result
+                return mood, f"{tool_text}\n\nAI connection failed, so I used my local tool."
+            return "CONFUSED", f"My AI connection failed: {exc}"
+
+    if tool_result is not None:
+        return tool_result
+
+    return (
+        "CONFUSED",
+        "Connect and apply an AI model in AI selector so it can become HARU's primary brain for general queries and tasks.",
+    )
 
 
 def draft_ai_config() -> AiConfig:
@@ -316,6 +379,14 @@ with assistant_tab:
     st.markdown(f'<div class="status">{st.session_state.mood}</div>', unsafe_allow_html=True)
     st.markdown(f'<div class="reply">{st.session_state.message}</div>', unsafe_allow_html=True)
 
+    if ai_is_active():
+        st.caption(
+            f"🟢 HARU brain: {st.session_state.ai_applied_provider} · "
+            f"{st.session_state.ai_applied_model}"
+        )
+    else:
+        st.caption("⚪ HARU brain: local tools only — connect a model in AI selector")
+
     with st.form("haru_command", clear_on_submit=True):
         command = st.text_input("Ask HARU", placeholder="Try: latest news or calculate 22.2 * 60")
         c1, c2 = st.columns([3, 1])
@@ -423,8 +494,8 @@ with news_tab:
 with st.expander("AI selector"):
     st.markdown("#### AI runtime")
     st.caption(
-        "HARU local skills always run first. AI is optional and can be used only as a fallback for commands "
-        "the deterministic router does not understand."
+        "Apply a model to make it HARU's primary brain for queries and tasks. "
+        "HARU's local functions remain available as deterministic tools."
     )
 
     connection_state, connection_message = effective_ai_connection_state()
@@ -449,7 +520,6 @@ with st.expander("AI selector"):
 
     if ai_mode == "Off":
         st.session_state.ai_provider = "Disabled"
-        st.session_state.ai_fallback = False
         st.session_state.ai_connection_state = "OFF"
         st.session_state.ai_connection_message = "AI runtime is disabled."
         st.session_state.ai_applied_signature = ""
@@ -621,10 +691,9 @@ with st.expander("AI selector"):
         else:
             st.session_state.ai_api_key = ""
 
-        st.session_state.ai_fallback = st.toggle(
-            "Use selected AI as fallback",
-            value=st.session_state.ai_fallback,
-            help="Known HARU skills still run locally first. The fallback uses only the last successfully applied runtime.",
+        st.info(
+            "When this connection is applied successfully, the selected model becomes HARU's primary brain. "
+            "Local skills remain available as tools for exact time/date, calculations, and news routing."
         )
 
         apply_col, test_col, clear_col = st.columns([1.35, 1, 1])
@@ -645,7 +714,7 @@ with st.expander("AI selector"):
                     st.session_state.ai_applied_signature = ai_config_signature(candidate)
                     st.session_state.ai_connection_state = "CONNECTED"
                     st.session_state.ai_connection_message = (
-                        f"Connected to {candidate.provider} using {candidate.model}."
+                        f"Connected. {candidate.provider} · {candidate.model} is now HARU's active brain."
                     )
                     st.session_state.ai_status = result
                     st.rerun()
@@ -662,7 +731,7 @@ with st.expander("AI selector"):
                     result = test_ai(config)
                     st.session_state.ai_connection_state = "CONNECTED"
                     st.session_state.ai_connection_message = (
-                        f"Connected to {config.provider} using {config.model}."
+                        f"Connected. {config.provider} · {config.model} is HARU's active brain."
                     )
                     st.session_state.ai_status = result
                     st.rerun()
@@ -703,4 +772,4 @@ with st.expander("Developer panel"):
             st.write(f"**You:** {q}")
             st.write(f"**HARU:** {a}")
 
-st.markdown('<div class="footer">HARU Lab v0.5 • local-first assistant + separate AI selector</div>', unsafe_allow_html=True)
+st.markdown('<div class="footer">HARU Lab v0.6 • connected AI becomes HARU's primary brain</div>', unsafe_allow_html=True)
