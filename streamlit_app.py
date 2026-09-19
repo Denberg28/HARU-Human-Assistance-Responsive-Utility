@@ -46,6 +46,8 @@ DEFAULTS = {
     "ai_status": "Not tested",
     "ai_connection_state": "OFF",
     "ai_connection_message": "AI runtime is disabled.",
+    "ai_runtime_degraded": False,
+    "ai_runtime_degraded_reason": "",
     "ai_applied_signature": "",
     "ai_applied_mode": "Off",
     "ai_applied_provider": "Disabled",
@@ -185,14 +187,38 @@ def route_command(command: str):
             )
             return "HAPPY", reply
         except AiRuntimeError as exc:
+            if getattr(exc, "kind", "") == "quota":
+                st.session_state.ai_runtime_degraded = True
+                st.session_state.ai_runtime_degraded_reason = str(exc)
+                st.session_state.ai_connection_state = "PAUSED"
+                st.session_state.ai_connection_message = (
+                    "Selected AI is configured but temporarily paused because its quota/rate limit was reached."
+                )
+                st.session_state.ai_status = str(exc)
+
+                if tool_result is not None:
+                    mood, tool_text = tool_result
+                    return mood, (
+                        f"{tool_text}\n\n"
+                        "Your selected AI is temporarily paused because its provider quota/rate limit was reached. "
+                        "HARU used its local tool for this request."
+                    )
+                return (
+                    "CONFUSED",
+                    "Your selected AI is temporarily paused because its provider quota/rate limit was reached. "
+                    "The model configuration is preserved. Retry later or switch provider/model in AI selector.",
+                )
+
+            st.session_state.ai_runtime_degraded = True
+            st.session_state.ai_runtime_degraded_reason = str(exc)
             st.session_state.ai_connection_state = "FAILED"
-            st.session_state.ai_connection_message = f"AI request failed: {exc}"
-            st.session_state.ai_status = f"AI request failed: {exc}"
+            st.session_state.ai_connection_message = str(exc)
+            st.session_state.ai_status = str(exc)
 
             if tool_result is not None:
                 mood, tool_text = tool_result
-                return mood, f"{tool_text}\n\nThe connected AI failed, so HARU used its local tool."
-            return "CONFUSED", f"The connected AI failed: {exc}"
+                return mood, f"{tool_text}\n\nThe connected AI is unavailable, so HARU used its local tool."
+            return "CONFUSED", f"The connected AI is unavailable: {exc}"
 
     if tool_result is not None:
         return tool_result
@@ -263,6 +289,7 @@ def ai_status_html(state: str, message: str) -> str:
         "UNTESTED": ("#e0a100", "UNTESTED"),
         "CONNECTING": ("#1976d2", "CONNECTING"),
         "CONNECTED": ("#2e7d32", "CONNECTED"),
+        "PAUSED": ("#e0a100", "PAUSED"),
         "FAILED": ("#c62828", "FAILED"),
     }
     color, label = palette.get(state, ("#7a7f87", state))
@@ -286,11 +313,11 @@ def ai_status_html(state: str, message: str) -> str:
 
 
 def active_model_display_name() -> str:
-    if not ai_is_active():
-        return "Local tools"
-
     model = st.session_state.get("ai_applied_model", "").strip()
     provider = st.session_state.get("ai_applied_provider", "").strip()
+
+    if not st.session_state.get("ai_applied_signature"):
+        return "Local tools"
 
     friendly = {
         "gpt-5.6-sol": "GPT-5.6 Sol",
@@ -315,13 +342,15 @@ def active_model_display_name() -> str:
     }
 
     if model in friendly:
-        return friendly[model]
+        label = friendly[model]
+    elif model:
+        label = model.split("/")[-1].replace("_", " ")
+    else:
+        label = provider or "Connected AI"
 
-    if model:
-        cleaned = model.split("/")[-1].replace("_", " ")
-        return cleaned
-
-    return provider or "Connected AI"
+    if st.session_state.get("ai_runtime_degraded"):
+        return f"{label} · paused"
+    return label
 
 
 def face_html(mood: str):
@@ -694,6 +723,8 @@ with st.expander("AI selector"):
     if ai_mode == "Off":
         st.session_state.ai_provider = "Disabled"
         st.session_state.ai_connection_state = "OFF"
+        st.session_state.ai_runtime_degraded = False
+        st.session_state.ai_runtime_degraded_reason = ""
         st.session_state.ai_connection_message = "AI runtime is disabled."
         st.session_state.ai_applied_signature = ""
         st.session_state.ai_applied_mode = "Off"
@@ -895,6 +926,8 @@ with st.expander("AI selector"):
                     st.session_state.ai_applied_api_key = candidate.api_key
                     st.session_state.ai_applied_signature = ai_config_signature(candidate)
                     st.session_state.ai_connection_state = "CONNECTED"
+                    st.session_state.ai_runtime_degraded = False
+                    st.session_state.ai_runtime_degraded_reason = ""
                     st.session_state.ai_connection_message = (
                         f"Connected. {candidate.provider} · {candidate.model} is now HARU's active brain."
                     )
@@ -912,6 +945,8 @@ with st.expander("AI selector"):
                 try:
                     result = test_ai(config)
                     st.session_state.ai_connection_state = "CONNECTED"
+                    st.session_state.ai_runtime_degraded = False
+                    st.session_state.ai_runtime_degraded_reason = ""
                     st.session_state.ai_connection_message = (
                         f"Connected. {config.provider} · {config.model} is HARU's active brain."
                     )
@@ -954,4 +989,4 @@ with st.expander("Developer panel"):
             st.write(f"**You:** {q}")
             st.write(f"**HARU:** {a}")
 
-st.markdown("<div class=\"footer\">HARU Lab v1.1 • provider-shell mode</div>", unsafe_allow_html=True)
+st.markdown("<div class=\"footer\">HARU Lab v1.2 • resilient provider-shell mode</div>", unsafe_allow_html=True)
