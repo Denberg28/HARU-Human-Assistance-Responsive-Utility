@@ -33,7 +33,6 @@ import io.haru.assistant.location.TrustedLocationManager
 import io.haru.assistant.onlineai.AndroidOnlineAiManager
 import io.haru.assistant.onlineai.GeminiModel
 import io.haru.assistant.onlineai.OnlineProvider
-import io.haru.assistant.update.AndroidAppUpdateManager
 import io.haru.assistant.ui.HaruScreen
 import io.haru.assistant.ui.HaruTheme
 import io.haru.assistant.voice.HaruVoiceController
@@ -47,7 +46,6 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
 
     private lateinit var voiceController: HaruVoiceController
     private lateinit var onlineAiManager: AndroidOnlineAiManager
-    private lateinit var appUpdateManager: AndroidAppUpdateManager
     private lateinit var companionStore: AndroidCompanionStore
     private lateinit var newsService: AndroidNewsService
     private lateinit var hazardService: AndroidHazardService
@@ -67,8 +65,6 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
     private var geminiModels by mutableStateOf(listOf(AndroidOnlineAiManager.FALLBACK_GEMINI_MODEL))
     private var onlineStatus by mutableStateOf("Antigravity is the online default.")
     private var hasGeminiKey by mutableStateOf(false)
-    private var updateStatus by mutableStateOf("")
-    private var updateUrl by mutableStateOf("")
 
     private var newsBundle by mutableStateOf(AndroidNewsBundle())
     private var hazardBundle by mutableStateOf(AndroidHazardBundle())
@@ -117,7 +113,6 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
             callbacks = this,
         )
         onlineAiManager = AndroidOnlineAiManager(applicationContext)
-        appUpdateManager = AndroidAppUpdateManager()
         companionStore = AndroidCompanionStore(applicationContext)
         newsService = AndroidNewsService()
         hazardService = AndroidHazardService()
@@ -147,8 +142,6 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
                     onlineStatus = onlineStatus,
                     hasGeminiKey = hasGeminiKey,
                     appVersion = currentVersionName(),
-                    updateStatus = updateStatus,
-                    updateUrl = updateUrl,
                     newsBundle = newsBundle,
                     hazardBundle = hazardBundle,
                     trustedLocations = trustedLocations,
@@ -165,8 +158,6 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
                     onRefreshGeminiModels = ::refreshGeminiModels,
                     onSaveGeminiKey = ::saveGeminiKey,
                     onTestOnlineAi = ::testOnlineAi,
-                    onCheckUpdate = ::checkForUpdate,
-                    onInstallUpdate = ::openUrl,
                     onRefreshNews = ::refreshNews,
                     onRefreshHazards = ::refreshHazards,
                     onOpenUrl = ::openUrl,
@@ -298,24 +289,6 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
         runCatching {
             packageManager.getPackageInfo(packageName, 0).versionName ?: "0.0.0"
         }.getOrDefault("0.0.0")
-
-    private fun checkForUpdate() {
-        updateStatus = "Checking for the latest HARU release…"
-        updateUrl = ""
-        lifecycleScope.launch {
-            updateStatus = try {
-                val info = appUpdateManager.check(currentVersionName())
-                if (info.updateAvailable) {
-                    updateUrl = info.apkUrl.ifBlank { info.releaseUrl }
-                    "HARU v" + info.remoteVersion + " is available."
-                } else {
-                    "HARU is up to date (v" + currentVersionName() + ")."
-                }
-            } catch (exc: Exception) {
-                exc.message ?: "Could not check for updates."
-            }
-        }
-    }
 
     private fun purgeLegacyLocalAi() {
         runCatching {
