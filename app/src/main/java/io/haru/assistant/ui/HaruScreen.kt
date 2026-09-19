@@ -2,6 +2,11 @@ package io.haru.assistant.ui
 
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -35,6 +40,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -64,6 +70,8 @@ fun HaruScreen(
     localModelOptions: List<LocalModelOption>,
     localAiDownloadProgress: Float?,
     localAiDownloadLabel: String,
+    localAiDownloadState: String,
+    localAiDownloadModelId: String,
     todayLines: List<String>,
     onlineProvider: OnlineProvider,
     onlineStatus: String,
@@ -77,6 +85,9 @@ fun HaruScreen(
     onMicClick: () -> Unit,
     onSpeakClick: () -> Unit,
     onDownloadLocalModel: (LocalModelOption) -> Unit,
+    onPauseLocalModelDownload: () -> Unit,
+    onResumeLocalModelDownload: () -> Unit,
+    onCancelLocalModelDownload: () -> Unit,
     onValidateLocalModel: (String) -> Unit,
     onDeleteLocalModel: (String) -> Unit,
     onSelectOnlineProvider: (OnlineProvider) -> Unit,
@@ -172,8 +183,13 @@ fun HaruScreen(
             options = localModelOptions,
             downloadProgress = localAiDownloadProgress,
             downloadLabel = localAiDownloadLabel,
+            downloadState = localAiDownloadState,
+            downloadModelId = localAiDownloadModelId,
             onDismiss = { if (!localAiBusy) showLocalAi = false },
             onDownload = onDownloadLocalModel,
+            onPauseDownload = onPauseLocalModelDownload,
+            onResumeDownload = onResumeLocalModelDownload,
+            onCancelDownload = onCancelLocalModelDownload,
             onValidate = onValidateLocalModel,
             onDelete = onDeleteLocalModel,
         )
@@ -220,14 +236,16 @@ private fun AssistantPane(
         HaruFace(mood = state.mood, modifier = Modifier.sizeCompat(170.dp))
         Spacer(Modifier.height(8.dp))
 
-        Card(modifier = Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(14.dp)) {
-                Text(
-                    text = state.mood.name.lowercase().replaceFirstChar { it.uppercase() },
-                    style = MaterialTheme.typography.labelMedium,
-                )
-                Spacer(Modifier.height(4.dp))
-                AssistantResponseText(state.message)
+        if (!state.isBusy || state.mood != HaruMood.THINKING) {
+            Card(modifier = Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(14.dp)) {
+                    Text(
+                        text = state.mood.name.lowercase().replaceFirstChar { it.uppercase() },
+                        style = MaterialTheme.typography.labelMedium,
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    AssistantResponseText(state.message)
+                }
             }
         }
 
@@ -278,6 +296,31 @@ private fun AssistantPane(
         )
 
         Spacer(Modifier.height(12.dp))
+
+        if (state.latestUserMessage.isNotBlank()) {
+            Card(modifier = Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+                    Text(
+                        text = "You",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Text(
+                        text = state.latestUserMessage
+                            .replace(Regex("\\s+"), " ")
+                            .take(180),
+                        style = MaterialTheme.typography.bodySmall,
+                        maxLines = 1,
+                    )
+                }
+            }
+            if (state.isBusy && state.mood == HaruMood.THINKING) {
+                Spacer(Modifier.height(5.dp))
+                ThinkingDots()
+            }
+            Spacer(Modifier.height(8.dp))
+        }
+
         OutlinedTextField(
             value = state.command,
             onValueChange = viewModel::updateCommand,
@@ -756,8 +799,13 @@ private fun LocalAiSetupDialog(
     options: List<LocalModelOption>,
     downloadProgress: Float?,
     downloadLabel: String,
+    downloadState: String,
+    downloadModelId: String,
     onDismiss: () -> Unit,
     onDownload: (LocalModelOption) -> Unit,
+    onPauseDownload: () -> Unit,
+    onResumeDownload: () -> Unit,
+    onCancelDownload: () -> Unit,
     onValidate: (String) -> Unit,
     onDelete: (String) -> Unit,
 ) {
@@ -796,7 +844,7 @@ private fun LocalAiSetupDialog(
                             progress = { downloadProgress.coerceIn(0f, 1f) },
                             modifier = Modifier.fillMaxWidth(),
                         )
-                    } else if (busy) {
+                    } else if (downloadState in listOf("DOWNLOADING", "QUEUED")) {
                         LinearProgressIndicator(
                             modifier = Modifier.fillMaxWidth(),
                         )
@@ -805,6 +853,37 @@ private fun LocalAiSetupDialog(
                         Spacer(Modifier.height(4.dp))
                         Text(
                             downloadLabel,
+                            style = MaterialTheme.typography.labelSmall,
+                        )
+                    }
+
+                    if (downloadState in listOf("DOWNLOADING", "QUEUED", "PAUSED", "FAILED")) {
+                        Spacer(Modifier.height(6.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            if (downloadState in listOf("DOWNLOADING", "QUEUED")) {
+                                OutlinedButton(
+                                    onClick = onPauseDownload,
+                                    modifier = Modifier.weight(1f),
+                                ) {
+                                    Text("Pause")
+                                }
+                            } else {
+                                Button(
+                                    onClick = onResumeDownload,
+                                    modifier = Modifier.weight(1f),
+                                ) {
+                                    Text("Resume")
+                                }
+                            }
+                            TextButton(onClick = onCancelDownload) {
+                                Text("Cancel")
+                            }
+                        }
+                        Text(
+                            "Download continues in the background. You can close this window or switch apps.",
                             style = MaterialTheme.typography.labelSmall,
                         )
                     }
@@ -837,70 +916,31 @@ private fun LocalAiSetupDialog(
                                 )
                                 Text(
                                     when {
-                                        active -> "ACTIVE"
-                                        recommended -> "BEST FIT"
-                                        installed -> "INSTALLED"
-                                        else -> ""
-                                    },
+                                active -> Text(
+                                    "Active on this phone.",
                                     style = MaterialTheme.typography.labelSmall,
-                                    fontWeight = FontWeight.Bold,
                                 )
-                            }
-
-                            Text(
-                                option.description,
-                                style = MaterialTheme.typography.bodySmall,
-                            )
-                            Text(
-                                "Needs about " + option.minRamGb + " GB RAM · " +
-                                    option.minFreeStorageGb + " GB free",
-                                style = MaterialTheme.typography.labelSmall,
-                            )
-
-                            Spacer(Modifier.height(6.dp))
-
-                            when {
-                                active -> {
-                                    OutlinedButton(
-                                        onClick = { onDelete(option.fileName) },
-                                        enabled = !busy,
-                                        modifier = Modifier.fillMaxWidth(),
-                                    ) {
-                                        Text("Remove active model")
-                                    }
-                                }
-                                installed -> {
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                    ) {
-                                        Button(
-                                            onClick = { onValidate(option.fileName) },
-                                            enabled = !busy,
-                                            modifier = Modifier.weight(1f),
-                                        ) {
-                                            Text("Use model")
-                                        }
-                                        TextButton(
-                                            onClick = { onDelete(option.fileName) },
-                                            enabled = !busy,
-                                        ) {
-                                            Text("Remove")
-                                        }
-                                    }
-                                }
+                                installed -> Text(
+                                    "Downloaded. Manage it below.",
+                                    style = MaterialTheme.typography.labelSmall,
+                                )
+                                downloadModelId == option.id &&
+                                    downloadState in listOf("DOWNLOADING", "QUEUED", "PAUSED") -> Text(
+                                    "Background download " + downloadState.lowercase() + ".",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.SemiBold,
+                                )
                                 else -> {
                                     Button(
                                         onClick = { onDownload(option) },
-                                        enabled = !busy && fits,
+                                        enabled = !busy &&
+                                            fits &&
+                                            downloadState !in listOf("DOWNLOADING", "QUEUED"),
                                         modifier = Modifier.fillMaxWidth(),
                                     ) {
                                         Text(
-                                            if (recommended) {
-                                                "Download best model"
-                                            } else {
-                                                "Download"
-                                            }
+                                            if (recommended) "Download best model"
+                                            else "Download"
                                         )
                                     }
                                     if (!fits) {
@@ -915,6 +955,72 @@ private fun LocalAiSetupDialog(
                     }
                 }
 
+                if (status.installedModels.isNotEmpty()) {
+                    Spacer(Modifier.height(14.dp))
+                    HorizontalDivider()
+                    Spacer(Modifier.height(10.dp))
+                    Text(
+                        "Downloaded models",
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Text(
+                        "Load a downloaded model locally or remove it from this phone.",
+                        style = MaterialTheme.typography.labelSmall,
+                    )
+                    Spacer(Modifier.height(6.dp))
+
+                    status.installedModels.forEach { fileName ->
+                        val active = status.activeModel == fileName
+                        val displayName = options.firstOrNull {
+                            it.fileName == fileName
+                        }?.name ?: fileName
+
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 3.dp),
+                        ) {
+                            Column(Modifier.padding(10.dp)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                ) {
+                                    Text(
+                                        displayName,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        fontWeight = FontWeight.SemiBold,
+                                    )
+                                    if (active) {
+                                        Text(
+                                            "ACTIVE",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontWeight = FontWeight.Bold,
+                                        )
+                                    }
+                                }
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                ) {
+                                    Button(
+                                        onClick = { onValidate(fileName) },
+                                        enabled = !busy && !active,
+                                        modifier = Modifier.weight(1f),
+                                    ) {
+                                        Text(if (active) "Loaded" else "Load model")
+                                    }
+                                    TextButton(
+                                        onClick = { onDelete(fileName) },
+                                        enabled = !busy,
+                                    ) {
+                                        Text("Remove")
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
                 Spacer(Modifier.height(6.dp))
                 Text(
                     "Model files stay on this phone. HARU keeps online AI available separately.",
@@ -922,6 +1028,25 @@ private fun LocalAiSetupDialog(
                 )
             }
         },
+    )
+}
+
+@Composable
+private fun ThinkingDots() {
+    val transition = rememberInfiniteTransition(label = "thinking-dots")
+    val alpha by transition.animateFloat(
+        initialValue = 0.30f,
+        targetValue = 1.0f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(650),
+            repeatMode = RepeatMode.Reverse,
+        ),
+        label = "thinking-dots-alpha",
+    )
+    Text(
+        text = "•••",
+        style = MaterialTheme.typography.titleMedium,
+        modifier = Modifier.alpha(alpha),
     )
 }
 
