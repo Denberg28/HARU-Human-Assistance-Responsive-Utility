@@ -104,7 +104,7 @@ def ask_ai(
     config: AiConfig,
     prompt: str,
     system_prompt: str = "",
-    enable_live_search: bool = False,
+    enable_native_tools: bool = False,
 ) -> str:
     provider = config.provider
     model = config.model.strip()
@@ -153,25 +153,42 @@ def ask_ai(
     if provider == "OpenAI API":
         if not config.api_key:
             raise AiRuntimeError("OpenAI API key is required.")
+        payload = {
+            "model": model,
+            "input": prompt if not system_prompt else f"{system_prompt}\n\nUser: {prompt}",
+        }
+        if enable_native_tools:
+            payload["tools"] = [{"type": "web_search"}]
+
         data = _json_request(
             "https://api.openai.com/v1/responses",
-            payload={
-                "model": model,
-                "input": prompt if not system_prompt else f"{system_prompt}\n\nUser: {prompt}",
-            },
+            payload=payload,
             headers={"Authorization": f"Bearer {config.api_key}"},
             timeout=config.timeout_s,
         )
         parts = []
+        sources = []
+        seen = set()
         for output in data.get("output", []):
             if output.get("type") != "message":
                 continue
             for item in output.get("content", []):
                 if item.get("type") == "output_text" and item.get("text"):
                     parts.append(item["text"])
+                    for annotation in item.get("annotations", []):
+                        if annotation.get("type") != "url_citation":
+                            continue
+                        url = (annotation.get("url") or "").strip()
+                        title = (annotation.get("title") or "Web source").strip()
+                        if url and url not in seen:
+                            seen.add(url)
+                            sources.append((title, url))
         text = "\n".join(parts).strip()
         if not text:
             raise AiRuntimeError("OpenAI returned no text.")
+        if sources:
+            source_lines = "\n".join(f"- {title}: {url}" for title, url in sources[:5])
+            text = f"{text}\n\nLive sources:\n{source_lines}"
         return text
 
     if provider == "Google Gemini API":
@@ -181,7 +198,7 @@ def ask_ai(
         payload = {"contents": [{"parts": [{"text": prompt}]}]}
         if system_prompt:
             payload["systemInstruction"] = {"parts": [{"text": system_prompt}]}
-        if enable_live_search:
+        if enable_native_tools:
             payload["tools"] = [{"google_search": {}}]
 
         data = _json_request(
@@ -199,7 +216,7 @@ def ask_ai(
         if not text:
             raise AiRuntimeError("Gemini returned no text.")
 
-        if enable_live_search:
+        if enable_native_tools:
             sources = _gemini_grounding_sources(data)
             if sources:
                 source_lines = "\n".join(
@@ -214,11 +231,20 @@ def ask_ai(
             raise AiRuntimeError("Anthropic API key is required.")
         payload = {
             "model": model,
-            "max_tokens": 700,
+            "max_tokens": 1200,
             "messages": [{"role": "user", "content": prompt}],
         }
         if system_prompt:
             payload["system"] = system_prompt
+        if enable_native_tools:
+            payload["tools"] = [
+                {
+                    "type": "web_search_20260318",
+                    "name": "web_search",
+                    "max_uses": 5,
+                }
+            ]
+
         data = _json_request(
             "https://api.anthropic.com/v1/messages",
             payload=payload,
@@ -228,13 +254,28 @@ def ask_ai(
             },
             timeout=config.timeout_s,
         )
-        text = "\n".join(
-            item.get("text", "")
-            for item in data.get("content", [])
-            if item.get("type") == "text"
-        ).strip()
+
+        text_parts = []
+        sources = []
+        seen = set()
+        for item in data.get("content", []):
+            if item.get("type") != "text":
+                continue
+            if item.get("text"):
+                text_parts.append(item["text"])
+            for citation in item.get("citations", []):
+                url = (citation.get("url") or "").strip()
+                title = (citation.get("title") or "Web source").strip()
+                if url and url not in seen:
+                    seen.add(url)
+                    sources.append((title, url))
+
+        text = "\n".join(text_parts).strip()
         if not text:
             raise AiRuntimeError("Claude returned no text.")
+        if sources:
+            source_lines = "\n".join(f"- {title}: {url}" for title, url in sources[:5])
+            text = f"{text}\n\nLive sources:\n{source_lines}"
         return text
 
     if provider == "Android on-device (APK only)":
