@@ -95,6 +95,7 @@ DEFAULTS = {
     "mood": "IDLE",
     "message": "Hello. I'm HARU.",
     "history": [],
+    "pending_command": "",
     "news_region": "Philippines",
     "news_last_seen": 0.0,
     "news_refresh_nonce": 0,
@@ -713,17 +714,18 @@ def render_haru_mascot(mood: str) -> None:
     )
 
 
-def render_latest_history_tracker() -> None:
-    """Show only the most recent user entry as a compact chat-style bubble."""
-    history = st.session_state.get("history", [])
-    if not history:
-        return
-
-    latest = history[-1]
-    if isinstance(latest, (tuple, list)) and latest:
-        user_text = str(latest[0])
-    else:
-        user_text = str(latest)
+def render_latest_user_entry(text: str = "") -> None:
+    """Show one latest user entry as a compact right-aligned chat bubble."""
+    user_text = text.strip()
+    if not user_text:
+        history = st.session_state.get("history", [])
+        if not history:
+            return
+        latest = history[-1]
+        if isinstance(latest, (tuple, list)) and latest:
+            user_text = str(latest[0])
+        else:
+            user_text = str(latest)
 
     safe_user = html.escape(user_text).replace("\n", "<br>")
     st.markdown(
@@ -734,6 +736,30 @@ def render_latest_history_tracker() -> None:
         """,
         unsafe_allow_html=True,
     )
+
+
+def render_thinking_indicator() -> None:
+    """Render a lightweight animated three-dot HARU thinking indicator."""
+    st.markdown(
+        """
+        <div class="thinking-row" role="status" aria-label="HARU is thinking">
+          <span class="thinking-label">HARU</span>
+          <span class="thinking-dots" aria-hidden="true">
+            <span></span><span></span><span></span>
+          </span>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def render_assistant_response(reply: str) -> None:
+    """Render model output as safe Markdown with compact readable spacing."""
+    text = (reply or "").strip()
+    if not text:
+        return
+    st.markdown('<div class="response-label">HARU</div>', unsafe_allow_html=True)
+    st.markdown(text)
 
 
 @st.cache_data(ttl=900, show_spinner=False)
@@ -849,13 +875,58 @@ st.markdown(
           opacity:.62;
           margin:.05rem 0 .25rem 0;
       }
-      .reply {
-          padding:.75rem .95rem;
-          border-radius:14px;
-          background:rgba(127,127,127,.08);
-          margin-bottom:.55rem;
-          font-size:.98rem;
-          line-height:1.45;
+      .response-label {
+          margin:.1rem 0 .28rem;
+          font-size:.72rem;
+          font-weight:700;
+          letter-spacing:.08em;
+          opacity:.52;
+      }
+      .thinking-row {
+          display:flex;
+          align-items:center;
+          gap:.5rem;
+          min-height:2.25rem;
+          margin:.1rem 0 .55rem;
+      }
+      .thinking-label {
+          font-size:.72rem;
+          font-weight:700;
+          letter-spacing:.08em;
+          opacity:.52;
+      }
+      .thinking-dots {
+          display:inline-flex;
+          align-items:center;
+          gap:.28rem;
+      }
+      .thinking-dots span {
+          width:.42rem;
+          height:.42rem;
+          border-radius:50%;
+          background:currentColor;
+          opacity:.28;
+          animation:haru-dot 1.15s infinite ease-in-out;
+      }
+      .thinking-dots span:nth-child(2) { animation-delay:.16s; }
+      .thinking-dots span:nth-child(3) { animation-delay:.32s; }
+      @keyframes haru-dot {
+          0%, 70%, 100% { transform:translateY(0); opacity:.24; }
+          35% { transform:translateY(-4px); opacity:.8; }
+      }
+      div[data-testid="stMarkdownContainer"] p {
+          line-height:1.55;
+      }
+      div[data-testid="stMarkdownContainer"] ul,
+      div[data-testid="stMarkdownContainer"] ol {
+          margin-top:.25rem;
+          margin-bottom:.5rem;
+      }
+      div[data-testid="stMarkdownContainer"] li {
+          margin-bottom:.18rem;
+      }
+      div[data-testid="stMarkdownContainer"] pre {
+          border-radius:10px;
       }
       div[data-testid="stChatInput"] {
           margin:.15rem 0 .35rem 0;
@@ -923,27 +994,40 @@ st.markdown('<div class="haru-sub">Human Assistance & Responsive Utility</div>',
 assistant_tab, news_tab = st.tabs(["Assistant", "News"])
 
 with assistant_tab:
-    render_haru_mascot(st.session_state.mood)
-    st.markdown(f'<div class="status">{st.session_state.mood}</div>', unsafe_allow_html=True)
-    render_latest_history_tracker()
-    safe_reply = html.escape(str(st.session_state.message)).replace("\n", "<br>")
-    st.markdown(f'<div class="reply">{safe_reply}</div>', unsafe_allow_html=True)
+    pending_command = str(st.session_state.get("pending_command", "")).strip()
+    display_mood = "THINKING" if pending_command else st.session_state.mood
+
+    render_haru_mascot(display_mood)
+    st.markdown(f'<div class="status">{display_mood}</div>', unsafe_allow_html=True)
+
+    if pending_command:
+        render_latest_user_entry(pending_command)
+        render_thinking_indicator()
+    else:
+        render_latest_user_entry()
+        render_assistant_response(str(st.session_state.message))
 
     with st.container(border=True):
         st.caption("Ask HARU · Enter to send · Shift+Enter for a new line")
         command = st.chat_input(
             "Type a question or task…",
             key="haru_chat_input",
+            disabled=bool(pending_command),
         )
 
     if command:
+        st.session_state.pending_command = command.strip()
         st.session_state.mood = "THINKING"
-        mood, reply = route_command(command)
+        st.rerun()
+
+    if pending_command:
+        mood, reply = route_command(pending_command)
         st.session_state.mood = mood
         st.session_state.message = reply
-        st.session_state.history.append((command, reply))
+        st.session_state.history.append((pending_command, reply))
         if len(st.session_state.history) > 100:
             st.session_state.history = st.session_state.history[-100:]
+        st.session_state.pending_command = ""
         st.rerun()
 
 with news_tab:
@@ -1595,4 +1679,4 @@ with st.expander("Developer panel"):
             st.write(f"**You:** {q}")
             st.write(f"**HARU:** {a}")
 
-st.markdown("<div class=\"footer\">HARU Lab v3.0 • sanitized free-first runtime</div>", unsafe_allow_html=True)
+st.markdown("<div class=\"footer\">HARU Lab v3.1 • immediate turn feedback</div>", unsafe_allow_html=True)
