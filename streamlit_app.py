@@ -113,6 +113,18 @@ def local_tool_result(command: str):
     return None
 
 
+def needs_live_search(command: str) -> bool:
+    text = command.lower()
+    freshness_terms = {
+        "latest", "current", "today", "tonight", "this week", "recent", "recently",
+        "breaking", "news", "update", "updates", "incident", "accident", "outage",
+        "restoration", "restore", "weather", "storm", "typhoon", "earthquake",
+        "price", "prices", "market", "score", "scores", "schedule", "traffic",
+        "status", "now", "happening", "pipeline", "airport", "flight", "delay",
+    }
+    return any(term in text for term in freshness_terms)
+
+
 def ai_is_active() -> bool:
     return bool(
         st.session_state.get("ai_applied_signature")
@@ -165,7 +177,22 @@ def route_command(command: str):
         )
 
         try:
-            reply = ask_ai(config, prompt, system_prompt)
+            live_search = (
+                config.provider == "Google Gemini API"
+                and needs_live_search(clean)
+            )
+            if live_search:
+                system_prompt += (
+                    " For this request, use live Google Search grounding and answer from current sources. "
+                    "Include concrete dates when they help disambiguate what is current."
+                )
+
+            reply = ask_ai(
+                config,
+                prompt,
+                system_prompt,
+                enable_live_search=live_search,
+            )
             return "HAPPY", reply
         except AiRuntimeError as exc:
             st.session_state.ai_connection_state = "FAILED"
@@ -937,4 +964,4 @@ with st.expander("Developer panel"):
             st.write(f"**You:** {q}")
             st.write(f"**HARU:** {a}")
 
-st.markdown("<div class=\"footer\">HARU Lab v0.9 • sanitized compact interface</div>", unsafe_allow_html=True)
+st.markdown("<div class=\"footer\">HARU Lab v1.0 • live-grounded connected AI</div>", unsafe_allow_html=True)
