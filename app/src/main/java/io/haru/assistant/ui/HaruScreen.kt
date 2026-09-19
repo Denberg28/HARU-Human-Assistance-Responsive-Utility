@@ -19,6 +19,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -47,6 +48,7 @@ import io.haru.assistant.content.AndroidNewsBundle
 import io.haru.assistant.content.AndroidNewsItem
 import io.haru.assistant.core.HaruMood
 import io.haru.assistant.localai.LocalAiStatus
+import io.haru.assistant.localai.LocalModelOption
 import io.haru.assistant.location.TrustedLocation
 import io.haru.assistant.onlineai.OnlineProvider
 import io.haru.assistant.voice.HaruVoiceController
@@ -59,6 +61,9 @@ fun HaruScreen(
     voiceStatus: HaruVoiceController.VoiceRuntimeStatus,
     localAiStatus: LocalAiStatus,
     localAiBusy: Boolean,
+    localModelOptions: List<LocalModelOption>,
+    localAiDownloadProgress: Float?,
+    localAiDownloadLabel: String,
     todayLines: List<String>,
     onlineProvider: OnlineProvider,
     onlineStatus: String,
@@ -71,11 +76,9 @@ fun HaruScreen(
     onSubmitClick: () -> Unit,
     onMicClick: () -> Unit,
     onSpeakClick: () -> Unit,
-    onImportLocalModel: () -> Unit,
-    onDownloadLocalModel: (String) -> Unit,
+    onDownloadLocalModel: (LocalModelOption) -> Unit,
     onValidateLocalModel: (String) -> Unit,
     onDeleteLocalModel: (String) -> Unit,
-    onOpenModelLibrary: () -> Unit,
     onSelectOnlineProvider: (OnlineProvider) -> Unit,
     onSaveGeminiKey: (String) -> Unit,
     onSaveOpenRouterKey: (String) -> Unit,
@@ -166,12 +169,13 @@ fun HaruScreen(
         LocalAiSetupDialog(
             status = localAiStatus,
             busy = localAiBusy,
+            options = localModelOptions,
+            downloadProgress = localAiDownloadProgress,
+            downloadLabel = localAiDownloadLabel,
             onDismiss = { if (!localAiBusy) showLocalAi = false },
-            onImport = onImportLocalModel,
             onDownload = onDownloadLocalModel,
             onValidate = onValidateLocalModel,
             onDelete = onDeleteLocalModel,
-            onOpenLibrary = onOpenModelLibrary,
         )
     }
 
@@ -749,21 +753,14 @@ private fun OnlineAiDialog(
 private fun LocalAiSetupDialog(
     status: LocalAiStatus,
     busy: Boolean,
+    options: List<LocalModelOption>,
+    downloadProgress: Float?,
+    downloadLabel: String,
     onDismiss: () -> Unit,
-    onImport: () -> Unit,
-    onDownload: (String) -> Unit,
+    onDownload: (LocalModelOption) -> Unit,
     onValidate: (String) -> Unit,
     onDelete: (String) -> Unit,
-    onOpenLibrary: () -> Unit,
 ) {
-    var downloadUrl by remember { mutableStateOf("") }
-    var selectedModel by remember(status.installedModels) {
-        mutableStateOf(
-            status.activeModel.takeIf { it.isNotBlank() }
-                ?: status.installedModels.firstOrNull().orEmpty()
-        )
-    }
-
     AlertDialog(
         onDismissRequest = onDismiss,
         confirmButton = {
@@ -774,93 +771,155 @@ private fun LocalAiSetupDialog(
                 Text("Done")
             }
         },
-        title = { Text("Local AI on this phone") },
+        title = { Text("Local AI") },
         text = {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .verticalScroll(rememberScrollState()),
             ) {
-                Text(status.message, style = MaterialTheme.typography.bodyMedium)
-                Spacer(Modifier.height(10.dp))
                 Text(
                     status.ramGb.toString() + " GB RAM • " +
                         status.freeStorageGb.toString() + " GB free",
                     style = MaterialTheme.typography.bodySmall,
                 )
                 Text(
-                    "Recommended: " + status.recommendedTier,
+                    "HARU recommends " + status.recommendedTier + " for this phone.",
                     style = MaterialTheme.typography.bodySmall,
+                    fontWeight = FontWeight.SemiBold,
                 )
 
-                Spacer(Modifier.height(10.dp))
-                OutlinedButton(
-                    onClick = onImport,
-                    enabled = !busy,
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text("Import .litertlm from phone")
-                }
-                OutlinedButton(
-                    onClick = onOpenLibrary,
-                    enabled = !busy,
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text("Open LiteRT model library")
-                }
-
-                Spacer(Modifier.height(10.dp))
-                OutlinedTextField(
-                    value = downloadUrl,
-                    onValueChange = { downloadUrl = it.take(2000) },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true,
-                    enabled = !busy,
-                    label = { Text("HTTPS .litertlm URL") },
-                )
-                Button(
-                    onClick = { onDownload(downloadUrl.trim()) },
-                    enabled = !busy &&
-                        downloadUrl.trim().startsWith("https://") &&
-                        downloadUrl.trim().substringBefore('?').endsWith(".litertlm"),
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text(if (busy) "Working…" else "Download model")
+                if (busy || downloadLabel.isNotBlank()) {
+                    Spacer(Modifier.height(10.dp))
+                    if (downloadProgress != null) {
+                        LinearProgressIndicator(
+                            progress = { downloadProgress.coerceIn(0f, 1f) },
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    } else if (busy) {
+                        LinearProgressIndicator(
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                    if (downloadLabel.isNotBlank()) {
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            downloadLabel,
+                            style = MaterialTheme.typography.labelSmall,
+                        )
+                    }
                 }
 
-                status.installedModels.forEach { name ->
-                    Spacer(Modifier.height(6.dp))
-                    Card(modifier = Modifier.fillMaxWidth()) {
-                        Column(Modifier.padding(10.dp)) {
-                            Text(
-                                name,
-                                style = MaterialTheme.typography.bodySmall,
-                                fontWeight = if (name == selectedModel) {
-                                    FontWeight.SemiBold
-                                } else {
-                                    FontWeight.Normal
-                                },
-                            )
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                OutlinedButton(
-                                    onClick = {
-                                        selectedModel = name
-                                        onValidate(name)
+                Spacer(Modifier.height(10.dp))
+
+                options.forEach { option ->
+                    val installed = status.installedModels.contains(option.fileName)
+                    val active = status.activeModel == option.fileName
+                    val recommended = status.recommendedModelId == option.id
+                    val fits =
+                        status.ramGb >= option.minRamGb &&
+                            status.freeStorageGb >= option.minFreeStorageGb
+
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 4.dp),
+                    ) {
+                        Column(Modifier.padding(12.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Text(
+                                    option.name,
+                                    fontWeight = FontWeight.SemiBold,
+                                )
+                                Text(
+                                    when {
+                                        active -> "ACTIVE"
+                                        recommended -> "BEST FIT"
+                                        installed -> "INSTALLED"
+                                        else -> ""
                                     },
-                                    enabled = !busy,
-                                ) {
-                                    Text("Validate")
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.Bold,
+                                )
+                            }
+
+                            Text(
+                                option.description,
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                            Text(
+                                "Needs about " + option.minRamGb + " GB RAM · " +
+                                    option.minFreeStorageGb + " GB free",
+                                style = MaterialTheme.typography.labelSmall,
+                            )
+
+                            Spacer(Modifier.height(6.dp))
+
+                            when {
+                                active -> {
+                                    OutlinedButton(
+                                        onClick = { onDelete(option.fileName) },
+                                        enabled = !busy,
+                                        modifier = Modifier.fillMaxWidth(),
+                                    ) {
+                                        Text("Remove active model")
+                                    }
                                 }
-                                TextButton(
-                                    onClick = { onDelete(name) },
-                                    enabled = !busy,
-                                ) {
-                                    Text("Remove")
+                                installed -> {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    ) {
+                                        Button(
+                                            onClick = { onValidate(option.fileName) },
+                                            enabled = !busy,
+                                            modifier = Modifier.weight(1f),
+                                        ) {
+                                            Text("Use model")
+                                        }
+                                        TextButton(
+                                            onClick = { onDelete(option.fileName) },
+                                            enabled = !busy,
+                                        ) {
+                                            Text("Remove")
+                                        }
+                                    }
+                                }
+                                else -> {
+                                    Button(
+                                        onClick = { onDownload(option) },
+                                        enabled = !busy && fits,
+                                        modifier = Modifier.fillMaxWidth(),
+                                    ) {
+                                        Text(
+                                            if (recommended) {
+                                                "Download best model"
+                                            } else {
+                                                "Download"
+                                            }
+                                        )
+                                    }
+                                    if (!fits) {
+                                        Text(
+                                            "Not recommended for current RAM/storage.",
+                                            style = MaterialTheme.typography.labelSmall,
+                                        )
+                                    }
                                 }
                             }
                         }
                     }
                 }
+
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    "Model files stay on this phone. HARU keeps online AI available separately.",
+                    style = MaterialTheme.typography.labelSmall,
+                )
             }
         },
     )
