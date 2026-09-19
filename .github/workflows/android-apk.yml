@@ -30,8 +30,11 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+      - name: Verify Android SDK
+        run: |
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          test -d "$ANDROID_HOME"
+          sdkmanager --version
 
       - name: Set up Gradle 9.6
         uses: gradle/actions/setup-gradle@v5
