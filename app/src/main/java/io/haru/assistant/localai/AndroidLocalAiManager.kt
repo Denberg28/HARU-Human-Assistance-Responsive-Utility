@@ -16,10 +16,21 @@ import java.io.File
 import java.net.HttpURLConnection
 import java.net.URI
 
+data class LocalModelOption(
+    val id: String,
+    val name: String,
+    val description: String,
+    val fileName: String,
+    val downloadUrl: String,
+    val minRamGb: Int,
+    val minFreeStorageGb: Int,
+)
+
 data class LocalAiStatus(
     val ramGb: Int = 0,
     val freeStorageGb: Int = 0,
     val recommendedTier: String = "Checking…",
+    val recommendedModelId: String = "",
     val installedModels: List<String> = emptyList(),
     val activeModel: String = "",
     val state: String = "IDLE",
@@ -42,10 +53,10 @@ class AndroidLocalAiManager(
         val stat = StatFs(context.filesDir.absolutePath)
         val freeGb = (stat.availableBytes / 1_073_741_824L).toInt().coerceAtLeast(0)
 
-        val recommendation = when {
-            ramGb >= 12 && freeGb >= 6 -> "Gemma 4 E4B"
-            ramGb >= 8 && freeGb >= 4 -> "Gemma 4 E2B"
-            else -> "Use a smaller LiteRT-LM model"
+        val recommended = when {
+            ramGb >= 12 && freeGb >= 6 -> CURATED_MODELS[2]
+            ramGb >= 8 && freeGb >= 4 -> CURATED_MODELS[1]
+            else -> CURATED_MODELS[0]
         }
 
         val installed = modelDir
@@ -61,7 +72,8 @@ class AndroidLocalAiManager(
         return LocalAiStatus(
             ramGb = ramGb,
             freeStorageGb = freeGb,
-            recommendedTier = recommendation,
+            recommendedTier = recommended.name,
+            recommendedModelId = recommended.id,
             installedModels = installed,
             activeModel = preferredModel.takeIf { installed.contains(it) } ?: "",
             state = if (installed.isEmpty()) "SETUP" else "READY",
@@ -104,7 +116,12 @@ class AndroidLocalAiManager(
         }
     }
 
-    suspend fun downloadModel(url: String): String = withContext(Dispatchers.IO) {
+    fun curatedModels(): List<LocalModelOption> = CURATED_MODELS
+
+    suspend fun downloadModel(
+        url: String,
+        onProgress: (downloadedBytes: Long, totalBytes: Long?) -> Unit = { _, _ -> },
+    ): String = withContext(Dispatchers.IO) {
         val parsed = URI(url.trim())
         require(parsed.scheme.equals("https", ignoreCase = true)) {
             "Only HTTPS model downloads are allowed."
@@ -142,11 +159,13 @@ class AndroidLocalAiManager(
             val reserveBytes = 512L * 1024L * 1024L
             val maxWritable = (stat.availableBytes - reserveBytes).coerceAtLeast(0L)
             val expected = connection.contentLengthLong
-            if (expected > 0) {
-                require(expected <= maxWritable) {
+            val expectedOrNull = expected.takeIf { it > 0 }
+            if (expectedOrNull != null) {
+                require(expectedOrNull <= maxWritable) {
                     "Not enough free storage for this model."
                 }
             }
+            onProgress(0L, expectedOrNull)
 
             connection.inputStream.buffered().use { input ->
                 temp.outputStream().buffered().use { output ->
@@ -160,6 +179,7 @@ class AndroidLocalAiManager(
                             "Model download stopped before storage was exhausted."
                         }
                         output.write(buffer, 0, read)
+                        onProgress(total, expectedOrNull)
                     }
                 }
             }
@@ -264,4 +284,36 @@ class AndroidLocalAiManager(
             engine.initialize()
         }
     }
+    companion object {
+        val CURATED_MODELS = listOf(
+            LocalModelOption(
+                id = "smollm2-1.7b",
+                name = "SmolLM2 1.7B",
+                description = "Lightweight · best for lower-RAM phones",
+                fileName = "SmolLM2-1_7B-Instruct_dynamic_wi8_afp32.litertlm",
+                downloadUrl = "https://huggingface.co/litert-community/SmolLM2-1.7B-Instruct/resolve/main/SmolLM2-1_7B-Instruct_dynamic_wi8_afp32.litertlm?download=true",
+                minRamGb = 6,
+                minFreeStorageGb = 3,
+            ),
+            LocalModelOption(
+                id = "gemma4-e2b",
+                name = "Gemma 4 E2B",
+                description = "Balanced · recommended for most capable phones",
+                fileName = "gemma-4-E2B-it.litertlm",
+                downloadUrl = "https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm/resolve/main/gemma-4-E2B-it.litertlm?download=true",
+                minRamGb = 8,
+                minFreeStorageGb = 4,
+            ),
+            LocalModelOption(
+                id = "gemma4-e4b",
+                name = "Gemma 4 E4B",
+                description = "Strongest · intended for high-RAM phones",
+                fileName = "gemma-4-E4B-it.litertlm",
+                downloadUrl = "https://huggingface.co/litert-community/gemma-4-E4B-it-litert-lm/resolve/main/gemma-4-E4B-it.litertlm?download=true",
+                minRamGb = 12,
+                minFreeStorageGb = 6,
+            ),
+        )
+    }
+
 }
