@@ -1,9 +1,7 @@
 from datetime import datetime
 from pathlib import Path
 import ast
-import base64
 import hashlib
-import importlib.util
 import html
 import operator
 import os
@@ -41,42 +39,6 @@ st.set_page_config(
     layout="centered",
     initial_sidebar_state="collapsed",
 )
-
-ROOT_DIR = Path(__file__).resolve().parent
-ASSET_DIR = ROOT_DIR / "assets"
-HARU_LINEART = ASSET_DIR / "haru_lineart.svg"
-HARU_THEME = ASSET_DIR / "haru_cute_theme.wav"
-
-
-def ensure_haru_media() -> None:
-    """Create HARU media on first run when deployed assets are missing."""
-    ASSET_DIR.mkdir(parents=True, exist_ok=True)
-
-    need_theme = not HARU_THEME.exists()
-    if not need_theme:
-        return
-
-    generator_path = ROOT_DIR / "scripts" / "generate_haru_media.py"
-    if not generator_path.exists():
-        return
-
-    try:
-        spec = importlib.util.spec_from_file_location("haru_media_generator", generator_path)
-        if spec is None or spec.loader is None:
-            return
-
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
-
-        if need_theme and hasattr(module, "make_theme"):
-            module.make_theme()
-    except Exception:
-        # Keep HARU usable even if optional media generation fails.
-        return
-
-
-ensure_haru_media()
-
 
 SECRET_NAME_BY_PROVIDER = {
     "Google Gemini API": "GEMINI_API_KEY",
@@ -132,7 +94,6 @@ DEFAULTS = {
     "explicit_interests": {},
     "local_notes": [],
     "local_tasks": [],
-    "music_enabled": False,
     "ai_mode": "Off",
     "ai_provider": "Disabled",
     "ai_model": "",
@@ -691,52 +652,186 @@ def active_model_display_name() -> str:
     return label
 
 
-def render_haru_mascot(mood: str) -> None:
-    """Render HARU as lightweight original line art."""
-    if HARU_LINEART.exists():
-        left, center, right = st.columns([1.25, 1.5, 1.25])
-        with center:
-            st.image(str(HARU_LINEART), use_container_width=True)
-        return
+def normalize_haru_mood(raw: str) -> str:
+    key = (raw or "").strip().upper()
+    aliases = {
+        "READY": "IDLE",
+        "OK": "HAPPY",
+        "CONNECTED": "HAPPY",
+        "SUCCESS": "HAPPY",
+        "LISTEN": "LISTENING",
+        "PROCESSING": "WORKING",
+        "BUSY": "WORKING",
+        "THINK": "THINKING",
+        "ERROR": "CONFUSED",
+        "FAILED": "CONFUSED",
+        "WARNING": "ALERT",
+        "SLEEP": "SLEEPY",
+    }
+    allowed = {
+        "IDLE", "HAPPY", "LISTENING", "THINKING",
+        "CONFUSED", "ALERT", "SLEEPY", "WORKING",
+    }
+    mapped = aliases.get(key, key)
+    return mapped if mapped in allowed else "IDLE"
 
-    st.markdown(face_html(mood), unsafe_allow_html=True)
 
+def cat_svg_for_mood(mood: str) -> str:
+    """Return a consistent monochrome HARU cat face for the requested mood."""
+    mood = normalize_haru_mood(mood)
 
-def render_haru_theme_control() -> None:
-    """Optional HARU theme with a hidden 10%-volume player."""
-    ensure_haru_media()
-
-    if not HARU_THEME.exists():
-        return
-
-    enabled = st.toggle(
-        "♪ HARU theme",
-        value=st.session_state.music_enabled,
-        key="haru_music_toggle",
-        help="Play HARU's theme quietly in the background.",
-    )
-    st.session_state.music_enabled = enabled
-
-    if enabled:
-        audio_b64 = base64.b64encode(HARU_THEME.read_bytes()).decode("ascii")
-        st.markdown(
-            f"""
-            <audio id="haru-theme-audio" autoplay loop style="display:none">
-              <source src="data:audio/wav;base64,{audio_b64}" type="audio/wav">
-            </audio>
-            <script>
-            (() => {{
-              const audio = document.getElementById("haru-theme-audio");
-              if (audio) {{
-                audio.volume = 0.10;
-                const playPromise = audio.play();
-                if (playPromise) playPromise.catch(() => {{}});
-              }}
-            }})();
-            </script>
+    expressions = {
+        "IDLE": {
+            "eyes": """
+                <path d="M88 137 Q101 150 114 137" />
+                <path d="M206 137 Q219 150 232 137" />
             """,
-            unsafe_allow_html=True,
-        )
+            "mouth": """
+                <path d="M149 169 Q160 178 171 169" />
+                <path d="M160 177 Q155 190 143 189" />
+                <path d="M160 177 Q165 190 177 189" />
+            """,
+            "extra": "",
+        },
+        "HAPPY": {
+            "eyes": """
+                <path d="M87 143 Q101 126 115 143" />
+                <path d="M205 143 Q219 126 233 143" />
+            """,
+            "mouth": """
+                <path d="M139 172 Q160 205 181 172" />
+            """,
+            "extra": """
+                <path d="M72 179 Q62 184 57 193" />
+                <path d="M248 179 Q258 184 263 193" />
+            """,
+        },
+        "LISTENING": {
+            "eyes": """
+                <circle cx="101" cy="139" r="7" fill="#202428" stroke="none" />
+                <circle cx="219" cy="139" r="7" fill="#202428" stroke="none" />
+            """,
+            "mouth": """
+                <path d="M150 171 Q160 177 170 171" />
+                <path d="M160 177 Q155 188 145 187" />
+                <path d="M160 177 Q165 188 175 187" />
+            """,
+            "extra": """
+                <path d="M53 102 Q38 125 49 150" />
+                <path d="M267 102 Q282 125 271 150" />
+            """,
+        },
+        "THINKING": {
+            "eyes": """
+                <path d="M86 132 Q101 123 116 132" />
+                <circle cx="219" cy="140" r="7" fill="#202428" stroke="none" />
+            """,
+            "mouth": """
+                <path d="M147 178 Q160 172 173 178" />
+            """,
+            "extra": """
+                <path d="M246 81 Q260 65 275 74 Q287 82 280 96 Q276 104 265 107" />
+                <circle cx="264" cy="120" r="3.5" fill="#202428" stroke="none" />
+            """,
+        },
+        "WORKING": {
+            "eyes": """
+                <circle cx="101" cy="139" r="6" fill="#202428" stroke="none" />
+                <circle cx="219" cy="139" r="6" fill="#202428" stroke="none" />
+                <path d="M87 121 Q101 115 115 121" />
+                <path d="M205 121 Q219 115 233 121" />
+            """,
+            "mouth": """
+                <path d="M150 174 Q160 181 170 174" />
+            """,
+            "extra": """
+                <path d="M130 207 H190" />
+                <path d="M140 217 H180" />
+            """,
+        },
+        "CONFUSED": {
+            "eyes": """
+                <circle cx="101" cy="142" r="6.5" fill="#202428" stroke="none" />
+                <circle cx="219" cy="142" r="6.5" fill="#202428" stroke="none" />
+                <path d="M84 122 Q98 113 112 121" />
+                <path d="M208 121 Q222 113 236 122" />
+            """,
+            "mouth": """
+                <path d="M145 183 Q160 167 175 183" />
+            """,
+            "extra": """
+                <path d="M248 77 Q259 64 273 72 Q284 79 279 91 Q275 99 265 101" />
+                <circle cx="265" cy="113" r="3.5" fill="#202428" stroke="none" />
+            """,
+        },
+        "ALERT": {
+            "eyes": """
+                <ellipse cx="101" cy="140" rx="7" ry="11" />
+                <ellipse cx="219" cy="140" rx="7" ry="11" />
+            """,
+            "mouth": """
+                <ellipse cx="160" cy="181" rx="9" ry="12" />
+            """,
+            "extra": """
+                <path d="M132 55 L126 37" />
+                <path d="M160 50 L160 29" />
+                <path d="M188 55 L194 37" />
+            """,
+        },
+        "SLEEPY": {
+            "eyes": """
+                <path d="M87 142 Q101 151 115 142" />
+                <path d="M205 142 Q219 151 233 142" />
+            """,
+            "mouth": """
+                <ellipse cx="160" cy="183" rx="9" ry="12" />
+            """,
+            "extra": """
+                <path d="M250 89 H269 L251 105 H270" />
+                <path d="M266 61 H280 L267 73 H281" />
+            """,
+        },
+    }
+
+    exp = expressions[mood]
+
+    return f"""
+    <div class="haru-cat-wrap">
+      <svg class="haru-cat" viewBox="0 0 320 280" role="img" aria-label="HARU {mood.lower()} expression">
+        <g fill="none" stroke="#202428" stroke-width="8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M67 95
+                   C62 72 70 38 87 24
+                   C94 18 103 21 110 28
+                   L143 59
+                   Q160 53 177 59
+                   L210 28
+                   C217 21 226 18 233 24
+                   C250 38 258 72 253 95
+                   C267 119 270 151 263 178
+                   C252 224 211 249 160 249
+                   C109 249 68 224 57 178
+                   C50 151 53 119 67 95 Z" />
+
+          <path d="M61 154 L18 148" />
+          <path d="M61 169 L14 171" />
+          <path d="M65 184 L23 198" />
+          <path d="M259 154 L302 148" />
+          <path d="M259 169 L306 171" />
+          <path d="M255 184 L297 198" />
+
+          {exp["eyes"]}
+
+          <path d="M151 158 Q160 165 169 158 Q160 175 151 158 Z" fill="#202428" />
+          {exp["mouth"]}
+          {exp["extra"]}
+        </g>
+      </svg>
+    </div>
+    """
+
+
+def render_haru_mascot(mood: str) -> None:
+    st.markdown(cat_svg_for_mood(mood), unsafe_allow_html=True)
 
 
 def render_latest_history_tracker() -> None:
@@ -764,44 +859,6 @@ def render_latest_history_tracker() -> None:
         """,
         unsafe_allow_html=True,
     )
-
-
-def face_html(mood: str):
-    palette = {
-        "IDLE": "#263238",
-        "LISTENING": "#00897b",
-        "THINKING": "#1565c0",
-        "WORKING": "#1565c0",
-        "HAPPY": "#2e7d32",
-        "CONFUSED": "#f57c00",
-        "ALERT": "#c62828",
-        "SLEEPY": "#6a1b9a",
-    }
-    color = palette.get(mood, "#263238")
-
-    if mood == "HAPPY":
-        eyes, mouth = "^   ^", "◡"
-    elif mood == "CONFUSED":
-        eyes, mouth = "•   •", "︵"
-    elif mood == "ALERT":
-        eyes, mouth = "○   ○", "o"
-    elif mood == "SLEEPY":
-        eyes, mouth = "—   —", "ᴗ"
-    elif mood == "THINKING":
-        eyes, mouth = "◔   ◔", "—"
-    elif mood == "LISTENING":
-        eyes, mouth = "◉   ◉", "—"
-    else:
-        eyes, mouth = "●   ●", "ᴗ"
-
-    return f"""
-    <div class="haru-wrap">
-        <div class="haru-face" style="border-color:{color}; color:{color};">
-            <div class="eyes">{eyes}</div>
-            <div class="mouth">{mouth}</div>
-        </div>
-    </div>
-    """
 
 
 @st.cache_data(ttl=900, show_spinner=False)
@@ -884,35 +941,23 @@ st.markdown(
           font-size:.9rem;
           margin:.15rem 0 .45rem 0;
       }
-      .haru-wrap {
+      .haru-cat-wrap {
           display:flex;
           justify-content:center;
-          margin:.45rem 0 .55rem;
-      }
-      .haru-face {
-          width:182px;
-          height:182px;
-          border:7px solid;
-          border-radius:50%;
-          display:flex;
-          flex-direction:column;
           align-items:center;
-          justify-content:center;
-          box-shadow:0 6px 22px rgba(0,0,0,.07);
-          animation:breathe 2.2s ease-in-out infinite alternate;
+          margin:.25rem 0 .1rem;
       }
-      .eyes {
-          font-size:1.9rem;
-          font-weight:800;
-          letter-spacing:.35rem;
-          line-height:1;
+      .haru-cat {
+          width:245px;
+          max-width:72vw;
+          height:auto;
+          display:block;
+          animation:haru-breathe 2.6s ease-in-out infinite alternate;
       }
-      .mouth {
-          font-size:2.25rem;
-          margin-top:.7rem;
-          line-height:1;
+      @keyframes haru-breathe {
+          from { transform:translateY(0) scale(.995); }
+          to { transform:translateY(-2px) scale(1.005); }
       }
-      @keyframes breathe { from { transform:scale(.99); } to { transform:scale(1.01); } }
       .status {
           text-align:center;
           font-size:.72rem;
@@ -953,13 +998,6 @@ st.markdown(
       button, input, textarea, select {
           box-shadow:none !important;
       }
-      .stImage img {
-          max-width:260px;
-          margin:0 auto;
-          display:block;
-          border-radius:0;
-          filter:none;
-      }
       .history-track {
           padding:.72rem .9rem;
           border:1px solid rgba(127,127,127,.22);
@@ -990,9 +1028,7 @@ st.markdown(
       @media (max-width: 640px) {
           .block-container { padding-top: 2.4rem; }
           .haru-title { font-size:1.8rem; }
-          .haru-face { width:165px; height:165px; border-width:6px; }
-          .eyes { font-size:1.75rem; }
-          .mouth { font-size:2rem; }
+          .haru-cat { width:220px; max-width:78vw; }
       }
     </style>
     """,
@@ -1011,7 +1047,6 @@ assistant_tab, news_tab = st.tabs(["Assistant", "News"])
 with assistant_tab:
     render_haru_mascot(st.session_state.mood)
     st.markdown(f'<div class="status">{st.session_state.mood}</div>', unsafe_allow_html=True)
-    render_haru_theme_control()
     safe_reply = html.escape(str(st.session_state.message)).replace("\n", "<br>")
     st.markdown(f'<div class="reply">{safe_reply}</div>', unsafe_allow_html=True)
 
@@ -1666,4 +1701,4 @@ with st.expander("Developer panel"):
             st.write(f"**You:** {q}")
             st.write(f"**HARU:** {a}")
 
-st.markdown("<div class=\"footer\">HARU Lab v2.4 • line-art mascot + quiet theme + communication tracker</div>", unsafe_allow_html=True)
+st.markdown("<div class=\"footer\">HARU Lab v2.5 • mood-responsive line-art cat + communication tracker</div>", unsafe_allow_html=True)
