@@ -30,6 +30,9 @@ import io.haru.assistant.content.AndroidHazardBundle
 import io.haru.assistant.content.AndroidHazardService
 import io.haru.assistant.content.AndroidNewsBundle
 import io.haru.assistant.content.AndroidNewsService
+import io.haru.assistant.location.HaruLiveLocationManager
+import io.haru.assistant.location.LiveLocationSession
+import io.haru.assistant.location.LiveMonitorSession
 import io.haru.assistant.location.TrustedLocation
 import io.haru.assistant.location.TrustedLocationManager
 import io.haru.assistant.onlineai.AndroidOnlineAiManager
@@ -39,6 +42,9 @@ import io.haru.assistant.ui.HaruScreen
 import io.haru.assistant.ui.HaruTheme
 import io.haru.assistant.update.AndroidAppUpdateManager
 import io.haru.assistant.voice.HaruVoiceController
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.text.DateFormat
 import java.util.Date
@@ -53,6 +59,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
     private lateinit var newsService: AndroidNewsService
     private lateinit var hazardService: AndroidHazardService
     private lateinit var trustedLocationManager: TrustedLocationManager
+    private lateinit var liveLocationManager: HaruLiveLocationManager
     private lateinit var appUpdateManager: AndroidAppUpdateManager
 
     private var pendingVoiceStart = false
@@ -84,6 +91,19 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
     private var locationShareMapUrl by mutableStateOf("")
     private var mapLocationStatus by mutableStateOf("")
     private var awaitingLocationSettings = false
+
+    private var liveShareSession: LiveLocationSession? = null
+    private var liveMonitorSession: LiveMonitorSession? = null
+    private var liveTrackedLocation by mutableStateOf<TrustedLocation?>(null)
+    private var liveTrackingStatus by mutableStateOf("")
+    private var liveShareActive by mutableStateOf(false)
+    private var liveMonitorActive by mutableStateOf(false)
+    private var liveShareSeq = 0L
+    private var liveShareLocationListener: LocationListener? = null
+    private var liveMonitorJob: Job? = null
+    private var liveUploadBusy = false
+    private var lastLiveUploadAt = 0L
+    private var lastLiveUploadedLocation: Location? = null
 
     private enum class LocationRequestPurpose {
         NONE,
@@ -150,6 +170,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
         newsService = AndroidNewsService()
         hazardService = AndroidHazardService()
         trustedLocationManager = TrustedLocationManager(applicationContext)
+        liveLocationManager = HaruLiveLocationManager()
         appUpdateManager = AndroidAppUpdateManager()
 
         companionSnapshot = companionStore.load()
@@ -186,6 +207,10 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
                     locationShareCode = locationShareCode,
                     locationShareMapUrl = locationShareMapUrl,
                     mapLocationStatus = mapLocationStatus,
+                    liveTrackedLocation = liveTrackedLocation,
+                    liveTrackingStatus = liveTrackingStatus,
+                    liveShareActive = liveShareActive,
+                    liveMonitorActive = liveMonitorActive,
                     onSubmitClick = {
                         submitWithAi(haruViewModel, speakResult = false)
                     },
@@ -207,6 +232,8 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
                     onCreateLocationShare = ::requestLocationShare,
                     onShareLocation = ::shareLocationText,
                     onImportLocationShare = ::importLocationShare,
+                    onStopLiveShare = ::stopLiveSharing,
+                    onStopLiveMonitor = ::stopLiveMonitoring,
                     onClearTrustedLocations = ::clearTrustedLocations,
                 )
             }
@@ -735,24 +762,34 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
     }
 
     private fun finishLocationShare(location: Location) {
-        runCatching {
-            trustedLocationManager.createShareBundle(
-                name = pendingShareName,
-                latitude = location.latitude,
-                longitude = location.longitude,
-                accuracyM = location.accuracy.toDouble(),
-                expiresMinutes = pendingShareMinutes,
-            )
-        }.onSuccess { bundle ->
-            locationShareCode = bundle.shareText
-            locationShareMapUrl = bundle.googleMapsUrl
-            onlineStatus =
-                "Location snapshot ready to share."
-        }.onFailure {
-            locationShareCode = ""
-            locationShareMapUrl = ""
-            onlineStatus =
-                it.message ?: "Could not create location share."
+        lifecycleScope.launch {
+            liveTrackingStatus = "Creating secure live share…"
+
+            runCatching {
+                liveLocationManager.create(
+                    name = pendingShareName,
+                    latitude = location.latitude,
+                    longitude = location.longitude,
+                    accuracyM = location.accuracy.toDouble(),
+                    expiresMinutes = pendingShareMinutes,
+                )
+            }.onSuccess { bundle ->
+                liveShareSession = bundle.session
+                liveShareSeq = bundle.session.seq
+                locationShareCode = bundle.shareText
+                locationShareMapUrl = bundle.googleMapsUrl
+                liveShareActive = true
+                liveTrackingStatus =
+                    "Live sharing active · updates about every 4–12 seconds."
+                startLiveLocationPublisher()
+            }.onFailure {
+                liveShareSession = null
+                liveShareActive = false
+                locationShareCode = ""
+                locationShareMapUrl = ""
+                liveTrackingStatus =
+                    it.message ?: "Could not create live location share."
+            }
         }
     }
 
@@ -775,6 +812,12 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
 
     private fun importLocationShare(code: String) {
         if (code.isBlank()) return
+
+        liveLocationManager.parseLiveCode(code)?.let { monitor ->
+            startLiveMonitoring(monitor)
+            return
+        }
+
         runCatching {
             trustedLocationManager.importShareCode(code)
         }.onSuccess { item ->
@@ -782,7 +825,235 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
             onlineStatus =
                 "Shared location added: " + item.name
         }.onFailure {
-            onlineStatus = it.message ?: "Could not import location share."
+            onlineStatus =
+                it.message ?: "Could not import location share."
+        }
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun startLiveLocationPublisher() {
+        val session = liveShareSession ?: return
+        if (!hasLocationPermission() || !isLocationServiceEnabled()) {
+            liveShareActive = false
+            liveTrackingStatus =
+                "Live share paused · location permission/service unavailable."
+            return
+        }
+
+        val manager =
+            getSystemService(Context.LOCATION_SERVICE) as LocationManager
+
+        liveShareLocationListener?.let {
+            runCatching { manager.removeUpdates(it) }
+        }
+
+        val provider =
+            if (runCatching {
+                    manager.isProviderEnabled(
+                        LocationManager.GPS_PROVIDER
+                    )
+                }.getOrDefault(false)
+            ) {
+                LocationManager.GPS_PROVIDER
+            } else {
+                LocationManager.NETWORK_PROVIDER
+            }
+
+        val listener = object : LocationListener {
+            override fun onLocationChanged(location: Location) {
+                if (!liveShareActive) return
+                if (
+                    location.latitude !in -90.0..90.0 ||
+                    location.longitude !in -180.0..180.0
+                ) {
+                    return
+                }
+
+                val now = System.currentTimeMillis()
+                val previous = lastLiveUploadedLocation
+                val movedM =
+                    previous?.distanceTo(location) ?: Float.MAX_VALUE
+                val accuracyImproved =
+                    previous != null &&
+                        previous.accuracy - location.accuracy >=
+                            LIVE_ACCURACY_IMPROVEMENT_M
+                val heartbeatDue =
+                    now - lastLiveUploadAt >=
+                        LIVE_HEARTBEAT_INTERVAL_MS
+                val normalDue =
+                    now - lastLiveUploadAt >=
+                        LIVE_UPLOAD_MIN_INTERVAL_MS
+
+                if (
+                    liveUploadBusy ||
+                    (!heartbeatDue &&
+                        !(normalDue &&
+                            (
+                                movedM >= LIVE_MIN_MOVE_M ||
+                                    accuracyImproved
+                                )
+                            )
+                        )
+                ) {
+                    return
+                }
+
+                liveUploadBusy = true
+                lifecycleScope.launch {
+                    runCatching {
+                        liveLocationManager.update(
+                            session = session,
+                            latitude = location.latitude,
+                            longitude = location.longitude,
+                            accuracyM = location.accuracy.toDouble(),
+                            expectedSeq = liveShareSeq,
+                        )
+                    }.onSuccess { nextSeq ->
+                        liveShareSeq = nextSeq
+                        lastLiveUploadAt =
+                            System.currentTimeMillis()
+                        lastLiveUploadedLocation =
+                            Location(location)
+                        liveTrackingStatus =
+                            "Live sharing · ±" +
+                                location.accuracy.toInt() +
+                                " m · updated now"
+                    }.onFailure {
+                        liveTrackingStatus =
+                            "Live share retrying · " +
+                                (it.message ?: "network unavailable")
+                    }
+                    liveUploadBusy = false
+                }
+            }
+
+            override fun onProviderDisabled(provider: String) {
+                liveTrackingStatus =
+                    "Live share paused · phone location is off."
+            }
+
+            override fun onProviderEnabled(provider: String) = Unit
+        }
+
+        liveShareLocationListener = listener
+
+        runCatching {
+            manager.requestLocationUpdates(
+                provider,
+                LIVE_LOCATION_SAMPLE_MS,
+                LIVE_MIN_MOVE_M,
+                listener,
+                Looper.getMainLooper(),
+            )
+        }.onFailure {
+            liveShareLocationListener = null
+            liveShareActive = false
+            liveTrackingStatus =
+                "Could not start live location updates."
+        }
+    }
+
+    private fun stopLiveSharing() {
+        val session = liveShareSession
+        liveShareActive = false
+
+        val manager =
+            getSystemService(Context.LOCATION_SERVICE) as LocationManager
+        liveShareLocationListener?.let {
+            runCatching { manager.removeUpdates(it) }
+        }
+        liveShareLocationListener = null
+        lastLiveUploadedLocation = null
+        lastLiveUploadAt = 0L
+        liveUploadBusy = false
+
+        if (session != null) {
+            lifecycleScope.launch {
+                liveLocationManager.stop(session)
+            }
+        }
+
+        liveShareSession = null
+        locationShareCode = ""
+        locationShareMapUrl = ""
+        liveTrackingStatus = "Live sharing stopped."
+    }
+
+    private fun startLiveMonitoring(
+        monitor: LiveMonitorSession,
+    ) {
+        stopLiveMonitoring(clearStatus = false)
+        liveMonitorSession = monitor
+        liveMonitorActive = true
+        liveTrackingStatus = "Connecting to live location…"
+
+        liveMonitorJob = lifecycleScope.launch {
+            var retryDelay = LIVE_MONITOR_INTERVAL_MS
+
+            while (
+                isActive &&
+                liveMonitorActive &&
+                liveMonitorSession == monitor
+            ) {
+                val result = runCatching {
+                    liveLocationManager.read(monitor)
+                }
+
+                result.onSuccess { snapshot ->
+                    val ageMs =
+                        System.currentTimeMillis() -
+                            snapshot.capturedAt
+
+                    liveTrackedLocation = TrustedLocation(
+                        id = "haru-live-" +
+                            snapshot.sessionId,
+                        name = snapshot.name,
+                        latitude = snapshot.latitude,
+                        longitude = snapshot.longitude,
+                        accuracyM = snapshot.accuracyM,
+                        expiresAt = snapshot.expiresAt,
+                    )
+
+                    liveTrackingStatus =
+                        when {
+                            ageMs <= LIVE_STALE_AFTER_MS ->
+                                "Live · updated " +
+                                    (ageMs / 1000L).coerceAtLeast(0L) +
+                                    "s ago"
+                            else ->
+                                "Live share is stale · last update " +
+                                    (ageMs / 1000L) +
+                                    "s ago"
+                        }
+
+                    retryDelay = LIVE_MONITOR_INTERVAL_MS
+                }.onFailure {
+                    liveTrackingStatus =
+                        it.message ?: "Live location temporarily unavailable."
+                    retryDelay =
+                        (retryDelay * 2L)
+                            .coerceAtMost(
+                                LIVE_MONITOR_MAX_RETRY_MS
+                            )
+                }
+
+                delay(retryDelay)
+            }
+        }
+    }
+
+    private fun stopLiveMonitoring(
+        clearStatus: Boolean = true,
+    ) {
+        liveMonitorActive = false
+        liveMonitorJob?.cancel()
+        liveMonitorJob = null
+        liveMonitorSession = null
+        liveTrackedLocation = null
+
+        if (clearStatus) {
+            liveTrackingStatus =
+                "Live monitoring stopped."
         }
     }
 
@@ -932,6 +1203,24 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
             requestOrCaptureLocation()
         }
 
+        if (
+            liveShareActive &&
+            liveShareSession != null &&
+            liveShareLocationListener == null
+        ) {
+            startLiveLocationPublisher()
+        }
+
+        if (
+            liveMonitorActive &&
+            liveMonitorSession != null &&
+            liveMonitorJob == null
+        ) {
+            startLiveMonitoring(
+                liveMonitorSession!!
+            )
+        }
+
         if (::companionStore.isInitialized) {
             companionSnapshot = companionStore.load()
         }
@@ -962,26 +1251,45 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
         voiceController.releaseTransientResources()
         currentDeviceLocation = null
         mapLocationStatus = ""
-        locationShareCode = ""
-        locationShareMapUrl = ""
         mapGpsActive = false
 
         if (::trustedLocationManager.isInitialized) {
             val manager =
                 getSystemService(Context.LOCATION_SERVICE) as LocationManager
+
             activeLocationListener?.let {
                 runCatching { manager.removeUpdates(it) }
             }
             activeLocationListener = null
-            mainHandler.removeCallbacksAndMessages(LOCATION_TIMEOUT_TOKEN)
+
+            liveShareLocationListener?.let {
+                runCatching { manager.removeUpdates(it) }
+            }
+            liveShareLocationListener = null
+
+            liveMonitorJob?.cancel()
+            liveMonitorJob = null
+
+            mainHandler.removeCallbacksAndMessages(
+                LOCATION_TIMEOUT_TOKEN
+            )
             pendingLocationPurpose =
                 LocationRequestPurpose.NONE
+        }
+
+        if (liveShareActive) {
+            liveTrackingStatus =
+                "Live share paused while HARU is in the background."
+        } else if (liveMonitorActive) {
+            liveTrackingStatus =
+                "Live monitoring paused while HARU is in the background."
         }
 
         super.onStop()
     }
 
     override fun onDestroy() {
+        liveMonitorJob?.cancel()
         mainHandler.removeCallbacksAndMessages(null)
         voiceController.shutdown()
         super.onDestroy()
@@ -1001,6 +1309,16 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
         private const val SHARE_MAX_ACCURACY_M = 80f
         private const val MAP_CACHE_PREVIEW_MAX_AGE_MS = 120_000L
         private const val SHARE_CACHE_MAX_AGE_MS = 30_000L
+
+        private const val LIVE_LOCATION_SAMPLE_MS = 2_000L
+        private const val LIVE_UPLOAD_MIN_INTERVAL_MS = 4_000L
+        private const val LIVE_HEARTBEAT_INTERVAL_MS = 12_000L
+        private const val LIVE_MONITOR_INTERVAL_MS = 4_000L
+        private const val LIVE_MONITOR_MAX_RETRY_MS = 20_000L
+        private const val LIVE_STALE_AFTER_MS = 15_000L
+        private const val LIVE_MIN_MOVE_M = 2.5f
+        private const val LIVE_ACCURACY_IMPROVEMENT_M = 5f
+
         private val LOCATION_TIMEOUT_TOKEN = Any()
 
         private const val SYSTEM_PROMPT =
