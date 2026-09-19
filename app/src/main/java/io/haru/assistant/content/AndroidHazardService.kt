@@ -58,8 +58,8 @@ class AndroidHazardService {
             noah = listOf(
                 AndroidHazardItem(
                     source = "UP NOAH",
-                    title = "Local hazard map",
-                    summary = "Check flood, landslide, and storm-surge susceptibility for a location.",
+                    title = "UP NOAH Studio",
+                    summary = "Open the current UP NOAH hazard viewer for flood, landslide, storm-surge, and related hazard layers.",
                     url = NOAH_HAZARD,
                 )
             ),
@@ -300,6 +300,6 @@ class AndroidHazardService {
         const val PAGASA_WEEKLY =
             "https://bagong.pagasa.dost.gov.ph/weather/weekly-weather-outlook"
         const val PHIVOLCS_EQ = "https://earthquake.phivolcs.dost.gov.ph/"
-        const val NOAH_HAZARD = "https://noah.up.edu.ph/know-your-hazards"
+        const val NOAH_HAZARD = "https://noah.up.edu.ph/noah-studio"
     }
 }
