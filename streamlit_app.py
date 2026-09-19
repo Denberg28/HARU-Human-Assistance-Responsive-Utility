@@ -1,4 +1,5 @@
 from datetime import datetime
+import html
 import re
 
 import streamlit as st
@@ -266,6 +267,45 @@ def ai_status_html(state: str, message: str) -> str:
     """
 
 
+def active_model_display_name() -> str:
+    if not ai_is_active():
+        return "Local tools"
+
+    model = st.session_state.get("ai_applied_model", "").strip()
+    provider = st.session_state.get("ai_applied_provider", "").strip()
+
+    friendly = {
+        "gpt-5.6-sol": "GPT-5.6 Sol",
+        "gpt-5.6-terra": "GPT-5.6 Terra",
+        "gpt-5.6-luna": "GPT-5.6 Luna",
+        "gemini-3.8-flash": "Gemini 3.8 Flash",
+        "gemini-3.7-flash": "Gemini 3.7 Flash",
+        "gemini-3.6-flash": "Gemini 3.6 Flash",
+        "gemini-3.5-flash": "Gemini 3.5 Flash",
+        "gemini-3.5-flash-lite": "Gemini 3.5 Flash-Lite",
+        "gemini-3.1-flash-lite": "Gemini 3.1 Flash-Lite",
+        "gemini-3.1-pro-preview": "Gemini 3.1 Pro Preview",
+        "claude-fable-5": "Claude Fable 5",
+        "claude-opus-5": "Claude Opus 5",
+        "claude-sonnet-5": "Claude Sonnet 5",
+        "claude-haiku-4-5-20251001": "Claude Haiku 4.5",
+        "google/gemma-4-E4B-it": "Gemma 4 E4B",
+        "google/gemma-4-E2B-it": "Gemma 4 E2B",
+        "Qwen/Qwen3-4B": "Qwen3 4B",
+        "microsoft/Phi-4-mini-instruct": "Phi-4 Mini",
+        "phone-local": "Phone Local",
+    }
+
+    if model in friendly:
+        return friendly[model]
+
+    if model:
+        cleaned = model.split("/")[-1].replace("_", " ")
+        return cleaned
+
+    return provider or "Connected AI"
+
+
 def face_html(mood: str):
     palette = {
         "IDLE": "#263238",
@@ -348,7 +388,18 @@ st.markdown(
     """
     <style>
       .block-container { max-width: 760px; padding-top: 1.5rem; }
-      .haru-title { text-align:center; font-size:2.2rem; font-weight:800; margin-bottom:.1rem; }
+      .haru-title {
+          text-align:center; font-size:2.2rem; font-weight:800; margin-bottom:.1rem;
+          display:flex; align-items:center; justify-content:center; gap:.55rem; flex-wrap:wrap;
+      }
+      .model-badge {
+          display:inline-flex; align-items:center;
+          font-size:.78rem; font-weight:700;
+          padding:.28rem .55rem; border-radius:999px;
+          background:rgba(127,127,127,.12);
+          border:1px solid rgba(127,127,127,.22);
+          letter-spacing:.01rem;
+      }
       .haru-sub { text-align:center; opacity:.62; margin-bottom:1rem; }
       .haru-wrap { display:flex; justify-content:center; margin: 1rem 0 1.2rem; }
       .haru-face {
@@ -369,7 +420,11 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-st.markdown('<div class="haru-title">HARU</div>', unsafe_allow_html=True)
+model_badge = html.escape(active_model_display_name())
+st.markdown(
+    f'<div class="haru-title">HARU <span class="model-badge">{model_badge}</span></div>',
+    unsafe_allow_html=True,
+)
 st.markdown('<div class="haru-sub">Human Assistance & Responsive Utility</div>', unsafe_allow_html=True)
 
 assistant_tab, news_tab = st.tabs(["Assistant", "News"])
@@ -378,14 +433,6 @@ with assistant_tab:
     st.markdown(face_html(st.session_state.mood), unsafe_allow_html=True)
     st.markdown(f'<div class="status">{st.session_state.mood}</div>', unsafe_allow_html=True)
     st.markdown(f'<div class="reply">{st.session_state.message}</div>', unsafe_allow_html=True)
-
-    if ai_is_active():
-        st.caption(
-            f"🟢 HARU brain: {st.session_state.ai_applied_provider} · "
-            f"{st.session_state.ai_applied_model}"
-        )
-    else:
-        st.caption("⚪ HARU brain: local tools only — connect a model in AI selector")
 
     with st.form("haru_command", clear_on_submit=True):
         command = st.text_input("Ask HARU", placeholder="Try: latest news or calculate 22.2 * 60")
@@ -781,4 +828,4 @@ with st.expander("Developer panel"):
             st.write(f"**You:** {q}")
             st.write(f"**HARU:** {a}")
 
-st.markdown("<div class=\"footer\">HARU Lab v0.6 • connected AI becomes HARU's primary brain</div>", unsafe_allow_html=True)
+st.markdown("<div class=\"footer\">HARU Lab v0.7 • active model shown in HARU header</div>", unsafe_allow_html=True)
