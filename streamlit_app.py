@@ -19,6 +19,7 @@ from ai_runtime import (
     ask_ai,
     list_ollama_models,
     list_openai_compatible_models,
+    pull_ollama_model,
     test_ai,
 )
 from news_service import (
@@ -1266,64 +1267,121 @@ with st.expander("AI selector"):
 
             if is_cloud_haru():
                 st.warning(
-                    "This HARU is running on Streamlit Cloud, so localhost points to the cloud server—not your Windows PC. "
-                    "Your Ollama installation is working, but this cloud copy cannot reach it."
+                    "Local AI setup is only available in HARU Local because Streamlit Cloud cannot access your PC."
                 )
                 st.code(".\\run_haru_local.bat", language="powershell")
                 st.caption(
-                    "Run the launcher from a local copy of the HARU repository. "
-                    "Then open http://localhost:8501 and choose Local → Ollama."
+                    "Run the launcher on your Windows PC. HARU Local will help start Ollama and install a model."
                 )
             else:
-                if st.button(
-                    "Connect Ollama on this PC",
-                    type="primary",
-                    use_container_width=True,
-                    key="ollama_quick_connect",
-                ):
+                st.markdown("##### Local AI setup")
+                st.caption(
+                    "HARU can detect Ollama, help you choose a model, download it locally, and connect it."
+                )
+
+                ollama_online = False
+                try:
+                    detected_models = list_ollama_models(st.session_state.ai_endpoint, timeout_s=2)
+                    st.session_state["ollama_models"] = detected_models
+                    ollama_online = True
+                    st.success("Ollama is running on this PC.")
+                except AiRuntimeError:
+                    st.warning(
+                        "Ollama is not reachable yet. Install/start Ollama, then press Check again."
+                    )
+                    st.code("winget install Ollama.Ollama", language="powershell")
+                    st.code("ollama serve", language="powershell")
+
+                if st.button("Check Ollama again", use_container_width=True, key="ollama_check"):
                     try:
-                        names = list_ollama_models(st.session_state.ai_endpoint)
+                        names = list_ollama_models(st.session_state.ai_endpoint, timeout_s=3)
                         st.session_state["ollama_models"] = names
-
-                        if not names:
-                            st.session_state.ai_connection_state = "FAILED"
-                            st.session_state.ai_connection_message = (
-                                "Ollama is reachable, but no models are installed."
-                            )
-                            st.session_state.ai_status = "No Ollama models installed."
-                            st.rerun()
-
-                        chosen = choose_ollama_model(names)
-                        st.session_state.ai_model = chosen
-                        candidate = AiConfig(
-                            mode="Local",
-                            provider="Ollama",
-                            model=chosen,
-                            endpoint=st.session_state.ai_endpoint,
-                            api_key="",
-                            timeout_s=25,
-                        )
-
-                        result = test_ai(candidate)
-                        st.session_state.ai_applied_mode = "Local"
-                        st.session_state.ai_applied_provider = "Ollama"
-                        st.session_state.ai_applied_model = chosen
-                        st.session_state.ai_applied_endpoint = st.session_state.ai_endpoint
-                        st.session_state.ai_applied_signature = ai_config_signature(candidate)
-                        st.session_state.ai_connection_state = "CONNECTED"
-                        st.session_state.ai_runtime_degraded = False
-                        st.session_state.ai_runtime_degraded_reason = ""
-                        st.session_state.ai_connection_message = f"Ollama connected. {chosen} is now HARU."
-                        st.session_state.ai_status = result
-                        st.rerun()
+                        st.session_state.ai_status = f"Ollama ready · {len(names)} installed model(s)."
                     except AiRuntimeError as exc:
-                        st.session_state.ai_connection_state = "FAILED"
-                        st.session_state.ai_connection_message = (
-                            "HARU could not reach Ollama at http://localhost:11434. "
-                            "Confirm Ollama is running, then try again."
-                        )
-                        st.session_state.ai_status = str(exc)
-                        st.rerun()
+                        st.session_state.ai_status = f"Ollama not reachable: {exc}"
+                    st.rerun()
+
+                if ollama_online:
+                    model_presets = {
+                        "Lightweight — qwen3:4b": "qwen3:4b",
+                        "Balanced — qwen3:8b": "qwen3:8b",
+                        "Reasoning — gemma3:12b": "gemma3:12b",
+                        "Custom model name…": "",
+                    }
+                    preset_label = st.selectbox(
+                        "Model to install",
+                        list(model_presets.keys()),
+                        help="Start with 4B on modest PCs, 8B for a stronger balance, or choose a custom Ollama model.",
+                    )
+                    model_to_pull = model_presets[preset_label]
+                    if not model_to_pull:
+                        model_to_pull = st.text_input(
+                            "Custom Ollama model",
+                            placeholder="e.g. llama3.2:3b",
+                            help="Use an Ollama model name from the Ollama library.",
+                        ).strip()
+
+                    pull_col, connect_col = st.columns(2)
+                    with pull_col:
+                        if st.button(
+                            "Download model",
+                            use_container_width=True,
+                            disabled=not bool(model_to_pull),
+                        ):
+                            with st.spinner(f"Downloading {model_to_pull}… This can take several minutes."):
+                                try:
+                                    pull_ollama_model(
+                                        st.session_state.ai_endpoint,
+                                        model_to_pull,
+                                    )
+                                    names = list_ollama_models(st.session_state.ai_endpoint)
+                                    st.session_state["ollama_models"] = names
+                                    st.session_state.ai_model = model_to_pull
+                                    st.session_state.ai_status = f"Installed {model_to_pull}."
+                                    st.success(f"{model_to_pull} is installed.")
+                                except AiRuntimeError as exc:
+                                    st.error(f"Download failed: {exc}")
+
+                    with connect_col:
+                        if st.button(
+                            "Auto-connect best installed",
+                            type="primary",
+                            use_container_width=True,
+                        ):
+                            try:
+                                names = list_ollama_models(st.session_state.ai_endpoint)
+                                if not names:
+                                    st.session_state.ai_status = "Install a model first."
+                                    st.rerun()
+
+                                chosen = choose_ollama_model(names)
+                                st.session_state.ai_model = chosen
+                                candidate = AiConfig(
+                                    mode="Local",
+                                    provider="Ollama",
+                                    model=chosen,
+                                    endpoint=st.session_state.ai_endpoint,
+                                    api_key="",
+                                    timeout_s=25,
+                                )
+
+                                result = test_ai(candidate)
+                                st.session_state.ai_applied_mode = "Local"
+                                st.session_state.ai_applied_provider = "Ollama"
+                                st.session_state.ai_applied_model = chosen
+                                st.session_state.ai_applied_endpoint = st.session_state.ai_endpoint
+                                st.session_state.ai_applied_signature = ai_config_signature(candidate)
+                                st.session_state.ai_connection_state = "CONNECTED"
+                                st.session_state.ai_runtime_degraded = False
+                                st.session_state.ai_runtime_degraded_reason = ""
+                                st.session_state.ai_connection_message = f"Ollama connected. {chosen} is now HARU."
+                                st.session_state.ai_status = result
+                                st.rerun()
+                            except AiRuntimeError as exc:
+                                st.session_state.ai_connection_state = "FAILED"
+                                st.session_state.ai_connection_message = str(exc)
+                                st.session_state.ai_status = str(exc)
+                                st.rerun()
 
                 discovered = st.session_state.get("ollama_models", [])
                 if not discovered:
@@ -1726,4 +1784,4 @@ if os.environ.get("HARU_DEBUG", "").strip() == "1":
                 st.write(f"**You:** {q}")
                 st.write(f"**HARU:** {a}")
 
-st.markdown("<div class=\"footer\">HARU Lab v3.3 • packaging candidate</div>", unsafe_allow_html=True)
+st.markdown("<div class=\"footer\">HARU Lab v3.4 • guided local AI setup</div>", unsafe_allow_html=True)
