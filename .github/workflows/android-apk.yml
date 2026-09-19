@@ -62,10 +62,10 @@ jobs:
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: HARU-v0.3.1-arm64
+          name: HARU-v0.3.2-arm64
           path: |
-            HARU-v0.3.1-arm64.apk
-            HARU-v0.3.1-arm64.apk.sha256
+            HARU-v0.3.2-arm64.apk
+            HARU-v0.3.2-arm64.apk.sha256
           if-no-files-found: error
           retention-days: 14
 
@@ -75,7 +75,7 @@ jobs:
         shell: bash
         run: |
           TAG="v$VERSION"
-          NOTES="HARU Android $TAG: local AI removed, live Gemini refresh, OpenStreetMap, stable PAGASA viewer, low-battery cleanup, and repaired in-app updates."
+          NOTES="HARU Android $TAG: normal browser-based APK updates, no package-install permission, native MapLibre map, summarized PAGASA weather, live Gemini refresh, and low-battery cleanup."
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" "$APK" "$APK.sha256" --clobber
             gh release edit "$TAG" --title "HARU $TAG" --notes "$NOTES" --latest
