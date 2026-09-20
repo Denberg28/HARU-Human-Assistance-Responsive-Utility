@@ -2,6 +2,8 @@ package io.haru.assistant
 
 import android.Manifest
 import android.annotation.SuppressLint
+import android.appwidget.AppWidgetManager
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -25,8 +27,8 @@ import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.haru.assistant.companion.AndroidCompanionStore
 import io.haru.assistant.companion.CompanionSnapshot
-import io.haru.assistant.companion.CompanionStatusNotifier
-import io.haru.assistant.companion.CompanionStatusStore
+import io.haru.assistant.companion.HaruBubbleStore
+import io.haru.assistant.companion.HaruBubbleWidgetProvider
 import io.haru.assistant.companion.ReminderScheduler
 import io.haru.assistant.core.CompanionMode
 import io.haru.assistant.core.CompanionModeStore
@@ -61,7 +63,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
     private lateinit var onlineAiManager: AndroidOnlineAiManager
     private lateinit var companionStore: AndroidCompanionStore
     private lateinit var companionModeStore: CompanionModeStore
-    private lateinit var companionStatusStore: CompanionStatusStore
+    private lateinit var haruBubbleStore: HaruBubbleStore
     private lateinit var trustedLocationManager: TrustedLocationManager
     private lateinit var liveLocationManager: HaruLiveLocationManager
     private lateinit var appUpdateManager: AndroidAppUpdateManager
@@ -73,7 +75,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
 
     private var companionSnapshot by mutableStateOf(CompanionSnapshot())
     private var companionMode by mutableStateOf(CompanionMode.NORMAL)
-    private var lockScreenCompanionEnabled by mutableStateOf(false)
+    private var haruBubbleEnabled by mutableStateOf(true)
 
     private var onlineProvider by mutableStateOf(OnlineProvider.ANTIGRAVITY)
     private var selectedGeminiModel by mutableStateOf(AndroidOnlineAiManager.FALLBACK_GEMINI_MODEL)
@@ -134,11 +136,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
         }
 
     private val notificationPermissionLauncher =
-        registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-            if (granted && lockScreenCompanionEnabled) {
-                refreshCompanionStatus()
-            }
-        }
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
 
     private val locationPermissionLauncher =
         registerForActivityResult(
@@ -177,7 +175,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
         onlineAiManager = AndroidOnlineAiManager(applicationContext)
         companionStore = AndroidCompanionStore(applicationContext)
         companionModeStore = CompanionModeStore(applicationContext)
-        companionStatusStore = CompanionStatusStore(applicationContext)
+        haruBubbleStore = HaruBubbleStore(applicationContext)
         trustedLocationManager = TrustedLocationManager(applicationContext)
         liveLocationManager = HaruLiveLocationManager()
         appUpdateManager = AndroidAppUpdateManager()
@@ -185,9 +183,9 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
 
         companionSnapshot = companionStore.load()
         companionMode = companionModeStore.load()
-        lockScreenCompanionEnabled = companionStatusStore.isEnabled()
+        haruBubbleEnabled = haruBubbleStore.isEnabled()
         cleanupLegacyStorageOnce()
-        refreshCompanionStatus()
+        refreshCompanionSurface()
         val onlineSettings = onlineAiManager.settings()
         onlineProvider = onlineSettings.provider
         selectedGeminiModel = onlineSettings.geminiModel
@@ -210,7 +208,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
                     viewModel = haruViewModel,
                     todayLines = companionSnapshot.todayLines(),
                     companionSnapshot = companionSnapshot,
-                    lockScreenCompanionEnabled = lockScreenCompanionEnabled,
+                    haruBubbleEnabled = haruBubbleEnabled,
                     onlineProvider = onlineProvider,
                     selectedGeminiModel = selectedGeminiModel,
                     geminiModels = geminiModels,
@@ -238,9 +236,8 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
                     onAddCompanionTask = ::addCompanionTask,
                     onUpdateCompanionTask = ::updateCompanionTask,
                     onDeleteCompanionTask = ::deleteCompanionTask,
-                    onSetLockScreenCompanion = ::setLockScreenCompanion,
-                    onOpenLockScreenNotificationSettings = ::openLockScreenNotificationSettings,
-                    onTestLockScreenCompanion = ::testLockScreenCompanion,
+                    onRequestHaruBubble = ::requestHaruBubble,
+                    onToggleHaruBubble = ::toggleHaruBubble,
                     onSelectOnlineProvider = ::selectOnlineProvider,
                     onSelectGeminiModel = ::selectGeminiModel,
                     onRefreshGeminiModels = ::refreshGeminiModels,
@@ -261,8 +258,6 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
                 )
             }
         }
-
-        requestCompanionNotificationPermissionOnce()
     }
 
     private fun submitWithAi(
@@ -363,25 +358,16 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
         }
     }
 
-    private fun refreshCompanionStatus() {
-        if (!::companionStatusStore.isInitialized) return
-        val now = System.currentTimeMillis()
-        CompanionStatusNotifier.refresh(
-            context = applicationContext,
-            mode = companionMode,
-            openTasks = companionSnapshot.tasks.count { !it.done },
-            upcomingReminders =
-                companionSnapshot.reminders.count { it.dueAt > now },
-            liveShareEnabled = liveShareActive,
-            liveMonitorEnabled = liveMonitorActive,
-            todayLines = companionSnapshot.lockScreenLines(now),
+    private fun refreshCompanionSurface() {
+        HaruBubbleWidgetProvider.refreshAll(
+            applicationContext
         )
     }
 
     private fun addCompanionTask(text: String) {
         if (text.isBlank()) return
         companionSnapshot = companionStore.addTask(text)
-        refreshCompanionStatus()
+        refreshCompanionSurface()
     }
 
     private fun updateCompanionTask(
@@ -391,90 +377,56 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
         if (index !in companionSnapshot.tasks.indices) return
         companionSnapshot =
             companionStore.updateTask(index, text)
-        refreshCompanionStatus()
+        refreshCompanionSurface()
     }
 
     private fun deleteCompanionTask(index: Int) {
         if (index !in companionSnapshot.tasks.indices) return
         companionSnapshot =
             companionStore.deleteTask(index)
-        refreshCompanionStatus()
+        refreshCompanionSurface()
     }
 
     private fun selectCompanionMode(mode: CompanionMode) {
         companionMode = mode
         companionModeStore.save(mode)
-        refreshCompanionStatus()
+        refreshCompanionSurface()
         activeViewModel?.completeAi(
             mode.activationMessage,
             success = true,
         )
     }
 
-    private fun setLockScreenCompanion(enabled: Boolean) {
-        lockScreenCompanionEnabled = enabled
-        companionStatusStore.setEnabled(enabled)
+    private fun toggleHaruBubble() {
+        haruBubbleEnabled = !haruBubbleEnabled
+        haruBubbleStore.setEnabled(haruBubbleEnabled)
+        refreshCompanionSurface()
+    }
 
-        if (!enabled) {
-            CompanionStatusNotifier.cancel(applicationContext)
-            return
-        }
+    private fun requestHaruBubble() {
+        val manager =
+            AppWidgetManager.getInstance(this)
+        val provider =
+            ComponentName(
+                this,
+                HaruBubbleWidgetProvider::class.java,
+            )
 
         if (
-            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-            ContextCompat.checkSelfPermission(
-                this,
-                Manifest.permission.POST_NOTIFICATIONS,
-            ) != PackageManager.PERMISSION_GRANTED
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
+            manager.isRequestPinAppWidgetSupported
         ) {
-            notificationPermissionLauncher.launch(
-                Manifest.permission.POST_NOTIFICATIONS
+            manager.requestPinAppWidget(
+                provider,
+                null,
+                null,
             )
-            return
-        }
-
-        refreshCompanionStatus()
-    }
-
-    private fun testLockScreenCompanion() {
-        if (!lockScreenCompanionEnabled) {
-            setLockScreenCompanion(true)
         } else {
-            refreshCompanionStatus()
+            activeViewModel?.completeAi(
+                "Add the HARU widget from your launcher’s Widgets menu, then place it where you want on the Home screen.",
+                success = true,
+            )
         }
-    }
-
-    private fun openLockScreenNotificationSettings() {
-        val intent =
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                Intent(Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS).apply {
-                    putExtra(
-                        Settings.EXTRA_APP_PACKAGE,
-                        packageName,
-                    )
-                    putExtra(
-                        Settings.EXTRA_CHANNEL_ID,
-                        CompanionStatusNotifier.CHANNEL_ID,
-                    )
-                }
-            } else {
-                Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
-                    putExtra(
-                        Settings.EXTRA_APP_PACKAGE,
-                        packageName,
-                    )
-                }
-            }
-
-        runCatching { startActivity(intent) }
-            .onFailure {
-                startActivity(
-                    Intent(
-                        Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
-                        Uri.parse("package:$packageName"),
-                    )
-                )
-            }
     }
 
     private fun resetConversationMemory(
@@ -979,7 +931,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
                 locationShareCode = bundle.shareText
                 locationShareMapUrl = bundle.googleMapsUrl
                 liveShareActive = true
-                refreshCompanionStatus()
+                refreshCompanionSurface()
                 liveTrackingStatus =
                     "Live sharing active · updates about every 4–12 seconds."
                 startLiveLocationPublisher()
@@ -1175,7 +1127,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
         }
 
         liveShareSession = null
-        refreshCompanionStatus()
+        refreshCompanionSurface()
         locationShareCode = ""
         locationShareMapUrl = ""
         liveTrackingStatus = "Live sharing stopped."
@@ -1187,7 +1139,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
         stopLiveMonitoring(clearStatus = false)
         liveMonitorSession = monitor
         liveMonitorActive = true
-        refreshCompanionStatus()
+        refreshCompanionSurface()
         liveTrackingStatus = "Connecting to live location…"
 
         liveMonitorJob = lifecycleScope.launch {
@@ -1253,7 +1205,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
         liveMonitorJob = null
         liveMonitorSession = null
         liveTrackedLocation = null
-        refreshCompanionStatus()
+        refreshCompanionSurface()
 
         if (clearStatus) {
             liveTrackingStatus =
@@ -1302,7 +1254,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
             }
             "clear notes", "delete all notes" -> {
                 companionSnapshot = companionStore.clearNotes()
-                refreshCompanionStatus()
+                refreshCompanionSurface()
                 return "All notes cleared."
             }
             "show tasks", "list tasks", "my tasks" -> {
@@ -1318,7 +1270,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
             }
             "clear tasks", "delete all tasks" -> {
                 companionSnapshot = companionStore.clearTasks()
-                refreshCompanionStatus()
+                refreshCompanionSurface()
                 return "All tasks cleared."
             }
             "show reminders", "list reminders", "my reminders" -> {
@@ -1342,7 +1294,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
                     ReminderScheduler.cancel(this, it.id)
                 }
                 companionSnapshot = companionStore.clearReminders()
-                refreshCompanionStatus()
+                refreshCompanionSurface()
                 return "All reminders cleared."
             }
         }
@@ -1351,7 +1303,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
             .matchEntire(clean)
             ?.let { match ->
                 companionSnapshot = companionStore.addNote(match.groupValues[1])
-                refreshCompanionStatus()
+                refreshCompanionSurface()
                 return "Noted: " + match.groupValues[1].trim()
             }
 
@@ -1359,7 +1311,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
             .matchEntire(clean)
             ?.let { match ->
                 companionSnapshot = companionStore.addTask(match.groupValues[1])
-                refreshCompanionStatus()
+                refreshCompanionSurface()
                 return "Added task: " + match.groupValues[1].trim()
             }
 
@@ -1372,7 +1324,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
                 }
                 val taskText = companionSnapshot.tasks[index].text
                 companionSnapshot = companionStore.completeTask(index)
-                refreshCompanionStatus()
+                refreshCompanionSurface()
                 return "Completed: " + taskText
             }
 
@@ -1381,7 +1333,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
             companionSnapshot = companionStore.load()
             ReminderScheduler.schedule(this, reminder)
             requestNotificationPermissionIfNeeded()
-            refreshCompanionStatus()
+            refreshCompanionSurface()
 
             val whenText = DateFormat.getDateTimeInstance(
                 DateFormat.MEDIUM,
@@ -1391,49 +1343,6 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
         }
 
         return null
-    }
-
-    private fun requestCompanionNotificationPermissionOnce() {
-        if (!lockScreenCompanionEnabled) return
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
-            refreshCompanionStatus()
-            return
-        }
-
-        if (
-            ContextCompat.checkSelfPermission(
-                this,
-                Manifest.permission.POST_NOTIFICATIONS,
-            ) == PackageManager.PERMISSION_GRANTED
-        ) {
-            refreshCompanionStatus()
-            return
-        }
-
-        val preferences =
-            getSharedPreferences(
-                "haru_notification_prompt",
-                Context.MODE_PRIVATE,
-            )
-        if (
-            preferences.getBoolean(
-                "initial_permission_prompted",
-                false,
-            )
-        ) {
-            return
-        }
-
-        preferences.edit()
-            .putBoolean(
-                "initial_permission_prompted",
-                true,
-            )
-            .apply()
-
-        notificationPermissionLauncher.launch(
-            Manifest.permission.POST_NOTIFICATIONS
-        )
     }
 
     private fun requestNotificationPermissionIfNeeded() {
