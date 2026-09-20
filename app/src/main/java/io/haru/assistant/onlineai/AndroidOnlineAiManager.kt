@@ -1,6 +1,7 @@
 package io.haru.assistant.onlineai
 
 import android.content.Context
+import io.haru.assistant.memory.AntigravitySession
 import io.haru.assistant.memory.ConversationExchange
 import io.haru.assistant.memory.ConversationMemoryPolicy
 import kotlinx.coroutines.Dispatchers
@@ -24,6 +25,16 @@ data class OnlineAiSettings(
     val provider: OnlineProvider = OnlineProvider.ANTIGRAVITY,
     val geminiModel: GeminiModel = AndroidOnlineAiManager.FALLBACK_GEMINI_MODEL,
 )
+
+data class OnlineAiReply(
+    val text: String,
+    val antigravitySession: AntigravitySession? = null,
+)
+
+private class ProviderHttpException(
+    val statusCode: Int,
+    message: String,
+) : IllegalStateException(message)
 
 class AndroidOnlineAiManager(
     context: Context,
@@ -225,7 +236,9 @@ class AndroidOnlineAiManager(
         prompt: String,
         systemPrompt: String,
         history: List<ConversationExchange> = emptyList(),
-    ): String = withContext(Dispatchers.IO) {
+        summary: String = "",
+        antigravitySession: AntigravitySession? = null,
+    ): OnlineAiReply = withContext(Dispatchers.IO) {
         require(prompt.isNotBlank()) { "Prompt is empty." }
         require(prompt.length <= MAX_PROMPT_CHARS) {
             "Prompt is too large."
@@ -234,9 +247,9 @@ class AndroidOnlineAiManager(
             "System prompt is too large."
         }
 
-        val boundedHistory =
+        val recentHistory =
             history
-                .takeLast(ConversationMemoryPolicy.MAX_EXCHANGES)
+                .takeLast(ConversationMemoryPolicy.PROVIDER_RECENT_EXCHANGES)
                 .mapNotNull { exchange ->
                     val user =
                         ConversationMemoryPolicy.sanitizeUser(exchange.user)
@@ -249,41 +262,108 @@ class AndroidOnlineAiManager(
                     }
                 }
 
+        val cleanSummary =
+            ConversationMemoryPolicy.sanitizeSummary(summary)
+
         when (provider) {
             OnlineProvider.ANTIGRAVITY ->
                 askAntigravity(
                     prompt = prompt,
                     systemPrompt = systemPrompt,
-                    history = boundedHistory,
+                    history = recentHistory,
+                    summary = cleanSummary,
+                    session = antigravitySession,
                 )
             OnlineProvider.GEMINI ->
-                askGemini(
-                    modelId = settings().geminiModel.id,
-                    prompt = prompt,
-                    systemPrompt = systemPrompt,
-                    history = boundedHistory,
+                OnlineAiReply(
+                    text =
+                        askGemini(
+                            modelId = settings().geminiModel.id,
+                            prompt = prompt,
+                            systemPrompt = systemPrompt,
+                            history = recentHistory,
+                            summary = cleanSummary,
+                        )
                 )
         }
     }
 
     suspend fun test(provider: OnlineProvider): String =
         ask(
-            provider,
-            "Reply with exactly: HARU OK",
-            "You are HARU's connection test. Reply very briefly.",
-        )
+            provider = provider,
+            prompt = "Reply with exactly: HARU OK",
+            systemPrompt = "You are HARU's connection test. Reply very briefly.",
+        ).text
 
     private fun askAntigravity(
         prompt: String,
         systemPrompt: String,
         history: List<ConversationExchange>,
-    ): String {
+        summary: String,
+        session: AntigravitySession?,
+    ): OnlineAiReply {
         val key = credentials.get("gemini")
         require(key.isNotBlank()) { "Gemini API key is required." }
+
+        val freshSession =
+            session?.takeIf { it.isFresh() }
+
+        if (freshSession != null) {
+            val continuationPayload =
+                JSONObject()
+                    .put("agent", ANTIGRAVITY_AGENT)
+                    .put("input", prompt)
+                    .put(
+                        "previous_interaction_id",
+                        freshSession.interactionId,
+                    )
+                    .put(
+                        "environment",
+                        freshSession.environmentId,
+                    )
+                    .put(
+                        "agent_config",
+                        JSONObject()
+                            .put("type", "antigravity")
+                            .put("model", settings().geminiModel.id)
+                            .put("max_total_tokens", ANTIGRAVITY_TOKEN_BUDGET)
+                    )
+                    .put(
+                        "tools",
+                        antigravityTools(),
+                    )
+
+            try {
+                return parseAntigravityReply(
+                    postJson(
+                        INTERACTIONS_URL,
+                        continuationPayload,
+                        mapOf("x-goog-api-key" to key),
+                        timeoutMs = 180_000,
+                    )
+                )
+            } catch (exc: ProviderHttpException) {
+                if (
+                    exc.statusCode !in setOf(
+                        400,
+                        404,
+                        409,
+                        412,
+                    )
+                ) {
+                    throw exc
+                }
+            }
+        }
 
         val input = buildString {
             if (systemPrompt.isNotBlank()) {
                 append(systemPrompt)
+                append("\n\n")
+            }
+            if (summary.isNotBlank()) {
+                append("Compact memory from earlier conversation:\n")
+                append(summary)
                 append("\n\n")
             }
             if (history.isNotEmpty()) {
@@ -301,54 +381,99 @@ class AndroidOnlineAiManager(
             append(prompt)
         }
 
-        val payload = JSONObject()
-            .put("agent", "antigravity-preview-09-2026")
-            .put("input", input)
-            .put("environment", "remote")
-            .put(
-                "agent_config",
-                JSONObject()
-                    .put("type", "antigravity")
-                    .put("model", settings().geminiModel.id)
-                    .put("max_total_tokens", 12000)
-            )
-            .put(
-                "tools",
-                JSONArray()
-                    .put(JSONObject().put("type", "google_search"))
-                    .put(JSONObject().put("type", "url_context"))
-            )
+        val payload =
+            JSONObject()
+                .put("agent", ANTIGRAVITY_AGENT)
+                .put("input", input)
+                .put("environment", "remote")
+                .put(
+                    "agent_config",
+                    JSONObject()
+                        .put("type", "antigravity")
+                        .put("model", settings().geminiModel.id)
+                        .put("max_total_tokens", ANTIGRAVITY_TOKEN_BUDGET)
+                )
+                .put(
+                    "tools",
+                    antigravityTools(),
+                )
 
-        val response = postJson(
-            "https://generativelanguage.googleapis.com/v1beta/interactions",
-            payload,
-            mapOf("x-goog-api-key" to key),
-            timeoutMs = 180_000,
+        return parseAntigravityReply(
+            postJson(
+                INTERACTIONS_URL,
+                payload,
+                mapOf("x-goog-api-key" to key),
+                timeoutMs = 180_000,
+            )
         )
+    }
 
+    private fun antigravityTools(): JSONArray =
+        JSONArray()
+            .put(JSONObject().put("type", "google_search"))
+            .put(JSONObject().put("type", "url_context"))
+
+    private fun parseAntigravityReply(
+        response: JSONObject,
+    ): OnlineAiReply {
         val direct = response.optString("output_text").trim()
-        if (direct.isNotBlank()) return direct
+        val text =
+            direct.ifBlank {
+                val parts = mutableListOf<String>()
+                val steps =
+                    response.optJSONArray("steps") ?: JSONArray()
 
-        val parts = mutableListOf<String>()
-        val steps = response.optJSONArray("steps") ?: JSONArray()
-        for (i in 0 until steps.length()) {
-            val step = steps.optJSONObject(i) ?: continue
-            if (step.optString("type") != "model_output") continue
-            val content = step.optJSONArray("content") ?: continue
-            for (j in 0 until content.length()) {
-                val item = content.optJSONObject(j) ?: continue
-                if (item.optString("type") == "text") {
-                    item.optString("text")
-                        .trim()
-                        .takeIf { it.isNotBlank() }
-                        ?.let(parts::add)
+                for (i in 0 until steps.length()) {
+                    val step = steps.optJSONObject(i) ?: continue
+                    if (step.optString("type") != "model_output") continue
+
+                    val content =
+                        step.optJSONArray("content") ?: continue
+                    for (j in 0 until content.length()) {
+                        val item = content.optJSONObject(j) ?: continue
+                        if (item.optString("type") == "text") {
+                            item.optString("text")
+                                .trim()
+                                .takeIf { it.isNotBlank() }
+                                ?.let(parts::add)
+                        }
+                    }
                 }
-            }
-        }
 
-        return parts.joinToString("\n").ifBlank {
+                parts.joinToString("\n")
+            }
+
+        if (text.isBlank()) {
             error("Antigravity returned no final text.")
         }
+
+        val interactionId =
+            response.optString("id")
+                .trim()
+                .take(MAX_INTERACTION_ID_CHARS)
+        val environmentId =
+            response.optString("environment_id")
+                .trim()
+                .take(MAX_INTERACTION_ID_CHARS)
+
+        val session =
+            if (
+                interactionId.isNotBlank() &&
+                environmentId.isNotBlank()
+            ) {
+                AntigravitySession(
+                    interactionId = interactionId,
+                    environmentId = environmentId,
+                    updatedAtMs = System.currentTimeMillis(),
+                )
+            } else {
+                null
+            }
+
+        return OnlineAiReply(
+            text = text,
+            antigravitySession = session,
+        )
     }
 
     private fun askGemini(
@@ -356,6 +481,7 @@ class AndroidOnlineAiManager(
         prompt: String,
         systemPrompt: String,
         history: List<ConversationExchange>,
+        summary: String,
     ): String {
         require(SAFE_MODEL_ID.matches(modelId)) {
             "Invalid Gemini model identifier."
@@ -365,6 +491,36 @@ class AndroidOnlineAiManager(
         require(key.isNotBlank()) { "Gemini API key is required." }
 
         val contents = JSONArray()
+
+        if (summary.isNotBlank()) {
+            contents.put(
+                JSONObject()
+                    .put("role", "user")
+                    .put(
+                        "parts",
+                        JSONArray().put(
+                            JSONObject().put(
+                                "text",
+                                "Earlier conversation memory:\n$summary",
+                            )
+                        )
+                    )
+            )
+            contents.put(
+                JSONObject()
+                    .put("role", "model")
+                    .put(
+                        "parts",
+                        JSONArray().put(
+                            JSONObject().put(
+                                "text",
+                                "Understood. I will use that compact memory as context.",
+                            )
+                        )
+                    )
+            )
+        }
+
         history.forEach { exchange ->
             contents.put(
                 JSONObject()
@@ -490,17 +646,19 @@ class AndroidOnlineAiManager(
                         ?.optString("message")
                 }.getOrNull().orEmpty()
 
-                error(
-                    when (code) {
-                        401, 403 -> "Authentication was rejected."
-                        429 -> "Provider quota or rate limit reached."
-                        in 500..599 ->
-                            "AI provider is temporarily unavailable."
-                        else ->
-                            detail.ifBlank {
-                                "Provider request failed (HTTP $code)."
-                            }
-                    }
+                throw ProviderHttpException(
+                    statusCode = code,
+                    message =
+                        when (code) {
+                            401, 403 -> "Authentication was rejected."
+                            429 -> "Provider quota or rate limit reached."
+                            in 500..599 ->
+                                "AI provider is temporarily unavailable."
+                            else ->
+                                detail.ifBlank {
+                                    "Provider request failed (HTTP $code)."
+                                }
+                        },
                 )
             }
 
@@ -546,6 +704,12 @@ class AndroidOnlineAiManager(
         private const val MAX_MODEL_LABEL_CHARS = 100
         private const val MAX_CATALOG_RESPONSE_CHARS = 1_000_000
         private const val MAX_AI_RESPONSE_CHARS = 1_000_000
+        private const val MAX_INTERACTION_ID_CHARS = 512
+        private const val ANTIGRAVITY_TOKEN_BUDGET = 12_000
+        private const val ANTIGRAVITY_AGENT =
+            "antigravity-preview-09-2026"
+        private const val INTERACTIONS_URL =
+            "https://generativelanguage.googleapis.com/v1beta/interactions"
 
         private val SAFE_MODEL_ID =
             Regex("^gemini-[A-Za-z0-9._-]{1,80}$")

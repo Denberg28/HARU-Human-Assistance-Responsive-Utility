@@ -340,7 +340,7 @@ private fun AssistantPane(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
-                "Memory $memoryCount/10 · encrypted on-device",
+                "Memory $memoryCount/10 · encrypted · 5-turn AI window",
                 style = MaterialTheme.typography.labelSmall,
             )
             TextButton(

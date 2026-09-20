@@ -35,6 +35,7 @@ import io.haru.assistant.location.LiveLocationSession
 import io.haru.assistant.location.LiveMonitorSession
 import io.haru.assistant.location.TrustedLocation
 import io.haru.assistant.location.TrustedLocationManager
+import io.haru.assistant.memory.AntigravitySession
 import io.haru.assistant.memory.ConversationExchange
 import io.haru.assistant.memory.ConversationMemoryPolicy
 import io.haru.assistant.memory.EncryptedConversationStore
@@ -83,6 +84,8 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
     private var updateStatus by mutableStateOf("")
     private var updateUrl by mutableStateOf("")
     private var conversationHistory by mutableStateOf(emptyList<ConversationExchange>())
+    private var conversationSummary by mutableStateOf("")
+    private var antigravitySession: AntigravitySession? = null
     private var conversationEpoch = 0L
     private var activeAiJob: Job? = null
 
@@ -189,7 +192,12 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
         geminiModels = onlineAiManager.geminiModels()
         refreshOnlineKeyState()
         trustedLocations = trustedLocationManager.load()
-        conversationHistory = conversationStore.load()
+        val memoryState = conversationStore.loadState()
+        conversationHistory = memoryState.exchanges
+        conversationSummary = memoryState.summary
+        antigravitySession =
+            memoryState.antigravitySession
+                ?.takeIf { it.isFresh() }
 
         setContent {
             HaruTheme {
@@ -273,6 +281,9 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
 
         val requestEpoch = conversationEpoch
         val requestHistory = conversationHistory
+        val requestSummary = conversationSummary
+        val requestAntigravitySession =
+            antigravitySession?.takeIf { it.isFresh() }
 
         activeAiJob?.cancel()
         activeAiJob = lifecycleScope.launch {
@@ -282,26 +293,52 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
                     prompt = prompt,
                     systemPrompt = SYSTEM_PROMPT,
                     history = requestHistory,
+                    summary = requestSummary,
+                    antigravitySession =
+                        if (onlineProvider == OnlineProvider.ANTIGRAVITY) {
+                            requestAntigravitySession
+                        } else {
+                            null
+                        },
                 )
 
                 if (requestEpoch != conversationEpoch) {
                     return@launch
                 }
 
-                conversationHistory =
+                if (onlineProvider == OnlineProvider.ANTIGRAVITY) {
+                    antigravitySession =
+                        reply.antigravitySession
+                }
+
+                val memoryState =
                     conversationStore.appendCompleted(
                         user = prompt,
-                        assistant = reply,
+                        assistant = reply.text,
+                        antigravitySession =
+                            if (onlineProvider == OnlineProvider.ANTIGRAVITY) {
+                                antigravitySession
+                            } else {
+                                null
+                            },
                     )
+
+                conversationHistory = memoryState.exchanges
+                conversationSummary = memoryState.summary
 
                 onlineStatus =
                     providerName(onlineProvider) +
                         " connected · memory " +
                         conversationHistory.size +
                         "/" +
-                        ConversationMemoryPolicy.MAX_EXCHANGES
-                viewModel.completeAi(reply, success = true)
-                if (speakResult) voiceController.speak(reply)
+                        ConversationMemoryPolicy.MAX_EXCHANGES +
+                        if (conversationSummary.isNotBlank()) {
+                            " + recap"
+                        } else {
+                            ""
+                        }
+                viewModel.completeAi(reply.text, success = true)
+                if (speakResult) voiceController.speak(reply.text)
             } catch (exc: Exception) {
                 if (requestEpoch != conversationEpoch) {
                     return@launch
@@ -327,6 +364,8 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
         activeAiJob = null
         conversationStore.clear()
         conversationHistory = emptyList()
+        conversationSummary = ""
+        antigravitySession = null
         onlineStatus = "Conversation memory cleared · 0/" +
             ConversationMemoryPolicy.MAX_EXCHANGES
         viewModel.resetConversation()
@@ -335,6 +374,10 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
     private fun selectOnlineProvider(provider: OnlineProvider) {
         onlineProvider = provider
         onlineAiManager.saveProvider(provider)
+        if (provider != OnlineProvider.ANTIGRAVITY) {
+            antigravitySession = null
+            conversationStore.saveAntigravitySession(null)
+        }
         onlineStatus = providerName(provider) + " selected."
     }
 
