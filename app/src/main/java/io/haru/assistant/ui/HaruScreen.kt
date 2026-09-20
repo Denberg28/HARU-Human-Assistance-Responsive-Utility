@@ -456,9 +456,9 @@ private fun HomePane(
                 )
                 Text(
                     "Live share · " +
-                        if (liveShareActive) "active" else "off" +
+                        (if (liveShareActive) "active" else "off") +
                         "  |  Tracking · " +
-                        if (liveMonitorActive) "active" else "off",
+                        (if (liveMonitorActive) "active" else "off"),
                     style = MaterialTheme.typography.bodySmall,
                 )
                 Text(
