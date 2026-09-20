@@ -142,3 +142,21 @@ The visible feature set is now locked around **HARU + Today + Settings + Map**.
 - Notification behavior remains event-driven: no polling, wake lock, or additional standby GPS/network activity.
 
 Post-v0.6.4 development should prioritize notification reliability, reminder delivery, and companion behavior rather than adding visible feature clutter.
+
+
+## HARU v0.7.0 — Home Bubble
+
+HARU companion presence moves away from a persistent notification and into a native Android home-screen widget.
+
+- **HARU Bubble** uses the existing HARU emoji pack.
+- Time-of-day greetings: Good morning / Good afternoon / Good evening.
+- Idle expressions and short companion lines rotate locally about every 30 minutes.
+- Today context is local: open task and reminder counts appear without using AI.
+- Tap the HARU face to cycle expression/idle text immediately.
+- Tap the rest of the bubble to open HARU.
+- Settings provides **Add HARU Bubble to Home** and **HARU Bubble · On/Paused**.
+- Launcher controls exact placement and removal; place it in the upper-right if preferred.
+- Persistent companion notification code is removed.
+- Notifications are retained only for actual due reminders.
+- No foreground service, wake lock, continuous polling, or background AI usage is added.
+- Map remains unchanged and locked.

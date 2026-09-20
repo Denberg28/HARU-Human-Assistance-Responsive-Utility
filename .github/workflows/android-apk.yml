@@ -75,7 +75,7 @@ jobs:
         shell: bash
         run: |
           TAG="v$VERSION"
-          NOTES="HARU Android $TAG begins the feature-locked assistant/companion baseline. Map GPS/Google Maps actions now stay in a fixed floating bottom bar above Android navigation. Tapping the large HARU header opens About with Human Assistance & Responsive Utility and Creator: MD. HARU companion notifications default on unless explicitly disabled, migrate to a fresh notification channel, request notification permission once, and show tasks/reminders in the shade and lock screen. Fired reminders use a fresh high-importance HARU reminder channel with public lock-screen visibility. No polling, wake lock, or added standby GPS/network work."
+          NOTES="HARU Android $TAG shifts companion presence from a persistent notification to a native home-screen HARU Bubble widget. The bubble uses the existing HARU emoji pack, rotates expressions and idle lines roughly every 30 minutes, gives local time-of-day greetings, shows task/reminder counts, and refreshes immediately when Today changes. Settings can request Add HARU Bubble and pause/resume it. Tapping the face cycles expression/idle text; tapping the bubble opens HARU. Persistent companion notification code is removed; only actual due reminders use notifications. Map remains locked."
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" "$APK" "$APK.sha256" --clobber
             gh release edit "$TAG" --title "HARU $TAG" --notes "$NOTES" --latest

@@ -10,6 +10,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.sp
+import io.haru.assistant.core.HaruFaces
 import io.haru.assistant.core.HaruMood
 
 /**
@@ -21,16 +22,7 @@ fun HaruFace(
     mood: HaruMood,
     modifier: Modifier = Modifier,
 ) {
-    val face = when (mood) {
-        HaruMood.IDLE -> "₍^. .^₎⟆"
-        HaruMood.HAPPY -> "₍^ >ヮ<^₎♡"
-        HaruMood.LISTENING -> "₍^. ̫ .^₎♫"
-        HaruMood.THINKING -> "₍^. .^₎?"
-        HaruMood.WORKING -> "₍^•⩊•^₎⚙"
-        HaruMood.CONFUSED -> "₍^. .^₎՞"
-        HaruMood.ALERT -> "₍⊙ᆺ⊙₎!"
-        HaruMood.SLEEPY -> "₍^-.-^₎ zZ"
-    }
+    val face = HaruFaces.forMood(mood)
 
     Box(
         modifier = modifier.fillMaxSize(),

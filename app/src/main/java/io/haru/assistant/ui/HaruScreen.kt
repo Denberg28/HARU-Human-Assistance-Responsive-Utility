@@ -84,7 +84,7 @@ fun HaruScreen(
     viewModel: HaruViewModel,
     todayLines: List<String>,
     companionSnapshot: CompanionSnapshot,
-    lockScreenCompanionEnabled: Boolean,
+    haruBubbleEnabled: Boolean,
     onlineProvider: OnlineProvider,
     selectedGeminiModel: GeminiModel,
     geminiModels: List<GeminiModel>,
@@ -110,9 +110,8 @@ fun HaruScreen(
     onAddCompanionTask: (String) -> Unit,
     onUpdateCompanionTask: (Int, String) -> Unit,
     onDeleteCompanionTask: (Int) -> Unit,
-    onSetLockScreenCompanion: (Boolean) -> Unit,
-    onOpenLockScreenNotificationSettings: () -> Unit,
-    onTestLockScreenCompanion: () -> Unit,
+    onRequestHaruBubble: () -> Unit,
+    onToggleHaruBubble: () -> Unit,
     onSelectOnlineProvider: (OnlineProvider) -> Unit,
     onSelectGeminiModel: (GeminiModel) -> Unit,
     onRefreshGeminiModels: () -> Unit,
@@ -257,19 +256,13 @@ fun HaruScreen(
 
     if (showSettings) {
         SimpleSettingsDialog(
-            lockScreenCompanionEnabled = lockScreenCompanionEnabled,
+            haruBubbleEnabled = haruBubbleEnabled,
             onlineProvider = onlineProvider,
             memoryCount = memoryCount,
             appVersion = appVersion,
             onDismiss = { showSettings = false },
-            onToggleLockScreen = {
-                onSetLockScreenCompanion(
-                    !lockScreenCompanionEnabled
-                )
-            },
-            onTestLockScreen = onTestLockScreenCompanion,
-            onOpenLockScreenSettings =
-                onOpenLockScreenNotificationSettings,
+            onRequestHaruBubble = onRequestHaruBubble,
+            onToggleHaruBubble = onToggleHaruBubble,
             onOpenAi = {
                 showSettings = false
                 showOnlineAi = true
@@ -675,14 +668,13 @@ private fun TaskEditDialog(
 
 @Composable
 private fun SimpleSettingsDialog(
-    lockScreenCompanionEnabled: Boolean,
+    haruBubbleEnabled: Boolean,
     onlineProvider: OnlineProvider,
     memoryCount: Int,
     appVersion: String,
     onDismiss: () -> Unit,
-    onToggleLockScreen: () -> Unit,
-    onTestLockScreen: () -> Unit,
-    onOpenLockScreenSettings: () -> Unit,
+    onRequestHaruBubble: () -> Unit,
+    onToggleHaruBubble: () -> Unit,
     onOpenAi: () -> Unit,
     onResetMemory: () -> Unit,
     onOpenUpdate: () -> Unit,
@@ -701,40 +693,30 @@ private fun SimpleSettingsDialog(
                     Arrangement.spacedBy(8.dp),
             ) {
                 OutlinedButton(
-                    onClick = onToggleLockScreen,
+                    onClick = onRequestHaruBubble,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text("Add HARU Bubble to Home")
+                }
+
+                OutlinedButton(
+                    onClick = onToggleHaruBubble,
                     modifier = Modifier.fillMaxWidth(),
                 ) {
                     Text(
-                        "Lock screen · " +
-                            if (lockScreenCompanionEnabled) {
+                        "HARU Bubble · " +
+                            if (haruBubbleEnabled) {
                                 "On"
                             } else {
-                                "Off"
+                                "Paused"
                             }
                     )
                 }
 
-                if (lockScreenCompanionEnabled) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement =
-                            Arrangement.spacedBy(8.dp),
-                    ) {
-                        TextButton(
-                            onClick = onTestLockScreen,
-                            modifier = Modifier.weight(1f),
-                        ) {
-                            Text("Test")
-                        }
-                        TextButton(
-                            onClick =
-                                onOpenLockScreenSettings,
-                            modifier = Modifier.weight(1f),
-                        ) {
-                            Text("Android settings")
-                        }
-                    }
-                }
+                Text(
+                    "Place the widget in the upper-right or anywhere you prefer. Long-press it on the Home screen to move or remove it.",
+                    style = MaterialTheme.typography.labelSmall,
+                )
 
                 OutlinedButton(
                     onClick = onOpenAi,
