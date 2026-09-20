@@ -1,6 +1,8 @@
 package io.haru.assistant.onlineai
 
 import android.content.Context
+import io.haru.assistant.memory.ConversationExchange
+import io.haru.assistant.memory.ConversationMemoryPolicy
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
@@ -222,6 +224,7 @@ class AndroidOnlineAiManager(
         provider: OnlineProvider,
         prompt: String,
         systemPrompt: String,
+        history: List<ConversationExchange> = emptyList(),
     ): String = withContext(Dispatchers.IO) {
         require(prompt.isNotBlank()) { "Prompt is empty." }
         require(prompt.length <= MAX_PROMPT_CHARS) {
@@ -231,11 +234,35 @@ class AndroidOnlineAiManager(
             "System prompt is too large."
         }
 
+        val boundedHistory =
+            history
+                .takeLast(ConversationMemoryPolicy.MAX_EXCHANGES)
+                .mapNotNull { exchange ->
+                    val user =
+                        ConversationMemoryPolicy.sanitizeUser(exchange.user)
+                    val assistant =
+                        ConversationMemoryPolicy.sanitizeAssistant(exchange.assistant)
+                    if (user.isBlank() || assistant.isBlank()) {
+                        null
+                    } else {
+                        ConversationExchange(user, assistant)
+                    }
+                }
+
         when (provider) {
             OnlineProvider.ANTIGRAVITY ->
-                askAntigravity(prompt, systemPrompt)
+                askAntigravity(
+                    prompt = prompt,
+                    systemPrompt = systemPrompt,
+                    history = boundedHistory,
+                )
             OnlineProvider.GEMINI ->
-                askGemini(settings().geminiModel.id, prompt, systemPrompt)
+                askGemini(
+                    modelId = settings().geminiModel.id,
+                    prompt = prompt,
+                    systemPrompt = systemPrompt,
+                    history = boundedHistory,
+                )
         }
     }
 
@@ -249,14 +276,29 @@ class AndroidOnlineAiManager(
     private fun askAntigravity(
         prompt: String,
         systemPrompt: String,
+        history: List<ConversationExchange>,
     ): String {
         val key = credentials.get("gemini")
         require(key.isNotBlank()) { "Gemini API key is required." }
 
-        val input = if (systemPrompt.isBlank()) {
-            prompt
-        } else {
-            "$systemPrompt\n\nUser: $prompt"
+        val input = buildString {
+            if (systemPrompt.isNotBlank()) {
+                append(systemPrompt)
+                append("\n\n")
+            }
+            if (history.isNotEmpty()) {
+                append("Recent conversation context (oldest to newest):\n")
+                history.forEach { exchange ->
+                    append("User: ")
+                    append(exchange.user)
+                    append("\nHARU: ")
+                    append(exchange.assistant)
+                    append("\n")
+                }
+                append("\n")
+            }
+            append("User: ")
+            append(prompt)
         }
 
         val payload = JSONObject()
@@ -313,6 +355,7 @@ class AndroidOnlineAiManager(
         modelId: String,
         prompt: String,
         systemPrompt: String,
+        history: List<ConversationExchange>,
     ): String {
         require(SAFE_MODEL_ID.matches(modelId)) {
             "Invalid Gemini model identifier."
@@ -321,16 +364,40 @@ class AndroidOnlineAiManager(
         val key = credentials.get("gemini")
         require(key.isNotBlank()) { "Gemini API key is required." }
 
-        val payload = JSONObject()
-            .put(
-                "contents",
-                JSONArray().put(
-                    JSONObject().put(
+        val contents = JSONArray()
+        history.forEach { exchange ->
+            contents.put(
+                JSONObject()
+                    .put("role", "user")
+                    .put(
                         "parts",
-                        JSONArray().put(JSONObject().put("text", prompt))
+                        JSONArray().put(
+                            JSONObject().put("text", exchange.user)
+                        )
                     )
-                )
             )
+            contents.put(
+                JSONObject()
+                    .put("role", "model")
+                    .put(
+                        "parts",
+                        JSONArray().put(
+                            JSONObject().put("text", exchange.assistant)
+                        )
+                    )
+            )
+        }
+        contents.put(
+            JSONObject()
+                .put("role", "user")
+                .put(
+                    "parts",
+                    JSONArray().put(JSONObject().put("text", prompt))
+                )
+        )
+
+        val payload = JSONObject()
+            .put("contents", contents)
             .put(
                 "tools",
                 JSONArray().put(JSONObject().put("google_search", JSONObject()))
