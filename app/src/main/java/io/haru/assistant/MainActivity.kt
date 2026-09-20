@@ -35,6 +35,9 @@ import io.haru.assistant.location.LiveLocationSession
 import io.haru.assistant.location.LiveMonitorSession
 import io.haru.assistant.location.TrustedLocation
 import io.haru.assistant.location.TrustedLocationManager
+import io.haru.assistant.memory.ConversationExchange
+import io.haru.assistant.memory.ConversationMemoryPolicy
+import io.haru.assistant.memory.EncryptedConversationStore
 import io.haru.assistant.onlineai.AndroidOnlineAiManager
 import io.haru.assistant.onlineai.GeminiModel
 import io.haru.assistant.onlineai.OnlineProvider
@@ -61,6 +64,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
     private lateinit var trustedLocationManager: TrustedLocationManager
     private lateinit var liveLocationManager: HaruLiveLocationManager
     private lateinit var appUpdateManager: AndroidAppUpdateManager
+    private lateinit var conversationStore: EncryptedConversationStore
 
     private var pendingVoiceStart = false
     private var pendingShareName = "Loved one"
@@ -78,6 +82,9 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
     private var hasGeminiKey by mutableStateOf(false)
     private var updateStatus by mutableStateOf("")
     private var updateUrl by mutableStateOf("")
+    private var conversationHistory by mutableStateOf(emptyList<ConversationExchange>())
+    private var conversationEpoch = 0L
+    private var activeAiJob: Job? = null
 
     private var newsBundle by mutableStateOf(AndroidNewsBundle())
     private var hazardBundle by mutableStateOf(AndroidHazardBundle())
@@ -172,6 +179,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
         trustedLocationManager = TrustedLocationManager(applicationContext)
         liveLocationManager = HaruLiveLocationManager()
         appUpdateManager = AndroidAppUpdateManager()
+        conversationStore = EncryptedConversationStore(applicationContext)
 
         companionSnapshot = companionStore.load()
         cleanupLegacyStorageOnce()
@@ -181,6 +189,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
         geminiModels = onlineAiManager.geminiModels()
         refreshOnlineKeyState()
         trustedLocations = trustedLocationManager.load()
+        conversationHistory = conversationStore.load()
 
         setContent {
             HaruTheme {
@@ -196,6 +205,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
                     geminiModels = geminiModels,
                     onlineStatus = onlineStatus,
                     hasGeminiKey = hasGeminiKey,
+                    memoryCount = conversationHistory.size,
                     appVersion = currentVersionName(),
                     updateStatus = updateStatus,
                     updateUrl = updateUrl,
@@ -223,6 +233,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
                     onRefreshGeminiModels = ::refreshGeminiModels,
                     onSaveGeminiKey = ::saveGeminiKey,
                     onTestOnlineAi = ::testOnlineAi,
+                    onResetMemory = { resetConversationMemory(haruViewModel) },
                     onCheckUpdate = ::checkForUpdate,
                     onOpenUpdate = ::openUrl,
                     onRefreshNews = ::refreshNews,
@@ -260,23 +271,65 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
             return
         }
 
-        lifecycleScope.launch {
+        val requestEpoch = conversationEpoch
+        val requestHistory = conversationHistory
+
+        activeAiJob?.cancel()
+        activeAiJob = lifecycleScope.launch {
             try {
                 val reply = onlineAiManager.ask(
-                    onlineProvider,
-                    prompt,
-                    SYSTEM_PROMPT,
+                    provider = onlineProvider,
+                    prompt = prompt,
+                    systemPrompt = SYSTEM_PROMPT,
+                    history = requestHistory,
                 )
-                onlineStatus = providerName(onlineProvider) + " connected."
+
+                if (requestEpoch != conversationEpoch) {
+                    return@launch
+                }
+
+                conversationHistory =
+                    conversationStore.appendCompleted(
+                        user = prompt,
+                        assistant = reply,
+                    )
+
+                onlineStatus =
+                    providerName(onlineProvider) +
+                        " connected · memory " +
+                        conversationHistory.size +
+                        "/" +
+                        ConversationMemoryPolicy.MAX_EXCHANGES
                 viewModel.completeAi(reply, success = true)
                 if (speakResult) voiceController.speak(reply)
             } catch (exc: Exception) {
+                if (requestEpoch != conversationEpoch) {
+                    return@launch
+                }
+
                 val message =
                     exc.message ?: "HARU could not complete that request."
                 viewModel.completeAi(message, success = false)
                 if (speakResult) voiceController.speak(message)
+            } finally {
+                if (requestEpoch == conversationEpoch) {
+                    activeAiJob = null
+                }
             }
         }
+    }
+
+    private fun resetConversationMemory(
+        viewModel: HaruViewModel,
+    ) {
+        conversationEpoch += 1L
+        activeAiJob?.cancel()
+        activeAiJob = null
+        conversationStore.clear()
+        conversationHistory = emptyList()
+        onlineStatus = "Conversation memory cleared · 0/" +
+            ConversationMemoryPolicy.MAX_EXCHANGES
+        viewModel.resetConversation()
     }
 
     private fun selectOnlineProvider(provider: OnlineProvider) {
