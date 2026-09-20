@@ -75,7 +75,7 @@ jobs:
         shell: bash
         run: |
           TAG="v$VERSION"
-          NOTES="HARU Android $TAG adds Groq as a first-class online provider using Qwen 3.8 27B. Groq API keys are stored with Android Keystore-backed encryption. Groq reuses HARU's bounded encrypted conversation memory: 10 local exchanges, a rolling recap for older turns, and only the 5 most recent exchanges sent with each fresh request. Antigravity native continuation and Gemini support remain available."
+          NOTES="HARU Android $TAG fixes news article action labels, keeps article links HTTPS-only, and improves Assistant keyboard behavior so the input area resizes above the on-screen keyboard while the pane remains touch-scrollable. Existing AI providers, encrypted memory, voice, map, location sharing, hazards, reminders, and update behavior are unchanged."
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" "$APK" "$APK.sha256" --clobber
             gh release edit "$TAG" --title "HARU $TAG" --notes "$NOTES" --latest
