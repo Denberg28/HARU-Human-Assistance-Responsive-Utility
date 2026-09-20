@@ -81,6 +81,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
     private var geminiModels by mutableStateOf(listOf(AndroidOnlineAiManager.FALLBACK_GEMINI_MODEL))
     private var onlineStatus by mutableStateOf("Antigravity is the online default.")
     private var hasGeminiKey by mutableStateOf(false)
+    private var hasGroqKey by mutableStateOf(false)
     private var updateStatus by mutableStateOf("")
     private var updateUrl by mutableStateOf("")
     private var conversationHistory by mutableStateOf(emptyList<ConversationExchange>())
@@ -213,6 +214,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
                     geminiModels = geminiModels,
                     onlineStatus = onlineStatus,
                     hasGeminiKey = hasGeminiKey,
+                    hasGroqKey = hasGroqKey,
                     memoryCount = conversationHistory.size,
                     appVersion = currentVersionName(),
                     updateStatus = updateStatus,
@@ -240,6 +242,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
                     onSelectGeminiModel = ::selectGeminiModel,
                     onRefreshGeminiModels = ::refreshGeminiModels,
                     onSaveGeminiKey = ::saveGeminiKey,
+                    onSaveGroqKey = ::saveGroqKey,
                     onTestOnlineAi = ::testOnlineAi,
                     onResetMemory = { resetConversationMemory(haruViewModel) },
                     onCheckUpdate = ::checkForUpdate,
@@ -388,6 +391,13 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
         onlineStatus = "Gemini key saved securely on this phone."
     }
 
+    private fun saveGroqKey(value: String) {
+        if (value.isBlank()) return
+        onlineAiManager.saveGroqKey(value)
+        refreshOnlineKeyState()
+        onlineStatus = "Groq key saved securely on this phone."
+    }
+
     private fun selectGeminiModel(model: GeminiModel) {
         selectedGeminiModel = model
         onlineAiManager.saveGeminiModel(model)
@@ -396,6 +406,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
 
     private fun refreshOnlineKeyState() {
         hasGeminiKey = onlineAiManager.hasGeminiKey()
+        hasGroqKey = onlineAiManager.hasGroqKey()
     }
 
     private fun refreshGeminiModels() {
@@ -1395,6 +1406,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
         when (provider) {
             OnlineProvider.ANTIGRAVITY -> "Antigravity"
             OnlineProvider.GEMINI -> selectedGeminiModel.label
+            OnlineProvider.GROQ -> "Groq · Qwen 3.8 27B"
         }
 
     companion object {
