@@ -72,6 +72,7 @@ class HaruBubbleWidgetTest {
         val id = addWidget()
         manager.updateAppWidgetOptions(id, Bundle().apply { putInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT, 100) })
         assertEquals(View.GONE, view(id).findViewById<View>(R.id.haru_bubble_greeting).visibility)
+        assertEquals(1, view(id).findViewById<TextView>(R.id.haru_bubble_line).maxLines)
         HaruBubbleWidgetProvider().onReceive(context, Intent(Intent.ACTION_TIMEZONE_CHANGED))
         assertTrue(view(id).findViewById<TextView>(R.id.haru_bubble_line).text.isNotBlank())
         ReminderBootReceiver().onReceive(context, Intent(Intent.ACTION_MY_PACKAGE_REPLACED))

@@ -78,7 +78,9 @@ class HaruBubbleWidgetProvider : AppWidgetProvider() {
             views.setContentDescription(R.id.haru_bubble_face, "HARU. Tap for another expression and conversation starter")
             views.setContentDescription(R.id.haru_bubble_line, "${content.line} Tap to chat with HARU")
             val height = manager.getAppWidgetOptions(id).getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT, 140)
-            views.setViewVisibility(R.id.haru_bubble_greeting, if (height < 120) View.GONE else View.VISIBLE)
+            val compact = height < 130 * context.resources.configuration.fontScale
+            views.setViewVisibility(R.id.haru_bubble_greeting, if (compact) View.GONE else View.VISIBLE)
+            views.setInt(R.id.haru_bubble_line, "setMaxLines", if (height < 120) 1 else 2)
 
             // Open the activity directly: notification/broadcast trampolines are not used.
             val openIntent = Intent(context, MainActivity::class.java).apply {
