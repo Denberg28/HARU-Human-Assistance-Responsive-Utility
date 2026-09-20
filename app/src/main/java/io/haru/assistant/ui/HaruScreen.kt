@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardActions
@@ -117,6 +118,8 @@ fun HaruScreen(
     onSelectCompanionMode: (CompanionMode) -> Unit,
     onAddCompanionTask: (String) -> Unit,
     onCompleteCompanionTask: (Int) -> Unit,
+    onUpdateCompanionTask: (Int, String) -> Unit,
+    onDeleteCompanionTask: (Int) -> Unit,
     onAddQuickReminder: (String, Int) -> Unit,
     onSetLockScreenCompanion: (Boolean) -> Unit,
     onOpenLockScreenNotificationSettings: () -> Unit,
@@ -188,6 +191,8 @@ fun HaruScreen(
                         onMicClick = onMicClick,
                         onAddTask = onAddCompanionTask,
                         onCompleteTask = onCompleteCompanionTask,
+                        onUpdateTask = onUpdateCompanionTask,
+                        onDeleteTask = onDeleteCompanionTask,
                         onOpenSettings = { showSettings = true },
                     )
                 } else {
@@ -284,143 +289,154 @@ private fun SimpleHaruPane(
     onMicClick: () -> Unit,
     onAddTask: (String) -> Unit,
     onCompleteTask: (Int) -> Unit,
+    onUpdateTask: (Int, String) -> Unit,
+    onDeleteTask: (Int) -> Unit,
     onOpenSettings: () -> Unit,
 ) {
     val state = viewModel.uiState
     var showToday by remember { mutableStateOf(false) }
-    val scrollState = rememberScrollState()
 
     Column(
         modifier = Modifier
             .fillMaxSize()
             .imePadding()
-            .verticalScroll(scrollState)
             .padding(horizontal = 18.dp, vertical = 10.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        HaruFace(
-            mood = state.mood,
-            modifier = Modifier.sizeCompat(118.dp),
-        )
-
-        Spacer(Modifier.height(6.dp))
-
-        if (state.isBusy && state.mood == HaruMood.THINKING) {
-            ThinkingDots()
-        } else {
-            Text(
-                text = state.message,
-                style = MaterialTheme.typography.bodyMedium,
-                modifier = Modifier.fillMaxWidth(),
-            )
-        }
-
-        Spacer(Modifier.height(12.dp))
-
-        Card(
-            onClick = { showToday = true },
-            modifier = Modifier.fillMaxWidth(),
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState()),
+            horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Column(Modifier.padding(12.dp)) {
+            HaruFace(
+                mood = state.mood,
+                modifier = Modifier.sizeCompat(118.dp),
+            )
+
+            Spacer(Modifier.height(6.dp))
+
+            if (state.isBusy && state.mood == HaruMood.THINKING) {
+                ThinkingDots()
+            } else {
                 Text(
-                    "Today",
-                    fontWeight = FontWeight.SemiBold,
+                    text = state.message,
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.fillMaxWidth(),
                 )
-                if (todayLines.isEmpty()) {
+            }
+
+            Spacer(Modifier.height(12.dp))
+
+            Card(
+                onClick = { showToday = true },
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Column(Modifier.padding(12.dp)) {
                     Text(
-                        "Nothing pending.",
-                        style = MaterialTheme.typography.bodySmall,
+                        "Today  ›",
+                        fontWeight = FontWeight.SemiBold,
                     )
-                } else {
-                    todayLines.take(2).forEach {
+                    if (todayLines.isEmpty()) {
                         Text(
-                            it,
+                            "Nothing pending.",
                             style = MaterialTheme.typography.bodySmall,
                         )
+                    } else {
+                        todayLines.take(3).forEach {
+                            Text(
+                                it,
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                        }
                     }
                 }
             }
-        }
 
-        Spacer(Modifier.height(12.dp))
-
-        OutlinedTextField(
-            value = state.command,
-            onValueChange = viewModel::updateCommand,
-            label = { Text("Tell HARU") },
-            placeholder = {
-                Text("Ask anything, or type: task Buy milk")
-            },
-            singleLine = true,
-            keyboardOptions =
-                KeyboardOptions(imeAction = ImeAction.Send),
-            keyboardActions =
-                KeyboardActions(onSend = { onSubmitClick() }),
-            modifier = Modifier.fillMaxWidth(),
-        )
-
-        Text(
-            "Try: task Buy milk  •  remind me in 30 min to call",
-            style = MaterialTheme.typography.labelSmall,
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = 4.dp),
-        )
-
-        Spacer(Modifier.height(8.dp))
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement =
-                Arrangement.spacedBy(8.dp),
-        ) {
-            Button(
-                onClick = onSubmitClick,
-                enabled =
-                    !state.isBusy &&
-                        state.command.isNotBlank(),
-                modifier = Modifier.weight(1f),
-            ) {
-                Text("Send")
-            }
-            OutlinedButton(
-                onClick = onMicClick,
-                enabled =
-                    !state.isBusy ||
-                        state.mood == HaruMood.LISTENING,
-                modifier = Modifier.weight(1f),
-            ) {
+            if (state.latestUserMessage.isNotBlank()) {
+                Spacer(Modifier.height(8.dp))
                 Text(
-                    if (state.mood == HaruMood.LISTENING) {
-                        "Listening…"
-                    } else {
-                        "Mic"
-                    }
+                    "You: " +
+                        state.latestUserMessage
+                            .replace(Regex("\\s+"), " ")
+                            .take(160),
+                    style = MaterialTheme.typography.labelSmall,
+                    modifier = Modifier.fillMaxWidth(),
                 )
             }
+
+            Spacer(Modifier.height(4.dp))
+            TextButton(onClick = onOpenSettings) {
+                Text("Settings")
+            }
         }
 
-        if (state.latestUserMessage.isNotBlank()) {
-            Spacer(Modifier.height(8.dp))
-            Text(
-                "You: " +
-                    state.latestUserMessage
-                        .replace(Regex("\\s+"), " ")
-                        .take(160),
-                style = MaterialTheme.typography.labelSmall,
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            OutlinedTextField(
+                value = state.command,
+                onValueChange = viewModel::updateCommand,
+                label = { Text("Tell HARU") },
+                placeholder = {
+                    Text("Ask, add a task, or set a reminder")
+                },
+                singleLine = true,
+                keyboardOptions =
+                    KeyboardOptions(imeAction = ImeAction.Send),
+                keyboardActions =
+                    KeyboardActions(onSend = { onSubmitClick() }),
                 modifier = Modifier.fillMaxWidth(),
             )
-        }
 
-        Spacer(Modifier.height(6.dp))
-        Text(
-            "Voice: " + voiceStatus.speechInput +
-                " • " + voiceStatus.speechOutput,
-            style = MaterialTheme.typography.labelSmall,
-        )
+            Text(
+                "task Buy milk  •  remind me in 30 min to call",
+                style = MaterialTheme.typography.labelSmall,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 3.dp),
+            )
 
-        TextButton(onClick = onOpenSettings) {
-            Text("Settings")
+            Spacer(Modifier.height(7.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement =
+                    Arrangement.spacedBy(8.dp),
+            ) {
+                Button(
+                    onClick = onSubmitClick,
+                    enabled =
+                        !state.isBusy &&
+                            state.command.isNotBlank(),
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text("Send")
+                }
+                OutlinedButton(
+                    onClick = onMicClick,
+                    enabled =
+                        !state.isBusy ||
+                            state.mood == HaruMood.LISTENING,
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text(
+                        if (state.mood == HaruMood.LISTENING) {
+                            "Listening…"
+                        } else {
+                            "Mic"
+                        }
+                    )
+                }
+            }
+
+            Text(
+                "Voice: " + voiceStatus.speechInput +
+                    " • " + voiceStatus.speechOutput,
+                style = MaterialTheme.typography.labelSmall,
+                modifier = Modifier.padding(top = 3.dp),
+            )
         }
     }
 
@@ -430,6 +446,8 @@ private fun SimpleHaruPane(
             onDismiss = { showToday = false },
             onAddTask = onAddTask,
             onCompleteTask = onCompleteTask,
+            onUpdateTask = onUpdateTask,
+            onDeleteTask = onDeleteTask,
         )
     }
 }
@@ -440,8 +458,13 @@ private fun SimpleTodayDialog(
     onDismiss: () -> Unit,
     onAddTask: (String) -> Unit,
     onCompleteTask: (Int) -> Unit,
+    onUpdateTask: (Int, String) -> Unit,
+    onDeleteTask: (Int) -> Unit,
 ) {
     var taskText by remember { mutableStateOf("") }
+    var selectedTaskIndex by remember {
+        mutableStateOf<Int?>(null)
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -455,7 +478,7 @@ private fun SimpleTodayDialog(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(max = 460.dp)
+                    .heightIn(max = 500.dp)
                     .verticalScroll(rememberScrollState()),
                 verticalArrangement =
                     Arrangement.spacedBy(8.dp),
@@ -492,7 +515,7 @@ private fun SimpleTodayDialog(
                     enabled = taskText.isNotBlank(),
                     modifier = Modifier.fillMaxWidth(),
                 ) {
-                    Text("Add")
+                    Text("Add task")
                 }
 
                 val openTasks =
@@ -507,17 +530,20 @@ private fun SimpleTodayDialog(
                     )
                 } else {
                     Text(
-                        "Tap a task when finished.",
+                        "Tap a task to edit, finish, or delete.",
                         style = MaterialTheme.typography.labelSmall,
                     )
                     openTasks.take(12).forEach { indexed ->
-                        TextButton(
+                        Card(
                             onClick = {
-                                onCompleteTask(indexed.index)
+                                selectedTaskIndex = indexed.index
                             },
                             modifier = Modifier.fillMaxWidth(),
                         ) {
-                            Text("○  " + indexed.value.text)
+                            Text(
+                                "○  " + indexed.value.text,
+                                modifier = Modifier.padding(10.dp),
+                            )
                         }
                     }
                 }
@@ -543,9 +569,7 @@ private fun SimpleTodayDialog(
                                 DateFormat.getDateTimeInstance(
                                     DateFormat.SHORT,
                                     DateFormat.SHORT,
-                                ).format(
-                                    Date(reminder.dueAt)
-                                ),
+                                ).format(Date(reminder.dueAt)),
                             style =
                                 MaterialTheme.typography.bodySmall,
                         )
@@ -553,10 +577,84 @@ private fun SimpleTodayDialog(
                 }
 
                 Text(
-                    "To create a reminder, close Today and type: remind me in 30 min to call",
+                    "Reminder: type “remind me in 30 min to call” in Tell HARU.",
                     style = MaterialTheme.typography.labelSmall,
                 )
             }
+        },
+    )
+
+    selectedTaskIndex?.let { index ->
+        val task =
+            snapshot.tasks.getOrNull(index)
+        if (task != null) {
+            TaskEditDialog(
+                initialText = task.text,
+                onDismiss = {
+                    selectedTaskIndex = null
+                },
+                onSave = { updated ->
+                    onUpdateTask(index, updated)
+                    selectedTaskIndex = null
+                },
+                onDone = {
+                    onCompleteTask(index)
+                    selectedTaskIndex = null
+                },
+                onDelete = {
+                    onDeleteTask(index)
+                    selectedTaskIndex = null
+                },
+            )
+        } else {
+            selectedTaskIndex = null
+        }
+    }
+}
+
+@Composable
+private fun TaskEditDialog(
+    initialText: String,
+    onDismiss: () -> Unit,
+    onSave: (String) -> Unit,
+    onDone: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    var editedText by remember(initialText) {
+        mutableStateOf(initialText)
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = {
+            TextButton(
+                onClick = { onSave(editedText) },
+                enabled = editedText.isNotBlank(),
+            ) {
+                Text("Save")
+            }
+        },
+        dismissButton = {
+            Row {
+                TextButton(onClick = onDone) {
+                    Text("Done")
+                }
+                TextButton(onClick = onDelete) {
+                    Text("Delete")
+                }
+            }
+        },
+        title = { Text("Task") },
+        text = {
+            OutlinedTextField(
+                value = editedText,
+                onValueChange = {
+                    editedText = it.take(200)
+                },
+                label = { Text("Edit task") },
+                singleLine = false,
+                modifier = Modifier.fillMaxWidth(),
+            )
         },
     )
 }
