@@ -47,7 +47,7 @@ jobs:
           gradle-version: "9.6.0"
 
       - name: Build optimized HARU APK
-        run: gradle --no-daemon :app:testReleaseUnitTest :app:lintRelease :app:assembleRelease --stacktrace
+        run: gradle --no-daemon :app:testDebugUnitTest :app:lintRelease :app:assembleRelease --stacktrace
 
       - name: Package APK
         shell: bash
