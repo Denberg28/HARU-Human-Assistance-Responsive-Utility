@@ -88,6 +88,7 @@ fun HaruScreen(
     geminiModels: List<GeminiModel>,
     onlineStatus: String,
     hasGeminiKey: Boolean,
+    memoryCount: Int,
     appVersion: String,
     updateStatus: String,
     updateUrl: String,
@@ -111,6 +112,7 @@ fun HaruScreen(
     onRefreshGeminiModels: () -> Unit,
     onSaveGeminiKey: (String) -> Unit,
     onTestOnlineAi: () -> Unit,
+    onResetMemory: () -> Unit,
     onCheckUpdate: () -> Unit,
     onOpenUpdate: (String) -> Unit,
     onRefreshNews: () -> Unit,
@@ -193,9 +195,11 @@ fun HaruScreen(
                         todayLines = todayLines,
                         onlineProvider = onlineProvider,
                         onlineStatus = onlineStatus,
+                        memoryCount = memoryCount,
                         onSubmitClick = onSubmitClick,
                         onMicClick = onMicClick,
                         onSpeakClick = onSpeakClick,
+                        onResetMemory = onResetMemory,
                         appVersion = appVersion,
                         onOpenOnlineAi = { showOnlineAi = true },
                         onOpenUpdate = { showUpdate = true },
@@ -271,9 +275,11 @@ private fun AssistantPane(
     todayLines: List<String>,
     onlineProvider: OnlineProvider,
     onlineStatus: String,
+    memoryCount: Int,
     onSubmitClick: () -> Unit,
     onMicClick: () -> Unit,
     onSpeakClick: () -> Unit,
+    onResetMemory: () -> Unit,
     appVersion: String,
     onOpenOnlineAi: () -> Unit,
     onOpenUpdate: () -> Unit,
@@ -327,6 +333,22 @@ private fun AssistantPane(
                 onlineStatus,
                 style = MaterialTheme.typography.labelSmall,
             )
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                "Memory $memoryCount/10 · encrypted on-device",
+                style = MaterialTheme.typography.labelSmall,
+            )
+            TextButton(
+                onClick = onResetMemory,
+                enabled = memoryCount > 0 || state.isBusy,
+            ) {
+                Text("Reset memory")
+            }
         }
         Text(
             text = "Voice: " + voiceStatus.speechInput + " STT • " + voiceStatus.speechOutput,

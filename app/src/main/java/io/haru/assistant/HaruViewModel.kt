@@ -92,4 +92,13 @@ class HaruViewModel(
         )
     }
 
+    fun resetConversation() {
+        uiState = uiState.copy(
+            mood = HaruMood.IDLE,
+            message = "Conversation memory cleared. Ready for a fresh chat.",
+            command = "",
+            latestUserMessage = "",
+            isBusy = false,
+        )
+    }
 }
