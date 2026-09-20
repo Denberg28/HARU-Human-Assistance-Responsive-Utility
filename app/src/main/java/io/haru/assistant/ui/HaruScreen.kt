@@ -20,7 +20,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardActions
@@ -38,6 +40,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.ScrollableTabRow
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Tab
+import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -57,6 +60,7 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -151,20 +155,32 @@ fun HaruScreen(
     val tabs = listOf("HARU", "Map")
 
     Surface(modifier = modifier.fillMaxSize()) {
-        Column(modifier = Modifier.fillMaxSize()) {
-            Text(
-                text = "HARU",
-                style = MaterialTheme.typography.headlineMedium,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.padding(
-                    top = 14.dp,
-                    bottom = 4.dp,
-                ),
-            )
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .statusBarsPadding(),
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 6.dp, bottom = 6.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Text(
+                    text = "HARU",
+                    style = MaterialTheme.typography.headlineLarge,
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center,
+                )
+                Text(
+                    text = "Human Assistance & Responsive Utility",
+                    style = MaterialTheme.typography.labelMedium,
+                    textAlign = TextAlign.Center,
+                )
+            }
 
-            ScrollableTabRow(
+            TabRow(
                 selectedTabIndex = selectedTab,
-                edgePadding = 8.dp,
             ) {
                 tabs.forEachIndexed { index, title ->
                     Tab(
@@ -311,10 +327,10 @@ private fun SimpleHaruPane(
         ) {
             HaruFace(
                 mood = state.mood,
-                modifier = Modifier.sizeCompat(118.dp),
+                modifier = Modifier.sizeCompat(96.dp),
             )
 
-            Spacer(Modifier.height(6.dp))
+            Spacer(Modifier.height(4.dp))
 
             if (state.isBusy && state.mood == HaruMood.THINKING) {
                 ThinkingDots()
@@ -322,6 +338,7 @@ private fun SimpleHaruPane(
                 Text(
                     text = state.message,
                     style = MaterialTheme.typography.bodyMedium,
+                    textAlign = TextAlign.Center,
                     modifier = Modifier.fillMaxWidth(),
                 )
             }
@@ -372,7 +389,10 @@ private fun SimpleHaruPane(
         }
 
         Column(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .navigationBarsPadding()
+                .padding(bottom = 4.dp),
         ) {
             OutlinedTextField(
                 value = state.command,
@@ -430,12 +450,8 @@ private fun SimpleHaruPane(
                 }
             }
 
-            Text(
-                "Voice: " + voiceStatus.speechInput +
-                    " • " + voiceStatus.speechOutput,
-                style = MaterialTheme.typography.labelSmall,
-                modifier = Modifier.padding(top = 3.dp),
-            )
+            // Voice remains available through the Mic button.
+            // Keep diagnostics out of the primary interface.
         }
     }
 
@@ -478,10 +494,6 @@ private fun SimpleTodayDialog(
                 },
                 onSave = { updated ->
                     onUpdateTask(selectedIndex, updated)
-                    selectedTaskIndex = null
-                },
-                onDone = {
-                    onCompleteTask(selectedIndex)
                     selectedTaskIndex = null
                 },
                 onDelete = {
@@ -559,7 +571,7 @@ private fun SimpleTodayDialog(
                     )
                 } else {
                     Text(
-                        "Tap a task to edit, finish, or delete.",
+                        "Tap a task to edit or delete.",
                         style = MaterialTheme.typography.labelSmall,
                     )
                     openTasks.take(12).forEach { indexed ->
@@ -620,7 +632,6 @@ private fun TaskEditDialog(
     initialText: String,
     onDismiss: () -> Unit,
     onSave: (String) -> Unit,
-    onDone: () -> Unit,
     onDelete: () -> Unit,
 ) {
     var editedText by remember(initialText) {
@@ -638,13 +649,8 @@ private fun TaskEditDialog(
             }
         },
         dismissButton = {
-            Row {
-                TextButton(onClick = onDone) {
-                    Text("Done")
-                }
-                TextButton(onClick = onDelete) {
-                    Text("Delete")
-                }
+            TextButton(onClick = onDelete) {
+                Text("Delete")
             }
         },
         title = { Text("Task") },
