@@ -28,16 +28,22 @@ class CompanionStatusStore(
         )
 
     fun isEnabled(): Boolean =
-        preferences.getBoolean(KEY_ENABLED, true)
+        if (preferences.getBoolean(KEY_USER_SET, false)) {
+            preferences.getBoolean(KEY_ENABLED, true)
+        } else {
+            true
+        }
 
     fun setEnabled(enabled: Boolean) {
         preferences.edit()
             .putBoolean(KEY_ENABLED, enabled)
+            .putBoolean(KEY_USER_SET, true)
             .apply()
     }
 
     companion object {
         private const val KEY_ENABLED = "lock_screen_enabled"
+        private const val KEY_USER_SET = "lock_screen_user_set"
     }
 }
 
@@ -65,6 +71,14 @@ object CompanionStatusNotifier {
             return
         }
 
+        val manager =
+            context.getSystemService(
+                Context.NOTIFICATION_SERVICE
+            ) as NotificationManager
+
+        ensureChannel(manager)
+        migrateLegacyChannel(manager)
+
         if (
             Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
             ContextCompat.checkSelfPermission(
@@ -74,14 +88,6 @@ object CompanionStatusNotifier {
         ) {
             return
         }
-
-        val manager =
-            context.getSystemService(
-                Context.NOTIFICATION_SERVICE
-            ) as NotificationManager
-
-        ensureChannel(manager)
-        migrateLegacyChannel(manager)
 
         val openIntent =
             Intent(context, MainActivity::class.java).apply {
