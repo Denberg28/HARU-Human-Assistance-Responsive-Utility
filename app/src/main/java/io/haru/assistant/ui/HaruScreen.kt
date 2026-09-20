@@ -61,6 +61,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import io.haru.assistant.HaruViewModel
+import io.haru.assistant.companion.CompanionSnapshot
 import io.haru.assistant.content.AndroidHazardBundle
 import io.haru.assistant.content.AndroidHazardItem
 import io.haru.assistant.content.AndroidNewsBundle
@@ -85,6 +86,7 @@ fun HaruScreen(
     viewModel: HaruViewModel,
     voiceStatus: HaruVoiceController.VoiceRuntimeStatus,
     todayLines: List<String>,
+    companionSnapshot: CompanionSnapshot,
     companionMode: CompanionMode,
     lockScreenCompanionEnabled: Boolean,
     onlineProvider: OnlineProvider,
@@ -113,6 +115,9 @@ fun HaruScreen(
     onMicClick: () -> Unit,
     onSpeakClick: () -> Unit,
     onSelectCompanionMode: (CompanionMode) -> Unit,
+    onAddCompanionTask: (String) -> Unit,
+    onCompleteCompanionTask: (Int) -> Unit,
+    onAddQuickReminder: (String, Int) -> Unit,
     onSetLockScreenCompanion: (Boolean) -> Unit,
     onSelectOnlineProvider: (OnlineProvider) -> Unit,
     onSelectGeminiModel: (GeminiModel) -> Unit,
@@ -200,6 +205,7 @@ fun HaruScreen(
                     0 -> HomePane(
                         viewModel = viewModel,
                         todayLines = todayLines,
+                        companionSnapshot = companionSnapshot,
                         companionMode = companionMode,
                         lockScreenCompanionEnabled = lockScreenCompanionEnabled,
                         onlineProvider = onlineProvider,
@@ -217,6 +223,9 @@ fun HaruScreen(
                                 hazardBundle.noah.size,
                         appVersion = appVersion,
                         onSelectMode = onSelectCompanionMode,
+                        onAddTask = onAddCompanionTask,
+                        onCompleteTask = onCompleteCompanionTask,
+                        onAddQuickReminder = onAddQuickReminder,
                         onSetLockScreenCompanion = onSetLockScreenCompanion,
                         onTalk = onMicClick,
                         onOpenAssistant = { selectedTab = 1 },
@@ -327,6 +336,7 @@ fun HaruScreen(
 private fun HomePane(
     viewModel: HaruViewModel,
     todayLines: List<String>,
+    companionSnapshot: CompanionSnapshot,
     companionMode: CompanionMode,
     lockScreenCompanionEnabled: Boolean,
     onlineProvider: OnlineProvider,
@@ -339,6 +349,9 @@ private fun HomePane(
     hazardCount: Int,
     appVersion: String,
     onSelectMode: (CompanionMode) -> Unit,
+    onAddTask: (String) -> Unit,
+    onCompleteTask: (Int) -> Unit,
+    onAddQuickReminder: (String, Int) -> Unit,
     onSetLockScreenCompanion: (Boolean) -> Unit,
     onTalk: () -> Unit,
     onOpenAssistant: () -> Unit,
@@ -350,6 +363,8 @@ private fun HomePane(
 ) {
     val state = viewModel.uiState
     var modeMenuExpanded by remember { mutableStateOf(false) }
+    var showPriority by remember { mutableStateOf(false) }
+    var showToday by remember { mutableStateOf(false) }
 
     Column(
         modifier = Modifier
@@ -410,10 +425,13 @@ private fun HomePane(
         }
 
         Spacer(Modifier.height(8.dp))
-        Card(modifier = Modifier.fillMaxWidth()) {
+        Card(
+            onClick = { showPriority = true },
+            modifier = Modifier.fillMaxWidth(),
+        ) {
             Column(Modifier.padding(12.dp)) {
                 Text(
-                    "Current priority",
+                    "Current priority  ›",
                     fontWeight = FontWeight.SemiBold,
                 )
                 Text(
@@ -428,9 +446,12 @@ private fun HomePane(
         }
 
         Spacer(Modifier.height(8.dp))
-        Card(modifier = Modifier.fillMaxWidth()) {
+        Card(
+            onClick = { showToday = true },
+            modifier = Modifier.fillMaxWidth(),
+        ) {
             Column(Modifier.padding(12.dp)) {
-                Text("Today", fontWeight = FontWeight.SemiBold)
+                Text("Today  ›", fontWeight = FontWeight.SemiBold)
                 if (todayLines.isEmpty()) {
                     Text(
                         "No open tasks or upcoming reminders.",
@@ -586,6 +607,230 @@ private fun HomePane(
             Text("HARU v$appVersion · Check update")
         }
     }
+
+    if (showPriority) {
+        PriorityDialog(
+            mode = companionMode,
+            onDismiss = { showPriority = false },
+            onToday = {
+                showPriority = false
+                showToday = true
+            },
+            onTalk = {
+                showPriority = false
+                onTalk()
+            },
+            onReason = {
+                showPriority = false
+                onOpenAssistant()
+            },
+            onMap = {
+                showPriority = false
+                onOpenMap()
+            },
+            onHazards = {
+                showPriority = false
+                onOpenHazards()
+            },
+        )
+    }
+
+    if (showToday) {
+        TodayDialog(
+            snapshot = companionSnapshot,
+            onDismiss = { showToday = false },
+            onAddTask = onAddTask,
+            onCompleteTask = onCompleteTask,
+            onAddQuickReminder = onAddQuickReminder,
+        )
+    }
+}
+
+@Composable
+private fun PriorityDialog(
+    mode: CompanionMode,
+    onDismiss: () -> Unit,
+    onToday: () -> Unit,
+    onTalk: () -> Unit,
+    onReason: () -> Unit,
+    onMap: () -> Unit,
+    onHazards: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("Done") }
+        },
+        title = { Text(mode.label + " priority") },
+        text = {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text(mode.priority)
+                Text(
+                    "These are local shortcuts. They do not use cloud AI unless you choose Reason.",
+                    style = MaterialTheme.typography.labelSmall,
+                )
+                when (mode) {
+                    CompanionMode.FLIGHT -> {
+                        OutlinedButton(onClick = onToday, modifier = Modifier.fillMaxWidth()) {
+                            Text("Checklist / Today")
+                        }
+                        OutlinedButton(onClick = onMap, modifier = Modifier.fillMaxWidth()) {
+                            Text("GPS / Map")
+                        }
+                        OutlinedButton(onClick = onTalk, modifier = Modifier.fillMaxWidth()) {
+                            Text("Talk to HARU")
+                        }
+                    }
+                    CompanionMode.TRAVEL,
+                    CompanionMode.SAFETY -> {
+                        OutlinedButton(onClick = onMap, modifier = Modifier.fillMaxWidth()) {
+                            Text("Open Map")
+                        }
+                        OutlinedButton(onClick = onHazards, modifier = Modifier.fillMaxWidth()) {
+                            Text("Check Hazards")
+                        }
+                        OutlinedButton(onClick = onTalk, modifier = Modifier.fillMaxWidth()) {
+                            Text("Talk to HARU")
+                        }
+                    }
+                    CompanionMode.WORK,
+                    CompanionMode.NORMAL -> {
+                        OutlinedButton(onClick = onToday, modifier = Modifier.fillMaxWidth()) {
+                            Text("Manage Today")
+                        }
+                        OutlinedButton(onClick = onTalk, modifier = Modifier.fillMaxWidth()) {
+                            Text("Talk to HARU")
+                        }
+                        OutlinedButton(onClick = onReason, modifier = Modifier.fillMaxWidth()) {
+                            Text("Use Reasoning")
+                        }
+                    }
+                    CompanionMode.REST -> {
+                        OutlinedButton(onClick = onToday, modifier = Modifier.fillMaxWidth()) {
+                            Text("Essential reminders")
+                        }
+                        OutlinedButton(onClick = onTalk, modifier = Modifier.fillMaxWidth()) {
+                            Text("Talk to HARU")
+                        }
+                    }
+                }
+            }
+        },
+    )
+}
+
+@Composable
+private fun TodayDialog(
+    snapshot: CompanionSnapshot,
+    onDismiss: () -> Unit,
+    onAddTask: (String) -> Unit,
+    onCompleteTask: (Int) -> Unit,
+    onAddQuickReminder: (String, Int) -> Unit,
+) {
+    var taskText by remember { mutableStateOf("") }
+    var reminderText by remember { mutableStateOf("") }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("Done") }
+        },
+        title = { Text("Today") },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 520.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text("Tasks", fontWeight = FontWeight.SemiBold)
+                val openTasks = snapshot.tasks.withIndex().filter { !it.value.done }
+                if (openTasks.isEmpty()) {
+                    Text("No open tasks.", style = MaterialTheme.typography.bodySmall)
+                } else {
+                    openTasks.take(12).forEach { indexed ->
+                        OutlinedButton(
+                            onClick = { onCompleteTask(indexed.index) },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text("✓  " + indexed.value.text)
+                        }
+                    }
+                }
+
+                OutlinedTextField(
+                    value = taskText,
+                    onValueChange = { taskText = it.take(200) },
+                    label = { Text("New task") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Button(
+                    onClick = {
+                        onAddTask(taskText)
+                        taskText = ""
+                    },
+                    enabled = taskText.isNotBlank(),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text("Add task")
+                }
+
+                HorizontalDivider()
+                Text("Quick reminder", fontWeight = FontWeight.SemiBold)
+                snapshot.reminders
+                    .filter { it.dueAt > System.currentTimeMillis() }
+                    .sortedBy { it.dueAt }
+                    .take(6)
+                    .forEach { reminder ->
+                        Text(
+                            "⏰ " + reminder.text + " · " +
+                                DateFormat.getDateTimeInstance(
+                                    DateFormat.SHORT,
+                                    DateFormat.SHORT,
+                                ).format(Date(reminder.dueAt)),
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+
+                OutlinedTextField(
+                    value = reminderText,
+                    onValueChange = { reminderText = it.take(200) },
+                    label = { Text("Reminder text") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    OutlinedButton(
+                        onClick = {
+                            onAddQuickReminder(reminderText, 15)
+                            reminderText = ""
+                        },
+                        enabled = reminderText.isNotBlank(),
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Text("15 min")
+                    }
+                    OutlinedButton(
+                        onClick = {
+                            onAddQuickReminder(reminderText, 60)
+                            reminderText = ""
+                        },
+                        enabled = reminderText.isNotBlank(),
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Text("1 hour")
+                    }
+                }
+            }
+        },
+    )
 }
 
 @Composable
