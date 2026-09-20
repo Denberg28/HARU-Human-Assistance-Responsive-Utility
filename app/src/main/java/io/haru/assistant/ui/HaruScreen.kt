@@ -65,6 +65,7 @@ import io.haru.assistant.content.AndroidHazardBundle
 import io.haru.assistant.content.AndroidHazardItem
 import io.haru.assistant.content.AndroidNewsBundle
 import io.haru.assistant.content.AndroidNewsItem
+import io.haru.assistant.core.CompanionMode
 import io.haru.assistant.core.HaruMood
 import io.haru.assistant.location.TrustedLocation
 import io.haru.assistant.onlineai.GeminiModel
@@ -84,6 +85,7 @@ fun HaruScreen(
     viewModel: HaruViewModel,
     voiceStatus: HaruVoiceController.VoiceRuntimeStatus,
     todayLines: List<String>,
+    companionMode: CompanionMode,
     onlineProvider: OnlineProvider,
     selectedGeminiModel: GeminiModel,
     geminiModels: List<GeminiModel>,
@@ -109,6 +111,7 @@ fun HaruScreen(
     onSubmitClick: () -> Unit,
     onMicClick: () -> Unit,
     onSpeakClick: () -> Unit,
+    onSelectCompanionMode: (CompanionMode) -> Unit,
     onSelectOnlineProvider: (OnlineProvider) -> Unit,
     onSelectGeminiModel: (GeminiModel) -> Unit,
     onRefreshGeminiModels: () -> Unit,
@@ -133,7 +136,7 @@ fun HaruScreen(
     var selectedTab by remember { mutableIntStateOf(0) }
     var showOnlineAi by remember { mutableStateOf(false) }
     var showUpdate by remember { mutableStateOf(false) }
-    val tabs = listOf("Assistant", "News", "Hazard Advisories", "Map")
+    val tabs = listOf("Home", "Assistant", "News", "Hazards", "Map")
 
     Surface(modifier = modifier.fillMaxSize()) {
         Column(modifier = Modifier.fillMaxSize()) {
@@ -165,14 +168,14 @@ fun HaruScreen(
                         onClick = {
                             selectedTab = index
                             when (index) {
-                                1 -> if (
+                                2 -> if (
                                     newsBundle.local.isEmpty() &&
                                     newsBundle.international.isEmpty() &&
                                     newsBundle.error.isBlank()
                                 ) {
                                     onRefreshNews()
                                 }
-                                2 -> if (
+                                3 -> if (
                                     hazardBundle.pagasa.isEmpty() &&
                                     hazardBundle.phivolcs.isEmpty() &&
                                     hazardBundle.error.isBlank()
@@ -192,7 +195,50 @@ fun HaruScreen(
                 label = "haru-tab-transition",
             ) { tab ->
                     when (tab) {
-                    0 -> AssistantPane(
+                    0 -> HomePane(
+                        viewModel = viewModel,
+                        todayLines = todayLines,
+                        companionMode = companionMode,
+                        onlineProvider = onlineProvider,
+                        memoryCount = memoryCount,
+                        mapGpsActive = mapGpsActive,
+                        currentDeviceLocation = currentDeviceLocation,
+                        liveShareActive = liveShareActive,
+                        liveMonitorActive = liveMonitorActive,
+                        newsCount =
+                            newsBundle.local.size +
+                                newsBundle.international.size,
+                        hazardCount =
+                            hazardBundle.pagasa.size +
+                                hazardBundle.phivolcs.size +
+                                hazardBundle.noah.size,
+                        appVersion = appVersion,
+                        onSelectMode = onSelectCompanionMode,
+                        onTalk = onMicClick,
+                        onOpenAssistant = { selectedTab = 1 },
+                        onOpenNews = {
+                            selectedTab = 2
+                            if (
+                                newsBundle.local.isEmpty() &&
+                                newsBundle.international.isEmpty()
+                            ) {
+                                onRefreshNews()
+                            }
+                        },
+                        onOpenHazards = {
+                            selectedTab = 3
+                            if (
+                                hazardBundle.pagasa.isEmpty() &&
+                                hazardBundle.phivolcs.isEmpty()
+                            ) {
+                                onRefreshHazards()
+                            }
+                        },
+                        onOpenMap = { selectedTab = 4 },
+                        onOpenOnlineAi = { showOnlineAi = true },
+                        onOpenUpdate = { showUpdate = true },
+                    )
+                    1 -> AssistantPane(
                         viewModel = viewModel,
                         voiceStatus = voiceStatus,
                         todayLines = todayLines,
@@ -207,12 +253,12 @@ fun HaruScreen(
                         onOpenOnlineAi = { showOnlineAi = true },
                         onOpenUpdate = { showUpdate = true },
                     )
-                    1 -> NewsPane(
+                    2 -> NewsPane(
                         bundle = newsBundle,
                         onRefresh = onRefreshNews,
                         onOpenUrl = onOpenUrl,
                     )
-                    2 -> HazardPane(
+                    3 -> HazardPane(
                         bundle = hazardBundle,
                         onRefresh = onRefreshHazards,
                         onOpenUrl = onOpenUrl,
@@ -274,6 +320,231 @@ fun HaruScreen(
 }
 
 @Composable
+private fun HomePane(
+    viewModel: HaruViewModel,
+    todayLines: List<String>,
+    companionMode: CompanionMode,
+    onlineProvider: OnlineProvider,
+    memoryCount: Int,
+    mapGpsActive: Boolean,
+    currentDeviceLocation: TrustedLocation?,
+    liveShareActive: Boolean,
+    liveMonitorActive: Boolean,
+    newsCount: Int,
+    hazardCount: Int,
+    appVersion: String,
+    onSelectMode: (CompanionMode) -> Unit,
+    onTalk: () -> Unit,
+    onOpenAssistant: () -> Unit,
+    onOpenNews: () -> Unit,
+    onOpenHazards: () -> Unit,
+    onOpenMap: () -> Unit,
+    onOpenOnlineAi: () -> Unit,
+    onOpenUpdate: () -> Unit,
+) {
+    val state = viewModel.uiState
+    var modeMenuExpanded by remember { mutableStateOf(false) }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 20.dp, vertical = 12.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        HaruFace(
+            mood = state.mood,
+            modifier = Modifier.sizeCompat(140.dp),
+        )
+        Spacer(Modifier.height(6.dp))
+
+        Text(
+            text = "COMPANION NODE · " + companionMode.label.uppercase(),
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.SemiBold,
+        )
+        Text(
+            text = companionMode.role,
+            style = MaterialTheme.typography.titleMedium,
+        )
+        Text(
+            text = "Observe · Remember · Assist · Act · Alert",
+            style = MaterialTheme.typography.labelSmall,
+        )
+
+        Spacer(Modifier.height(10.dp))
+        Box(modifier = Modifier.fillMaxWidth()) {
+            OutlinedButton(
+                onClick = { modeMenuExpanded = true },
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text("Mode · " + companionMode.label + " ▾")
+            }
+            DropdownMenu(
+                expanded = modeMenuExpanded,
+                onDismissRequest = { modeMenuExpanded = false },
+            ) {
+                CompanionMode.entries.forEach { mode ->
+                    DropdownMenuItem(
+                        text = {
+                            Text(
+                                (if (mode == companionMode) "✓ " else "") +
+                                    mode.label +
+                                    " · " +
+                                    mode.role
+                            )
+                        },
+                        onClick = {
+                            onSelectMode(mode)
+                            modeMenuExpanded = false
+                        },
+                    )
+                }
+            }
+        }
+
+        Spacer(Modifier.height(8.dp))
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(12.dp)) {
+                Text(
+                    "Current priority",
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(
+                    companionMode.priority,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                Text(
+                    "Local core active · cloud AI is optional.",
+                    style = MaterialTheme.typography.labelSmall,
+                )
+            }
+        }
+
+        Spacer(Modifier.height(8.dp))
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(12.dp)) {
+                Text("Today", fontWeight = FontWeight.SemiBold)
+                if (todayLines.isEmpty()) {
+                    Text(
+                        "No open tasks or upcoming reminders.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                } else {
+                    todayLines.take(4).forEach {
+                        Text(
+                            it,
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                }
+            }
+        }
+
+        Spacer(Modifier.height(8.dp))
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(12.dp)) {
+                Text("Companion state", fontWeight = FontWeight.SemiBold)
+                Text(
+                    "GPS · " +
+                        if (mapGpsActive || currentDeviceLocation != null) {
+                            "ready"
+                        } else {
+                            "off"
+                        },
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                Text(
+                    "Live share · " +
+                        (if (liveShareActive) "active" else "off") +
+                        "  |  Tracking · " +
+                        (if (liveMonitorActive) "active" else "off"),
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                Text(
+                    "Memory · $memoryCount/10 encrypted",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                Text(
+                    "Reasoning · " +
+                        providerLabel(onlineProvider) +
+                        " · optional",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                Text(
+                    "Cached feeds · $newsCount news · $hazardCount hazard items",
+                    style = MaterialTheme.typography.labelSmall,
+                )
+            }
+        }
+
+        Spacer(Modifier.height(10.dp))
+        Text(
+            "Quick actions",
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.SemiBold,
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Button(
+                onClick = onTalk,
+                modifier = Modifier.weight(1f),
+            ) {
+                Text("Talk")
+            }
+            OutlinedButton(
+                onClick = onOpenAssistant,
+                modifier = Modifier.weight(1f),
+            ) {
+                Text("Reason")
+            }
+        }
+        Spacer(Modifier.height(6.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            OutlinedButton(
+                onClick = onOpenMap,
+                modifier = Modifier.weight(1f),
+            ) {
+                Text("Map")
+            }
+            OutlinedButton(
+                onClick = onOpenHazards,
+                modifier = Modifier.weight(1f),
+            ) {
+                Text("Hazards")
+            }
+        }
+        Spacer(Modifier.height(6.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            OutlinedButton(
+                onClick = onOpenNews,
+                modifier = Modifier.weight(1f),
+            ) {
+                Text("News")
+            }
+            OutlinedButton(
+                onClick = onOpenOnlineAi,
+                modifier = Modifier.weight(1f),
+            ) {
+                Text("AI setup")
+            }
+        }
+
+        TextButton(onClick = onOpenUpdate) {
+            Text("HARU v$appVersion · Check update")
+        }
+    }
+}
+
+@Composable
 private fun AssistantPane(
     viewModel: HaruViewModel,
     voiceStatus: HaruVoiceController.VoiceRuntimeStatus,
@@ -301,7 +572,17 @@ private fun AssistantPane(
             .padding(horizontal = 20.dp, vertical = 12.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        HaruFace(mood = state.mood, modifier = Modifier.sizeCompat(170.dp))
+        Text(
+            "Reasoning console",
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold,
+        )
+        Text(
+            "Local commands run first. Cloud AI is only used when needed.",
+            style = MaterialTheme.typography.labelSmall,
+        )
+        Spacer(Modifier.height(8.dp))
+        HaruFace(mood = state.mood, modifier = Modifier.sizeCompat(120.dp))
         Spacer(Modifier.height(8.dp))
 
         if (!state.isBusy || state.mood != HaruMood.THINKING) {

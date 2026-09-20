@@ -1,6 +1,6 @@
 # HARU — Human Assistance & Responsive Utility
 
-HARU is a lightweight, free-first personal assistant prototype with two front ends:
+HARU is a lightweight, free-first personal companion platform with two front ends:
 
 - **Streamlit HARU Lab** for rapid testing and cloud/local use.
 - **Native Android app** for low-power voice, deterministic skills, Groq/Gemini/Antigravity AI, OpenStreetMap, hazards, reminders, and standalone APK distribution.
@@ -61,9 +61,11 @@ For a local build, open the project in Android Studio and use **Build > Build AP
 HARU is intentionally small: one UI shell, deterministic local skills, provider adapters, bounded external requests, and minimal persistent state. Add integrations as isolated adapters rather than expanding the core UI.
 
 
-## Companion Core
+## Companion Node direction
 
-HARU keeps the companion loop intentionally small:
+HARU Android v0.5.0 is local-first and mode-aware. Home is the primary experience; the Assistant tab is a secondary reasoning console. Persistent modes are Normal, Flight, Travel, Work, Safety, and Rest. Mode switching is local and costs no AI request. Cloud AI is optional and receives the current mode only when reasoning is actually needed.
+
+HARU's companion loop is intentionally small:
 
 - local notes and tasks
 - relative reminders such as `remind me in 30 minutes to charge batteries`

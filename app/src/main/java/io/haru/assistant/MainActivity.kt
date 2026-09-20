@@ -30,6 +30,8 @@ import io.haru.assistant.content.AndroidHazardBundle
 import io.haru.assistant.content.AndroidHazardService
 import io.haru.assistant.content.AndroidNewsBundle
 import io.haru.assistant.content.AndroidNewsService
+import io.haru.assistant.core.CompanionMode
+import io.haru.assistant.core.CompanionModeStore
 import io.haru.assistant.location.HaruLiveLocationManager
 import io.haru.assistant.location.LiveLocationSession
 import io.haru.assistant.location.LiveMonitorSession
@@ -60,6 +62,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
     private lateinit var voiceController: HaruVoiceController
     private lateinit var onlineAiManager: AndroidOnlineAiManager
     private lateinit var companionStore: AndroidCompanionStore
+    private lateinit var companionModeStore: CompanionModeStore
     private lateinit var newsService: AndroidNewsService
     private lateinit var hazardService: AndroidHazardService
     private lateinit var trustedLocationManager: TrustedLocationManager
@@ -75,6 +78,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
         HaruVoiceController.VoiceRuntimeStatus()
     )
     private var companionSnapshot by mutableStateOf(CompanionSnapshot())
+    private var companionMode by mutableStateOf(CompanionMode.NORMAL)
 
     private var onlineProvider by mutableStateOf(OnlineProvider.ANTIGRAVITY)
     private var selectedGeminiModel by mutableStateOf(AndroidOnlineAiManager.FALLBACK_GEMINI_MODEL)
@@ -178,6 +182,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
         )
         onlineAiManager = AndroidOnlineAiManager(applicationContext)
         companionStore = AndroidCompanionStore(applicationContext)
+        companionModeStore = CompanionModeStore(applicationContext)
         newsService = AndroidNewsService()
         hazardService = AndroidHazardService()
         trustedLocationManager = TrustedLocationManager(applicationContext)
@@ -186,6 +191,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
         conversationStore = EncryptedConversationStore(applicationContext)
 
         companionSnapshot = companionStore.load()
+        companionMode = companionModeStore.load()
         cleanupLegacyStorageOnce()
         val onlineSettings = onlineAiManager.settings()
         onlineProvider = onlineSettings.provider
@@ -209,6 +215,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
                     viewModel = haruViewModel,
                     voiceStatus = voiceStatus,
                     todayLines = companionSnapshot.todayLines(),
+                    companionMode = companionMode,
                     onlineProvider = onlineProvider,
                     selectedGeminiModel = selectedGeminiModel,
                     geminiModels = geminiModels,
@@ -238,6 +245,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
                     onSpeakClick = {
                         voiceController.speak(haruViewModel.uiState.message)
                     },
+                    onSelectCompanionMode = ::selectCompanionMode,
                     onSelectOnlineProvider = ::selectOnlineProvider,
                     onSelectGeminiModel = ::selectGeminiModel,
                     onRefreshGeminiModels = ::refreshGeminiModels,
@@ -285,6 +293,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
         val requestEpoch = conversationEpoch
         val requestHistory = conversationHistory
         val requestSummary = conversationSummary
+        val requestCompanionMode = companionMode
         val requestAntigravitySession =
             antigravitySession?.takeIf { it.isFresh() }
 
@@ -294,7 +303,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
                 val reply = onlineAiManager.ask(
                     provider = onlineProvider,
                     prompt = prompt,
-                    systemPrompt = SYSTEM_PROMPT,
+                    systemPrompt = systemPromptFor(requestCompanionMode),
                     history = requestHistory,
                     summary = requestSummary,
                     antigravitySession =
@@ -357,6 +366,15 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
                 }
             }
         }
+    }
+
+    private fun selectCompanionMode(mode: CompanionMode) {
+        companionMode = mode
+        companionModeStore.save(mode)
+        activeViewModel?.completeAi(
+            mode.activationMessage,
+            success = true,
+        )
     }
 
     private fun resetConversationMemory(
@@ -1174,6 +1192,24 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
         val clean = command.trim()
         val low = clean.lowercase()
 
+        if (
+            low == "what mode" ||
+            low == "current mode" ||
+            low == "haru mode" ||
+            low == "what mode are you in"
+        ) {
+            return companionMode.label +
+                " mode · " +
+                companionMode.role +
+                " · " +
+                companionMode.priority
+        }
+
+        CompanionMode.fromCommand(clean)?.let { mode ->
+            selectCompanionMode(mode)
+            return mode.activationMessage
+        }
+
         when (low) {
             "show notes", "list notes", "my notes" -> {
                 val notes = companionSnapshot.notes
@@ -1401,6 +1437,13 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
         voiceController.shutdown()
         super.onDestroy()
     }
+
+    private fun systemPromptFor(mode: CompanionMode): String =
+        SYSTEM_PROMPT +
+            " Current companion mode: " +
+            mode.label +
+            ". " +
+            mode.aiGuidance
 
     private fun providerName(provider: OnlineProvider): String =
         when (provider) {
