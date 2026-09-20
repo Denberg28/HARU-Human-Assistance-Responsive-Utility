@@ -215,7 +215,6 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
 
                 HaruScreen(
                     viewModel = haruViewModel,
-                    voiceStatus = voiceStatus,
                     todayLines = companionSnapshot.todayLines(),
                     companionSnapshot = companionSnapshot,
                     lockScreenCompanionEnabled = lockScreenCompanionEnabled,
