@@ -110,7 +110,18 @@ object CompanionStatusNotifier {
             )
                 .setSmallIcon(R.drawable.haru_notification_icon)
                 .setContentTitle(status.title)
-                .setContentText(status.message)
+                .setContentText(
+                    todayLines.firstOrNull()
+                        ?.take(100)
+                        ?: status.message
+                )
+                .setSubText(
+                    if (todayLines.isNotEmpty()) {
+                        status.message
+                    } else {
+                        null
+                    }
+                )
                 .setStyle(
                     if (todayLines.isNotEmpty()) {
                         NotificationCompat.InboxStyle().apply {
