@@ -154,6 +154,10 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
                     applicationContext,
                     companionMode,
                 )
+            } else if (!granted && lockScreenCompanionEnabled) {
+                lockScreenCompanionEnabled = false
+                companionStatusStore.setEnabled(false)
+                CompanionStatusNotifier.cancel(applicationContext)
             }
         }
 
