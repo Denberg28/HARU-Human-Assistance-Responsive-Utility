@@ -14,5 +14,7 @@ class ReminderBootReceiver : BroadcastReceiver() {
             .reminders
             .filter { it.dueAt > now }
             .forEach { ReminderScheduler.schedule(context, it) }
+
+        HaruBubbleWidgetProvider.refreshAll(context)
     }
 }
