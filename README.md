@@ -105,3 +105,13 @@ The Android interface is intentionally compact:
 - Today task flow: add -> tap task -> edit / done / delete.
 - Tell HARU is anchored to the bottom interaction area and stays above the keyboard.
 - Map remains unchanged and locked.
+
+
+## Simple HARU v0.6.2
+
+- Centered HARU brand header with **Human Assistance & Responsive Utility** subtitle.
+- Smaller companion face for a tighter professional layout.
+- Task edit dialog now shows only **Delete** and **Save**.
+- Voice diagnostics removed from the visible main screen.
+- Tell HARU keeps safe spacing above Android navigation controls.
+- Map remains unchanged and locked.
