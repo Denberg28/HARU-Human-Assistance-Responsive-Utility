@@ -124,12 +124,13 @@ object CompanionStatusNotifier {
                 )
                 .setStyle(
                     if (todayLines.isNotEmpty()) {
-                        NotificationCompat.InboxStyle().apply {
-                            setBigContentTitle(status.title)
+                        NotificationCompat.InboxStyle().let { inbox ->
+                            inbox.setBigContentTitle(status.title)
                             todayLines.take(4).forEach { line ->
-                                addLine(line.take(100))
+                                inbox.addLine(line.take(100))
                             }
-                            setSummaryText(status.message)
+                            inbox.setSummaryText(status.message)
+                            inbox
                         }
                     } else {
                         NotificationCompat.BigTextStyle()
