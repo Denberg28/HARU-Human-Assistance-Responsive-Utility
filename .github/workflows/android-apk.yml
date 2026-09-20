@@ -62,10 +62,10 @@ jobs:
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: HARU-v0.4.1-Standalone-arm64
+          name: HARU-v${{ env.VERSION }}-Standalone-arm64
           path: |
-            HARU-v0.4.1-Standalone-arm64.apk
-            HARU-v0.4.1-Standalone-arm64.apk.sha256
+            ${{ env.APK }}
+            ${{ env.APK }}.sha256
           if-no-files-found: error
           retention-days: 14
 
@@ -75,7 +75,7 @@ jobs:
         shell: bash
         run: |
           TAG="v$VERSION"
-          NOTES="HARU Android $TAG optimizes conversational memory for free-tier usage: 10 encrypted local exchanges, a zero-API-cost rolling recap for older turns, only 5 recent exchanges sent on fresh provider sessions, native Antigravity continuation using previous interaction/environment IDs, safe fallback to compact context if continuation expires, and one-tap memory reset."
+          NOTES="HARU Android $TAG adds Groq as a first-class online provider using Qwen 3.8 27B. Groq API keys are stored with Android Keystore-backed encryption. Groq reuses HARU's bounded encrypted conversation memory: 10 local exchanges, a rolling recap for older turns, and only the 5 most recent exchanges sent with each fresh request. Antigravity native continuation and Gemini support remain available."
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" "$APK" "$APK.sha256" --clobber
             gh release edit "$TAG" --title "HARU $TAG" --notes "$NOTES" --latest
