@@ -71,9 +71,6 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
     private var pendingShareName = "Loved one"
     private var pendingShareMinutes = 60
 
-    private var voiceStatus by mutableStateOf(
-        HaruVoiceController.VoiceRuntimeStatus()
-    )
     private var companionSnapshot by mutableStateOf(CompanionSnapshot())
     private var companionMode by mutableStateOf(CompanionMode.NORMAL)
     private var lockScreenCompanionEnabled by mutableStateOf(false)
@@ -389,12 +386,6 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
         refreshCompanionStatus()
     }
 
-    private fun completeCompanionTask(index: Int) {
-        if (index !in companionSnapshot.tasks.indices) return
-        companionSnapshot = companionStore.completeTask(index)
-        refreshCompanionStatus()
-    }
-
     private fun updateCompanionTask(
         index: Int,
         text: String,
@@ -409,25 +400,6 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
         if (index !in companionSnapshot.tasks.indices) return
         companionSnapshot =
             companionStore.deleteTask(index)
-        refreshCompanionStatus()
-    }
-
-    private fun addQuickReminder(
-        text: String,
-        minutes: Int,
-    ) {
-        if (text.isBlank() || minutes !in 1..1440) return
-        val dueAt =
-            System.currentTimeMillis() +
-                minutes * 60_000L
-        val reminder =
-            companionStore.addReminder(
-                text = text,
-                dueAt = dueAt,
-            )
-        companionSnapshot = companionStore.load()
-        ReminderScheduler.schedule(this, reminder)
-        requestNotificationPermissionIfNeeded()
         refreshCompanionStatus()
     }
 
@@ -1510,9 +1482,9 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
         activeViewModel?.cancelListening(message)
     }
 
-    override fun onRuntimeChanged(status: HaruVoiceController.VoiceRuntimeStatus) {
-        voiceStatus = status
-    }
+    override fun onRuntimeChanged(
+        status: HaruVoiceController.VoiceRuntimeStatus,
+    ) = Unit
 
     override fun onStop() {
         voiceController.releaseTransientResources()
