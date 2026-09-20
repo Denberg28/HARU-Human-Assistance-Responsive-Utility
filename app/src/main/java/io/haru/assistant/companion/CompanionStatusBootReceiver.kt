@@ -12,12 +12,18 @@ class CompanionStatusBootReceiver : BroadcastReceiver() {
     ) {
         if (intent.action != Intent.ACTION_BOOT_COMPLETED) return
 
-        val store = CompanionStatusStore(context)
-        if (!store.isEnabled()) return
+        val statusStore = CompanionStatusStore(context)
+        if (!statusStore.isEnabled()) return
+
+        val snapshot = AndroidCompanionStore(context).load()
+        val now = System.currentTimeMillis()
 
         CompanionStatusNotifier.refresh(
-            context,
-            CompanionModeStore(context).load(),
+            context = context,
+            mode = CompanionModeStore(context).load(),
+            openTasks = snapshot.tasks.count { !it.done },
+            upcomingReminders =
+                snapshot.reminders.count { it.dueAt > now },
         )
     }
 }
