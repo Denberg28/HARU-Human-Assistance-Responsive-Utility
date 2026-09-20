@@ -71,6 +71,61 @@ class ConversationMemoryTest {
     }
 
     @Test
+    fun evictedTurnsBecomeRollingRecap() {
+        val memory = ConversationMemory()
+
+        repeat(11) { index ->
+            memory.append(
+                user = "question $index",
+                assistant = "answer $index",
+            )
+        }
+
+        assertEquals(10, memory.snapshot().size)
+        assertTrue(memory.summary().contains("question 0"))
+        assertTrue(memory.summary().contains("answer 0"))
+    }
+
+    @Test
+    fun rollingRecapIsBounded() {
+        val memory =
+            ConversationMemory(
+                maxExchanges = 1,
+                maxSummaryChars = 120,
+            )
+
+        repeat(8) { index ->
+            memory.append(
+                user = "question-$index-" + "u".repeat(80),
+                assistant = "answer-$index-" + "a".repeat(80),
+            )
+        }
+
+        assertTrue(memory.summary().length <= 120)
+    }
+
+    @Test
+    fun antigravitySessionExpires() {
+        val now = 1_000_000_000L
+        val fresh =
+            AntigravitySession(
+                interactionId = "interaction",
+                environmentId = "environment",
+                updatedAtMs = now - 1_000L,
+            )
+        val stale =
+            fresh.copy(
+                updatedAtMs =
+                    now -
+                        ConversationMemoryPolicy.ANTIGRAVITY_SESSION_MAX_AGE_MS -
+                        1L,
+            )
+
+        assertTrue(fresh.isFresh(now))
+        assertTrue(!stale.isFresh(now))
+    }
+
+    @Test
     fun clearRemovesAllMemory() {
         val memory = ConversationMemory()
         memory.append("hello", "hi")
