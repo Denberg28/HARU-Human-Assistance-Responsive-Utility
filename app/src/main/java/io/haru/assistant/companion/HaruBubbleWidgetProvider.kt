@@ -48,6 +48,8 @@ class HaruBubbleWidgetProvider : AppWidgetProvider() {
             "io.haru.assistant.action.HARU_BUBBLE_CYCLE"
         const val ACTION_REFRESH =
             "io.haru.assistant.action.HARU_BUBBLE_REFRESH"
+        private const val AUTO_ROTATION_MS =
+            30L * 60L * 1000L
 
         fun refreshAll(context: Context) {
             val manager =
@@ -98,7 +100,9 @@ class HaruBubbleWidgetProvider : AppWidgetProvider() {
                     HaruBubbleContentFactory.create(
                         hourOfDay =
                             calendar.get(Calendar.HOUR_OF_DAY),
-                        step = store.step(),
+                        step =
+                            store.step() +
+                                (now / AUTO_ROTATION_MS),
                         snapshot =
                             AndroidCompanionStore(context).load(),
                         now = now,
