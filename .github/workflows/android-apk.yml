@@ -75,7 +75,7 @@ jobs:
         shell: bash
         run: |
           TAG="v$VERSION"
-          NOTES="HARU Android $TAG refines Simple HARU into a cleaner professional layout. HARU is centered with the full Human Assistance & Responsive Utility subtitle, the chibi companion is more compact, task editing now exposes only Delete and Save, voice diagnostics are hidden from the primary UI, and Tell HARU keeps proper status/navigation-bar spacing. Map remains unchanged and locked."
+          NOTES="HARU Android $TAG is a stabilization release for Simple HARU. AI answers now render structured headings, numbered and bulleted lists, quotes, inline emphasis, and code blocks instead of raw Markdown markers. New answers reset to the top of the response viewport. Retired News/Hazards and legacy pre-v0.6 UI/runtime plumbing were removed. The visible product remains HARU + Today + Settings + the locked Map tab."
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" "$APK" "$APK.sha256" --clobber
             gh release edit "$TAG" --title "HARU $TAG" --notes "$NOTES" --latest
