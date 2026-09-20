@@ -145,28 +145,21 @@ fun HaruScreen(
     var selectedTab by remember { mutableIntStateOf(0) }
     var showOnlineAi by remember { mutableStateOf(false) }
     var showUpdate by remember { mutableStateOf(false) }
-    val tabs = listOf("Home", "Assistant", "News", "Hazards", "Map")
+    var showSettings by remember { mutableStateOf(false) }
+    val tabs = listOf("HARU", "Map")
 
     Surface(modifier = modifier.fillMaxSize()) {
         Column(modifier = Modifier.fillMaxSize()) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 16.dp, start = 18.dp, end = 18.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                Text(
-                    text = "HARU",
-                    style = MaterialTheme.typography.headlineMedium,
-                    fontWeight = FontWeight.Bold,
-                )
-                Text(
-                    text = "Human Assistance & Responsive Utility",
-                    style = MaterialTheme.typography.bodySmall,
-                )
-            }
+            Text(
+                text = "HARU",
+                style = MaterialTheme.typography.headlineMedium,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(
+                    top = 14.dp,
+                    bottom = 4.dp,
+                ),
+            )
 
-            Spacer(Modifier.height(8.dp))
             ScrollableTabRow(
                 selectedTabIndex = selectedTab,
                 edgePadding = 8.dp,
@@ -174,25 +167,7 @@ fun HaruScreen(
                 tabs.forEachIndexed { index, title ->
                     Tab(
                         selected = selectedTab == index,
-                        onClick = {
-                            selectedTab = index
-                            when (index) {
-                                2 -> if (
-                                    newsBundle.local.isEmpty() &&
-                                    newsBundle.international.isEmpty() &&
-                                    newsBundle.error.isBlank()
-                                ) {
-                                    onRefreshNews()
-                                }
-                                3 -> if (
-                                    hazardBundle.pagasa.isEmpty() &&
-                                    hazardBundle.phivolcs.isEmpty() &&
-                                    hazardBundle.error.isBlank()
-                                ) {
-                                    onRefreshHazards()
-                                }
-                            }
-                        },
+                        onClick = { selectedTab = index },
                         text = { Text(title) },
                     )
                 }
@@ -200,87 +175,23 @@ fun HaruScreen(
 
             Crossfade(
                 targetState = selectedTab,
-                animationSpec = tween(durationMillis = 160),
-                label = "haru-tab-transition",
+                animationSpec = tween(durationMillis = 140),
+                label = "haru-simple-tab-transition",
             ) { tab ->
-                    when (tab) {
-                    0 -> HomePane(
+                if (tab == 0) {
+                    SimpleHaruPane(
                         viewModel = viewModel,
                         todayLines = todayLines,
                         companionSnapshot = companionSnapshot,
-                        companionMode = companionMode,
-                        lockScreenCompanionEnabled = lockScreenCompanionEnabled,
-                        onlineProvider = onlineProvider,
-                        memoryCount = memoryCount,
-                        mapGpsActive = mapGpsActive,
-                        currentDeviceLocation = currentDeviceLocation,
-                        liveShareActive = liveShareActive,
-                        liveMonitorActive = liveMonitorActive,
-                        newsCount =
-                            newsBundle.local.size +
-                                newsBundle.international.size,
-                        hazardCount =
-                            hazardBundle.pagasa.size +
-                                hazardBundle.phivolcs.size +
-                                hazardBundle.noah.size,
-                        appVersion = appVersion,
-                        onSelectMode = onSelectCompanionMode,
-                        onAddTask = onAddCompanionTask,
-                        onCompleteTask = onCompleteCompanionTask,
-                        onAddQuickReminder = onAddQuickReminder,
-                        onSetLockScreenCompanion = onSetLockScreenCompanion,
-                        onOpenLockScreenNotificationSettings = onOpenLockScreenNotificationSettings,
-                        onTestLockScreenCompanion = onTestLockScreenCompanion,
-                        onTalk = onMicClick,
-                        onOpenAssistant = { selectedTab = 1 },
-                        onOpenNews = {
-                            selectedTab = 2
-                            if (
-                                newsBundle.local.isEmpty() &&
-                                newsBundle.international.isEmpty()
-                            ) {
-                                onRefreshNews()
-                            }
-                        },
-                        onOpenHazards = {
-                            selectedTab = 3
-                            if (
-                                hazardBundle.pagasa.isEmpty() &&
-                                hazardBundle.phivolcs.isEmpty()
-                            ) {
-                                onRefreshHazards()
-                            }
-                        },
-                        onOpenMap = { selectedTab = 4 },
-                        onOpenOnlineAi = { showOnlineAi = true },
-                        onOpenUpdate = { showUpdate = true },
-                    )
-                    1 -> AssistantPane(
-                        viewModel = viewModel,
                         voiceStatus = voiceStatus,
-                        todayLines = todayLines,
-                        onlineProvider = onlineProvider,
-                        onlineStatus = onlineStatus,
-                        memoryCount = memoryCount,
                         onSubmitClick = onSubmitClick,
                         onMicClick = onMicClick,
-                        onSpeakClick = onSpeakClick,
-                        onResetMemory = onResetMemory,
-                        appVersion = appVersion,
-                        onOpenOnlineAi = { showOnlineAi = true },
-                        onOpenUpdate = { showUpdate = true },
+                        onAddTask = onAddCompanionTask,
+                        onCompleteTask = onCompleteCompanionTask,
+                        onOpenSettings = { showSettings = true },
                     )
-                    2 -> NewsPane(
-                        bundle = newsBundle,
-                        onRefresh = onRefreshNews,
-                        onOpenUrl = onOpenUrl,
-                    )
-                    3 -> HazardPane(
-                        bundle = hazardBundle,
-                        onRefresh = onRefreshHazards,
-                        onOpenUrl = onOpenUrl,
-                    )
-                    else -> MapPane(
+                } else {
+                    MapPane(
                         locations = trustedLocations,
                         currentDeviceLocation = currentDeviceLocation,
                         mapGpsActive = mapGpsActive,
@@ -300,9 +211,36 @@ fun HaruScreen(
                         onClear = onClearTrustedLocations,
                         onOpenUrl = onOpenUrl,
                     )
-            }
+                }
             }
         }
+    }
+
+    if (showSettings) {
+        SimpleSettingsDialog(
+            lockScreenCompanionEnabled = lockScreenCompanionEnabled,
+            onlineProvider = onlineProvider,
+            memoryCount = memoryCount,
+            appVersion = appVersion,
+            onDismiss = { showSettings = false },
+            onToggleLockScreen = {
+                onSetLockScreenCompanion(
+                    !lockScreenCompanionEnabled
+                )
+            },
+            onTestLockScreen = onTestLockScreenCompanion,
+            onOpenLockScreenSettings =
+                onOpenLockScreenNotificationSettings,
+            onOpenAi = {
+                showSettings = false
+                showOnlineAi = true
+            },
+            onResetMemory = onResetMemory,
+            onOpenUpdate = {
+                showSettings = false
+                showUpdate = true
+            },
+        )
     }
 
     if (showUpdate) {
@@ -334,6 +272,385 @@ fun HaruScreen(
         )
     }
 
+}
+
+@Composable
+private fun SimpleHaruPane(
+    viewModel: HaruViewModel,
+    todayLines: List<String>,
+    companionSnapshot: CompanionSnapshot,
+    voiceStatus: HaruVoiceController.VoiceRuntimeStatus,
+    onSubmitClick: () -> Unit,
+    onMicClick: () -> Unit,
+    onAddTask: (String) -> Unit,
+    onCompleteTask: (Int) -> Unit,
+    onOpenSettings: () -> Unit,
+) {
+    val state = viewModel.uiState
+    var showToday by remember { mutableStateOf(false) }
+    val scrollState = rememberScrollState()
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .imePadding()
+            .verticalScroll(scrollState)
+            .padding(horizontal = 18.dp, vertical = 10.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        HaruFace(
+            mood = state.mood,
+            modifier = Modifier.sizeCompat(118.dp),
+        )
+
+        Spacer(Modifier.height(6.dp))
+
+        if (state.isBusy && state.mood == HaruMood.THINKING) {
+            ThinkingDots()
+        } else {
+            Text(
+                text = state.message,
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+
+        Spacer(Modifier.height(12.dp))
+
+        Card(
+            onClick = { showToday = true },
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Column(Modifier.padding(12.dp)) {
+                Text(
+                    "Today",
+                    fontWeight = FontWeight.SemiBold,
+                )
+                if (todayLines.isEmpty()) {
+                    Text(
+                        "Nothing pending.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                } else {
+                    todayLines.take(2).forEach {
+                        Text(
+                            it,
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                }
+            }
+        }
+
+        Spacer(Modifier.height(12.dp))
+
+        OutlinedTextField(
+            value = state.command,
+            onValueChange = viewModel::updateCommand,
+            label = { Text("Tell HARU") },
+            placeholder = {
+                Text("Ask anything, or type: task Buy milk")
+            },
+            singleLine = true,
+            keyboardOptions =
+                KeyboardOptions(imeAction = ImeAction.Send),
+            keyboardActions =
+                KeyboardActions(onSend = { onSubmitClick() }),
+            modifier = Modifier.fillMaxWidth(),
+        )
+
+        Text(
+            "Try: task Buy milk  •  remind me in 30 min to call",
+            style = MaterialTheme.typography.labelSmall,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 4.dp),
+        )
+
+        Spacer(Modifier.height(8.dp))
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement =
+                Arrangement.spacedBy(8.dp),
+        ) {
+            Button(
+                onClick = onSubmitClick,
+                enabled =
+                    !state.isBusy &&
+                        state.command.isNotBlank(),
+                modifier = Modifier.weight(1f),
+            ) {
+                Text("Send")
+            }
+            OutlinedButton(
+                onClick = onMicClick,
+                enabled =
+                    !state.isBusy ||
+                        state.mood == HaruMood.LISTENING,
+                modifier = Modifier.weight(1f),
+            ) {
+                Text(
+                    if (state.mood == HaruMood.LISTENING) {
+                        "Listening…"
+                    } else {
+                        "Mic"
+                    }
+                )
+            }
+        }
+
+        if (state.latestUserMessage.isNotBlank()) {
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "You: " +
+                    state.latestUserMessage
+                        .replace(Regex("\\s+"), " ")
+                        .take(160),
+                style = MaterialTheme.typography.labelSmall,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+
+        Spacer(Modifier.height(6.dp))
+        Text(
+            "Voice: " + voiceStatus.speechInput +
+                " • " + voiceStatus.speechOutput,
+            style = MaterialTheme.typography.labelSmall,
+        )
+
+        TextButton(onClick = onOpenSettings) {
+            Text("Settings")
+        }
+    }
+
+    if (showToday) {
+        SimpleTodayDialog(
+            snapshot = companionSnapshot,
+            onDismiss = { showToday = false },
+            onAddTask = onAddTask,
+            onCompleteTask = onCompleteTask,
+        )
+    }
+}
+
+@Composable
+private fun SimpleTodayDialog(
+    snapshot: CompanionSnapshot,
+    onDismiss: () -> Unit,
+    onAddTask: (String) -> Unit,
+    onCompleteTask: (Int) -> Unit,
+) {
+    var taskText by remember { mutableStateOf("") }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Done")
+            }
+        },
+        title = { Text("Today") },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 460.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement =
+                    Arrangement.spacedBy(8.dp),
+            ) {
+                OutlinedTextField(
+                    value = taskText,
+                    onValueChange = {
+                        taskText = it.take(200)
+                    },
+                    label = { Text("New task") },
+                    placeholder = { Text("What do you need to do?") },
+                    singleLine = true,
+                    keyboardOptions =
+                        KeyboardOptions(
+                            imeAction = ImeAction.Done
+                        ),
+                    keyboardActions =
+                        KeyboardActions(
+                            onDone = {
+                                if (taskText.isNotBlank()) {
+                                    onAddTask(taskText)
+                                    taskText = ""
+                                }
+                            }
+                        ),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+
+                Button(
+                    onClick = {
+                        onAddTask(taskText)
+                        taskText = ""
+                    },
+                    enabled = taskText.isNotBlank(),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text("Add")
+                }
+
+                val openTasks =
+                    snapshot.tasks
+                        .withIndex()
+                        .filter { !it.value.done }
+
+                if (openTasks.isEmpty()) {
+                    Text(
+                        "No open tasks.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                } else {
+                    Text(
+                        "Tap a task when finished.",
+                        style = MaterialTheme.typography.labelSmall,
+                    )
+                    openTasks.take(12).forEach { indexed ->
+                        TextButton(
+                            onClick = {
+                                onCompleteTask(indexed.index)
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text("○  " + indexed.value.text)
+                        }
+                    }
+                }
+
+                val upcoming =
+                    snapshot.reminders
+                        .filter {
+                            it.dueAt >
+                                System.currentTimeMillis()
+                        }
+                        .sortedBy { it.dueAt }
+                        .take(4)
+
+                if (upcoming.isNotEmpty()) {
+                    HorizontalDivider()
+                    Text(
+                        "Reminders",
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    upcoming.forEach { reminder ->
+                        Text(
+                            "⏰ " + reminder.text + " · " +
+                                DateFormat.getDateTimeInstance(
+                                    DateFormat.SHORT,
+                                    DateFormat.SHORT,
+                                ).format(
+                                    Date(reminder.dueAt)
+                                ),
+                            style =
+                                MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                }
+
+                Text(
+                    "To create a reminder, close Today and type: remind me in 30 min to call",
+                    style = MaterialTheme.typography.labelSmall,
+                )
+            }
+        },
+    )
+}
+
+@Composable
+private fun SimpleSettingsDialog(
+    lockScreenCompanionEnabled: Boolean,
+    onlineProvider: OnlineProvider,
+    memoryCount: Int,
+    appVersion: String,
+    onDismiss: () -> Unit,
+    onToggleLockScreen: () -> Unit,
+    onTestLockScreen: () -> Unit,
+    onOpenLockScreenSettings: () -> Unit,
+    onOpenAi: () -> Unit,
+    onResetMemory: () -> Unit,
+    onOpenUpdate: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Done")
+            }
+        },
+        title = { Text("HARU settings") },
+        text = {
+            Column(
+                verticalArrangement =
+                    Arrangement.spacedBy(8.dp),
+            ) {
+                OutlinedButton(
+                    onClick = onToggleLockScreen,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(
+                        "Lock screen · " +
+                            if (lockScreenCompanionEnabled) {
+                                "On"
+                            } else {
+                                "Off"
+                            }
+                    )
+                }
+
+                if (lockScreenCompanionEnabled) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement =
+                            Arrangement.spacedBy(8.dp),
+                    ) {
+                        TextButton(
+                            onClick = onTestLockScreen,
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            Text("Test")
+                        }
+                        TextButton(
+                            onClick =
+                                onOpenLockScreenSettings,
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            Text("Android settings")
+                        }
+                    }
+                }
+
+                OutlinedButton(
+                    onClick = onOpenAi,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(
+                        "AI · " +
+                            providerLabel(onlineProvider)
+                    )
+                }
+
+                TextButton(
+                    onClick = onResetMemory,
+                    enabled = memoryCount > 0,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text("Clear AI memory · $memoryCount/10")
+                }
+
+                TextButton(
+                    onClick = onOpenUpdate,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text("HARU v$appVersion · Check update")
+                }
+            }
+        },
+    )
 }
 
 @Composable
