@@ -12,8 +12,8 @@ android {
         applicationId = "io.haru.assistant"
         minSdk = 26
         targetSdk = 36
-        versionCode = 15
-        versionName = "0.3.9"
+        versionCode = 16
+        versionName = "0.4.0"
 
         ndk {
             abiFilters += "arm64-v8a"
@@ -55,4 +55,5 @@ dependencies {
     implementation("androidx.compose.ui:ui")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0")
     implementation("org.maplibre.gl:android-sdk:11.11.0")
+    testImplementation("junit:junit:4.13.2")
 }
