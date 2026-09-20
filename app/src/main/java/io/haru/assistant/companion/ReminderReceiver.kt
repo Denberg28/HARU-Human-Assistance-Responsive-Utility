@@ -77,6 +77,7 @@ class ReminderReceiver : BroadcastReceiver() {
             openTasks = snapshot.tasks.count { !it.done },
             upcomingReminders =
                 snapshot.reminders.count { it.dueAt > now },
+            todayLines = snapshot.lockScreenLines(now),
         )
     }
 
