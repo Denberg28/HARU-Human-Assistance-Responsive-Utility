@@ -75,7 +75,7 @@ jobs:
         shell: bash
         run: |
           TAG="v$VERSION"
-          NOTES="HARU Android $TAG adds an opt-in low-power lock-screen Companion Status. It shows the HARU chibi icon plus the current companion mode and generic status without exposing task text or exact location. The implementation uses a quiet ongoing notification with no background service, wake lock, GPS polling, or network polling; it refreshes only on relevant state changes, app resume, or reboot. Existing Companion Node, AI providers, encrypted memory, voice, MapLibre/GPS, live sharing, news, hazards, reminders, and updater behavior are preserved."
+          NOTES="HARU Android $TAG makes Home interactive: Current priority opens mode-specific local actions, Today manages tasks and quick reminders without an AI call, and the lock-screen companion updates only on meaningful state changes such as mode, task/reminder counts, live-share state, app resume, reminder firing, or reboot. No standby polling, wake lock, periodic timer, or extra network/GPS work is added."
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" "$APK" "$APK.sha256" --clobber
             gh release edit "$TAG" --title "HARU $TAG" --notes "$NOTES" --latest
