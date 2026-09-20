@@ -75,7 +75,7 @@ jobs:
         shell: bash
         run: |
           TAG="v$VERSION"
-          NOTES="HARU Android $TAG is a simplification release. The visible app is reduced to two tabs: HARU and the existing locked Map tab. HARU now centers one companion face, one response/status area, one Today card, and one universal text/voice input. Tasks can be added directly from Today or with commands like task Buy milk; reminders use natural commands such as remind me in 30 min to call. Advanced AI, memory, lock-screen, and update controls move into one Settings dialog. News, hazard, mode, priority, and diagnostic clutter are removed from the main interface. Map behavior is unchanged."
+          NOTES="HARU Android $TAG keeps the Simple HARU two-tab design and improves Today/lock-screen behavior. The lock screen now uses HARU chibi as the large icon and shows the first task/reminder even when collapsed, with up to four Today items when expanded. Tasks can now be added, edited, marked done, or deleted through one compact sequence. The Tell HARU input is anchored at the bottom above the keyboard for predictable access. Map behavior remains unchanged and locked."
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" "$APK" "$APK.sha256" --clobber
             gh release edit "$TAG" --title "HARU $TAG" --notes "$NOTES" --latest
