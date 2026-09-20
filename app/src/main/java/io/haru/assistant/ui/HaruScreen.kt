@@ -49,6 +49,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
@@ -73,7 +77,6 @@ import java.util.Date
 @Composable
 fun HaruScreen(
     viewModel: HaruViewModel,
-    voiceStatus: HaruVoiceController.VoiceRuntimeStatus,
     todayLines: List<String>,
     companionSnapshot: CompanionSnapshot,
     lockScreenCompanionEnabled: Boolean,
@@ -1430,8 +1433,31 @@ private fun ThinkingDots() {
     )
 }
 
-@Composable
-private fun AssistantResponseText(message: String) {
+internal sealed interface HaruResponseBlock {
+    data class Heading(
+        val text: String,
+        val level: Int,
+    ) : HaruResponseBlock
+
+    data class Bullet(val text: String) : HaruResponseBlock
+
+    data class Numbered(
+        val number: String,
+        val text: String,
+    ) : HaruResponseBlock
+
+    data class Quote(val text: String) : HaruResponseBlock
+
+    data class Code(val text: String) : HaruResponseBlock
+
+    data class Paragraph(val text: String) : HaruResponseBlock
+
+    data object Gap : HaruResponseBlock
+}
+
+internal fun parseAssistantResponse(
+    message: String,
+): List<HaruResponseBlock> {
     val clean =
         message
             .replace("\r\n", "\n")
@@ -1439,83 +1465,152 @@ private fun AssistantResponseText(message: String) {
             .replace("\u0000", "")
             .trim()
 
-    if (clean.isBlank()) return
+    if (clean.isBlank()) return emptyList()
+
+    val blocks = mutableListOf<HaruResponseBlock>()
+    val codeLines = mutableListOf<String>()
+    val paragraphLines = mutableListOf<String>()
+    var inCode = false
+
+    fun flushParagraph() {
+        if (paragraphLines.isEmpty()) return
+        blocks +=
+            HaruResponseBlock.Paragraph(
+                paragraphLines
+                    .joinToString(" ")
+                    .replace(Regex("""\s+"""), " ")
+                    .trim()
+            )
+        paragraphLines.clear()
+    }
+
+    fun flushCode() {
+        if (codeLines.isEmpty()) return
+        blocks +=
+            HaruResponseBlock.Code(
+                codeLines.joinToString("\n").trimEnd()
+            )
+        codeLines.clear()
+    }
+
+    clean.lines().forEach { raw ->
+        val trimmed = raw.trim()
+
+        if (trimmed.startsWith("```")) {
+            flushParagraph()
+            if (inCode) flushCode()
+            inCode = !inCode
+            return@forEach
+        }
+
+        if (inCode) {
+            codeLines += raw
+            return@forEach
+        }
+
+        when {
+            trimmed.isBlank() -> {
+                flushParagraph()
+                if (blocks.lastOrNull() !is HaruResponseBlock.Gap) {
+                    blocks += HaruResponseBlock.Gap
+                }
+            }
+
+            HEADING_MARKDOWN.matches(trimmed) -> {
+                flushParagraph()
+                val match =
+                    HEADING_MARKDOWN.matchEntire(trimmed)
+                        ?: return@forEach
+                blocks +=
+                    HaruResponseBlock.Heading(
+                        text = match.groupValues[2],
+                        level = match.groupValues[1].length,
+                    )
+            }
+
+            trimmed.startsWith("- ") ||
+                trimmed.startsWith("* ") ||
+                trimmed.startsWith("• ") -> {
+                flushParagraph()
+                blocks +=
+                    HaruResponseBlock.Bullet(
+                        trimmed.drop(2).trim()
+                    )
+            }
+
+            ORDERED_MARKDOWN.matches(trimmed) -> {
+                flushParagraph()
+                val match =
+                    ORDERED_MARKDOWN.matchEntire(trimmed)
+                        ?: return@forEach
+                blocks +=
+                    HaruResponseBlock.Numbered(
+                        number = match.groupValues[1],
+                        text = match.groupValues[2],
+                    )
+            }
+
+            trimmed.startsWith("> ") -> {
+                flushParagraph()
+                blocks +=
+                    HaruResponseBlock.Quote(
+                        trimmed.drop(2).trim()
+                    )
+            }
+
+            else -> paragraphLines += trimmed
+        }
+    }
+
+    flushParagraph()
+    if (inCode) flushCode()
+
+    while (blocks.lastOrNull() is HaruResponseBlock.Gap) {
+        blocks.removeLast()
+    }
+
+    return blocks
+}
+
+@Composable
+private fun AssistantResponseText(message: String) {
+    val blocks =
+        remember(message) {
+            parseAssistantResponse(message)
+        }
 
     Column(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        var inCodeBlock = false
-        val codeBuffer = mutableListOf<String>()
-
-        fun renderCode() {
-            if (codeBuffer.isEmpty()) return
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                color = MaterialTheme.colorScheme.surfaceVariant,
-                shape = MaterialTheme.shapes.small,
-            ) {
-                Text(
-                    text = codeBuffer.joinToString("\n"),
-                    style = MaterialTheme.typography.bodySmall,
-                    modifier = Modifier.padding(10.dp),
-                )
-            }
-            codeBuffer.clear()
-        }
-
-        clean.lines().forEach { rawLine ->
-            val line = rawLine.trimEnd()
-
-            if (line.trimStart().startsWith("```")) {
-                if (inCodeBlock) {
-                    renderCode()
-                }
-                inCodeBlock = !inCodeBlock
-                return@forEach
-            }
-
-            if (inCodeBlock) {
-                codeBuffer += rawLine
-                return@forEach
-            }
-
-            val trimmed = line.trim()
-            when {
-                trimmed.isBlank() -> Spacer(Modifier.height(2.dp))
-
-                trimmed.startsWith("#") -> {
-                    val text =
-                        sanitizeInlineMarkdown(
-                            trimmed.trimStart('#').trim()
-                        )
-                    if (text.isNotBlank()) {
-                        Text(
-                            text = text,
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.SemiBold,
-                            textAlign = TextAlign.Start,
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                    }
+        blocks.forEach { block ->
+            when (block) {
+                is HaruResponseBlock.Heading -> {
+                    Text(
+                        text = formattedInlineText(block.text),
+                        style =
+                            if (block.level <= 2) {
+                                MaterialTheme.typography.titleMedium
+                            } else {
+                                MaterialTheme.typography.titleSmall
+                            },
+                        fontWeight = FontWeight.SemiBold,
+                        textAlign = TextAlign.Start,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
                 }
 
-                trimmed.startsWith("- ") ||
-                    trimmed.startsWith("* ") ||
-                    trimmed.startsWith("• ") -> {
+                is HaruResponseBlock.Bullet -> {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.Top,
                     ) {
                         Text(
                             text = "•",
-                            style = MaterialTheme.typography.bodyMedium,
                             modifier = Modifier.width(18.dp),
                         )
                         Text(
-                            text = sanitizeInlineMarkdown(
-                                trimmed.drop(2).trim()
-                            ),
+                            text = formattedInlineText(block.text),
                             style = MaterialTheme.typography.bodyMedium,
                             textAlign = TextAlign.Start,
                             modifier = Modifier.weight(1f),
@@ -1523,23 +1618,17 @@ private fun AssistantResponseText(message: String) {
                     }
                 }
 
-                ORDERED_MARKDOWN.matches(trimmed) -> {
-                    val match =
-                        ORDERED_MARKDOWN.matchEntire(trimmed)
-                            ?: return@forEach
+                is HaruResponseBlock.Numbered -> {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.Top,
                     ) {
                         Text(
-                            text = match.groupValues[1] + ".",
-                            style = MaterialTheme.typography.bodyMedium,
+                            text = block.number + ".",
                             modifier = Modifier.width(28.dp),
                         )
                         Text(
-                            text = sanitizeInlineMarkdown(
-                                match.groupValues[2]
-                            ),
+                            text = formattedInlineText(block.text),
                             style = MaterialTheme.typography.bodyMedium,
                             textAlign = TextAlign.Start,
                             modifier = Modifier.weight(1f),
@@ -1547,53 +1636,137 @@ private fun AssistantResponseText(message: String) {
                     }
                 }
 
-                trimmed.startsWith("> ") -> {
+                is HaruResponseBlock.Quote -> {
                     Text(
-                        text = sanitizeInlineMarkdown(
-                            trimmed.drop(2)
-                        ),
+                        text = formattedInlineText(block.text),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         textAlign = TextAlign.Start,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(start = 10.dp),
+                            .padding(start = 12.dp),
                     )
                 }
 
-                else -> {
+                is HaruResponseBlock.Code -> {
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        color =
+                            MaterialTheme.colorScheme.surfaceVariant,
+                        shape = MaterialTheme.shapes.small,
+                    ) {
+                        Text(
+                            text = block.text,
+                            style =
+                                MaterialTheme.typography.bodySmall.copy(
+                                    fontFamily = FontFamily.Monospace
+                                ),
+                            modifier = Modifier.padding(10.dp),
+                        )
+                    }
+                }
+
+                is HaruResponseBlock.Paragraph -> {
                     Text(
-                        text = sanitizeInlineMarkdown(trimmed),
+                        text = formattedInlineText(block.text),
                         style = MaterialTheme.typography.bodyMedium,
                         textAlign = TextAlign.Start,
                         modifier = Modifier.fillMaxWidth(),
                     )
                 }
-            }
-        }
 
-        if (inCodeBlock) {
-            renderCode()
+                HaruResponseBlock.Gap ->
+                    Spacer(Modifier.height(2.dp))
+            }
         }
     }
 }
 
+private val HEADING_MARKDOWN =
+    Regex("""^(#{1,6})\s+(.+)$""")
+
 private val ORDERED_MARKDOWN =
     Regex("""^(\d+)[.)]\s+(.+)$""")
 
-private fun sanitizeInlineMarkdown(value: String): String =
-    value
-        .replace(
-            Regex("""\[([^\]]+)]\((?:https?://)?[^)]+\)"""),
-            "$1",
-        )
-        .replace(Regex("""\*\*(.+?)\*\*"""), "$1")
-        .replace(Regex("""__(.+?)__"""), "$1")
-        .replace(Regex("""(?<!\*)\*([^*]+)\*(?!\*)"""), "$1")
-        .replace(Regex("""(?<!_)_([^_]+)_(?!_)"""), "$1")
-        .replace("`", "")
-        .replace(Regex("""[\u0000-\u0008\u000B\u000C\u000E-\u001F]"""), "")
-        .trim()
+private fun formattedInlineText(
+    value: String,
+): AnnotatedString {
+    val source =
+        value
+            .replace(
+                Regex("""\[([^\]]+)]\((?:https?://)?[^)]+\)"""),
+                "$1",
+            )
+            .replace(Regex("""__(.+?)__"""), "**$1**")
+            .replace(Regex("""(?<!_)_([^_]+)_(?!_)"""), "*$1*")
+            .replace(
+                Regex(
+                    """[\u0000-\u0008\u000B\u000C\u000E-\u001F]"""
+                ),
+                "",
+            )
+
+    return buildAnnotatedString {
+        var index = 0
+        while (index < source.length) {
+            when {
+                source.startsWith("**", index) -> {
+                    val end = source.indexOf("**", index + 2)
+                    if (end > index + 2) {
+                        pushStyle(
+                            SpanStyle(
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        )
+                        append(
+                            source.substring(index + 2, end)
+                        )
+                        pop()
+                        index = end + 2
+                    } else {
+                        append(source[index])
+                        index += 1
+                    }
+                }
+
+                source[index] == '`' -> {
+                    val end = source.indexOf('`', index + 1)
+                    if (end > index + 1) {
+                        pushStyle(
+                            SpanStyle(
+                                fontFamily = FontFamily.Monospace
+                            )
+                        )
+                        append(
+                            source.substring(index + 1, end)
+                        )
+                        pop()
+                        index = end + 1
+                    } else {
+                        index += 1
+                    }
+                }
+
+                source[index] == '*' -> {
+                    val end = source.indexOf('*', index + 1)
+                    if (end > index + 1) {
+                        append(
+                            source.substring(index + 1, end)
+                        )
+                        index = end + 1
+                    } else {
+                        index += 1
+                    }
+                }
+
+                else -> {
+                    append(source[index])
+                    index += 1
+                }
+            }
+        }
+    }
+}
 
 private fun providerLabel(provider: OnlineProvider): String =
     when (provider) {
