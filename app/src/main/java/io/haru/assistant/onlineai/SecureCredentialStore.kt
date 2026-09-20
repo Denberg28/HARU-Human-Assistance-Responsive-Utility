@@ -169,6 +169,7 @@ class SecureCredentialStore(
         private val ALLOWED_NAMES =
             setOf(
                 "gemini",
+                "groq",
                 // Kept only so old installs can remove it safely.
                 "openrouter",
             )

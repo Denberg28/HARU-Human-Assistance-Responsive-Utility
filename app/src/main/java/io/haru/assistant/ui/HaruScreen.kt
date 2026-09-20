@@ -88,6 +88,7 @@ fun HaruScreen(
     geminiModels: List<GeminiModel>,
     onlineStatus: String,
     hasGeminiKey: Boolean,
+    hasGroqKey: Boolean,
     memoryCount: Int,
     appVersion: String,
     updateStatus: String,
@@ -111,6 +112,7 @@ fun HaruScreen(
     onSelectGeminiModel: (GeminiModel) -> Unit,
     onRefreshGeminiModels: () -> Unit,
     onSaveGeminiKey: (String) -> Unit,
+    onSaveGroqKey: (String) -> Unit,
     onTestOnlineAi: () -> Unit,
     onResetMemory: () -> Unit,
     onCheckUpdate: () -> Unit,
@@ -257,11 +259,13 @@ fun HaruScreen(
             geminiModels = geminiModels,
             status = onlineStatus,
             hasGeminiKey = hasGeminiKey,
+            hasGroqKey = hasGroqKey,
             onDismiss = { showOnlineAi = false },
             onSelectProvider = onSelectOnlineProvider,
             onSelectGeminiModel = onSelectGeminiModel,
             onRefreshGeminiModels = onRefreshGeminiModels,
             onSaveGeminiKey = onSaveGeminiKey,
+            onSaveGroqKey = onSaveGroqKey,
             onTest = onTestOnlineAi,
         )
     }
@@ -1108,14 +1112,17 @@ private fun OnlineAiDialog(
     geminiModels: List<GeminiModel>,
     status: String,
     hasGeminiKey: Boolean,
+    hasGroqKey: Boolean,
     onDismiss: () -> Unit,
     onSelectProvider: (OnlineProvider) -> Unit,
     onSelectGeminiModel: (GeminiModel) -> Unit,
     onRefreshGeminiModels: () -> Unit,
     onSaveGeminiKey: (String) -> Unit,
+    onSaveGroqKey: (String) -> Unit,
     onTest: () -> Unit,
 ) {
     var geminiKey by remember { mutableStateOf("") }
+    var groqKey by remember { mutableStateOf("") }
     var modelMenuExpanded by remember { mutableStateOf(false) }
 
     AlertDialog(
@@ -1134,6 +1141,7 @@ private fun OnlineAiDialog(
                 listOf(
                     OnlineProvider.ANTIGRAVITY,
                     OnlineProvider.GEMINI,
+                    OnlineProvider.GROQ,
                 ).forEach { option ->
                     OutlinedButton(
                         onClick = { onSelectProvider(option) },
@@ -1210,6 +1218,33 @@ private fun OnlineAiDialog(
                 }
 
                 Spacer(Modifier.height(10.dp))
+                Text(
+                    "Groq API key" + if (hasGroqKey) " · saved securely" else "",
+                    fontWeight = FontWeight.SemiBold,
+                )
+                OutlinedTextField(
+                    value = groqKey,
+                    onValueChange = { groqKey = it.take(300) },
+                    visualTransformation = PasswordVisualTransformation(),
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Button(
+                    onClick = {
+                        onSaveGroqKey(groqKey)
+                        groqKey = ""
+                    },
+                    enabled = groqKey.isNotBlank(),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text("Save Groq key")
+                }
+                Text(
+                    "Groq uses Qwen 3.8 27B. HARU sends the same encrypted rolling conversation context used by Gemini.",
+                    style = MaterialTheme.typography.labelSmall,
+                )
+
+                Spacer(Modifier.height(10.dp))
                 Button(
                     onClick = onTest,
                     modifier = Modifier.fillMaxWidth(),
@@ -1221,7 +1256,7 @@ private fun OnlineAiDialog(
                     Text(status, style = MaterialTheme.typography.bodySmall)
                 }
                 Text(
-                    "Antigravity remains the default. Gemini models refresh from Google's live catalog.",
+                    "Antigravity remains the default. Gemini models refresh from Google's live catalog. Groq uses Qwen 3.8 27B with HARU's encrypted local memory.",
                     style = MaterialTheme.typography.labelSmall,
                 )
             }
@@ -1333,6 +1368,7 @@ private fun providerLabel(provider: OnlineProvider): String =
     when (provider) {
         OnlineProvider.ANTIGRAVITY -> "Antigravity"
         OnlineProvider.GEMINI -> "Gemini"
+        OnlineProvider.GROQ -> "Groq · Qwen 3.8"
     }
 
 private fun Modifier.sizeCompat(size: androidx.compose.ui.unit.Dp): Modifier =
