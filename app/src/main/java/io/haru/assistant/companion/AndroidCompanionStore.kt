@@ -44,6 +44,45 @@ data class CompanionSnapshot(
             }
         return lines
     }
+
+    fun lockScreenLines(
+        now: Long = System.currentTimeMillis(),
+    ): List<String> {
+        val lines = mutableListOf<String>()
+
+        tasks
+            .filterNot { it.done }
+            .take(3)
+            .forEach { task ->
+                lines += "□ " + task.text.take(90)
+            }
+
+        reminders
+            .filter { it.dueAt > now }
+            .sortedBy { it.dueAt }
+            .take((4 - lines.size).coerceAtLeast(0))
+            .forEach { reminder ->
+                val minutes =
+                    ((reminder.dueAt - now) / 60_000L)
+                        .coerceAtLeast(0L)
+                val whenText =
+                    when {
+                        minutes < 60 ->
+                            "in " + minutes + " min"
+                        minutes < 1440 ->
+                            "in " + (minutes / 60) + " hr"
+                        else ->
+                            "in " + (minutes / 1440) + " day"
+                    }
+                lines +=
+                    "⏰ " +
+                        reminder.text.take(72) +
+                        " · " +
+                        whenText
+            }
+
+        return lines.take(4)
+    }
 }
 
 class AndroidCompanionStore(
@@ -85,6 +124,41 @@ class AndroidCompanionStore(
             if (i == index) item.copy(done = true) else item
         }
         saveTasks(tasks)
+        return load()
+    }
+
+    fun updateTask(
+        index: Int,
+        text: String,
+    ): CompanionSnapshot {
+        val snapshot = load()
+        if (index !in snapshot.tasks.indices) return snapshot
+
+        val cleanText = clean(text)
+        if (cleanText.isBlank()) return snapshot
+
+        val tasks =
+            snapshot.tasks.mapIndexed { i, item ->
+                if (i == index) {
+                    item.copy(text = cleanText)
+                } else {
+                    item
+                }
+            }
+
+        saveTasks(tasks)
+        return load()
+    }
+
+    fun deleteTask(index: Int): CompanionSnapshot {
+        val snapshot = load()
+        if (index !in snapshot.tasks.indices) return snapshot
+
+        saveTasks(
+            snapshot.tasks.filterIndexed { i, _ ->
+                i != index
+            }
+        )
         return load()
     }
 
