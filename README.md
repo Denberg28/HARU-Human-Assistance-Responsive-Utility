@@ -3,14 +3,14 @@
 HARU is a lightweight, free-first personal assistant prototype with two front ends:
 
 - **Streamlit HARU Lab** for rapid testing and cloud/local use.
-- **Native Android app** for low-power voice, deterministic skills, Gemini/Antigravity AI, OpenStreetMap, hazards, reminders, and standalone APK distribution.
+- **Native Android app** for low-power voice, deterministic skills, Groq/Gemini/Antigravity AI, OpenStreetMap, hazards, reminders, and standalone APK distribution.
 
 ## Design principles
 
 - Keep the UI simple and responsive.
 - Local deterministic skills continue to work without an AI provider.
 - Online AI is optional and provider-isolated.
-- Android online mode defaults to **Antigravity**. Gemini models are discovered from Google's live model catalog with a manual Refresh button.
+- Android online mode defaults to **Antigravity**. Groq uses `qwen/qwen3.8-27b`; Gemini models are discovered from Google's live model catalog with a manual Refresh button.
 - API keys are never committed. Streamlit Cloud uses app Secrets; local Windows uses the OS credential store after a successful connection.
 - AI providers receive text context only. Android microphone and TTS remain in the device voice layer.
 
@@ -44,7 +44,7 @@ HARU_LOCATION_SHARE_SECRET = "use-a-long-random-secret"
 
 Open the repository in Android Studio, allow Gradle sync, and run the `app` configuration. Microphone permission is requested only when voice input is used.
 
-HARU Android v0.3.0 removes the on-device LLM stack entirely to reduce APK size, RAM use, heat, background work, and battery drain. Online AI is limited to Antigravity and Gemini. The Gemini model list refreshes on demand from Google's model catalog.
+HARU Android keeps the on-device LLM stack out of the standard build to reduce APK size, RAM use, heat, background work, and battery drain. Online AI supports Antigravity, Gemini, and Groq Qwen 3.8 27B. Gemini and Groq credentials are encrypted locally with Android Keystore-backed storage. All providers share HARU's bounded encrypted rolling conversation memory.
 
 ## APK build
 
