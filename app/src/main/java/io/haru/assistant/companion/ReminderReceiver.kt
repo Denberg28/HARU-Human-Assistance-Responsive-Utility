@@ -28,9 +28,12 @@ class ReminderReceiver : BroadcastReceiver() {
                 NotificationChannel(
                     CHANNEL_ID,
                     "HARU reminders",
-                    NotificationManager.IMPORTANCE_DEFAULT,
+                    NotificationManager.IMPORTANCE_HIGH,
                 ).apply {
                     description = "Personal reminders created in HARU"
+                    lockscreenVisibility =
+                        android.app.Notification.VISIBILITY_PUBLIC
+                    enableVibration(true)
                 }
             )
         }
@@ -55,14 +58,23 @@ class ReminderReceiver : BroadcastReceiver() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
 
-        val notification = NotificationCompat.Builder(context, CHANNEL_ID)
-            .setSmallIcon(android.R.drawable.ic_dialog_info)
-            .setContentTitle("HARU reminder")
-            .setContentText(reminderText)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(reminderText))
-            .setAutoCancel(true)
-            .setContentIntent(openPendingIntent)
-            .build()
+        val notification =
+            NotificationCompat.Builder(context, CHANNEL_ID)
+                .setSmallIcon(
+                    io.haru.assistant.R.drawable.haru_notification_icon
+                )
+                .setContentTitle("HARU reminder")
+                .setContentText(reminderText)
+                .setStyle(
+                    NotificationCompat.BigTextStyle()
+                        .bigText(reminderText)
+                )
+                .setCategory(NotificationCompat.CATEGORY_REMINDER)
+                .setPriority(NotificationCompat.PRIORITY_HIGH)
+                .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+                .setAutoCancel(true)
+                .setContentIntent(openPendingIntent)
+                .build()
 
         notificationManager.notify(reminderId.hashCode(), notification)
 
@@ -82,6 +94,6 @@ class ReminderReceiver : BroadcastReceiver() {
     }
 
     companion object {
-        const val CHANNEL_ID = "haru_reminders"
+        const val CHANNEL_ID = "haru_reminders_v2"
     }
 }
