@@ -466,6 +466,36 @@ private fun SimpleTodayDialog(
         mutableStateOf<Int?>(null)
     }
 
+    val selectedIndex = selectedTaskIndex
+    if (selectedIndex != null) {
+        val selectedTask =
+            snapshot.tasks.getOrNull(selectedIndex)
+
+        if (selectedTask != null) {
+            TaskEditDialog(
+                initialText = selectedTask.text,
+                onDismiss = {
+                    selectedTaskIndex = null
+                },
+                onSave = { updated ->
+                    onUpdateTask(selectedIndex, updated)
+                    selectedTaskIndex = null
+                },
+                onDone = {
+                    onCompleteTask(selectedIndex)
+                    selectedTaskIndex = null
+                },
+                onDelete = {
+                    onDeleteTask(selectedIndex)
+                    selectedTaskIndex = null
+                },
+            )
+        } else {
+            selectedTaskIndex = null
+        }
+        return
+    }
+
     AlertDialog(
         onDismissRequest = onDismiss,
         confirmButton = {
@@ -584,32 +614,6 @@ private fun SimpleTodayDialog(
         },
     )
 
-    selectedTaskIndex?.let { index ->
-        val task =
-            snapshot.tasks.getOrNull(index)
-        if (task != null) {
-            TaskEditDialog(
-                initialText = task.text,
-                onDismiss = {
-                    selectedTaskIndex = null
-                },
-                onSave = { updated ->
-                    onUpdateTask(index, updated)
-                    selectedTaskIndex = null
-                },
-                onDone = {
-                    onCompleteTask(index)
-                    selectedTaskIndex = null
-                },
-                onDelete = {
-                    onDeleteTask(index)
-                    selectedTaskIndex = null
-                },
-            )
-        } else {
-            selectedTaskIndex = null
-        }
-    }
 }
 
 @Composable
