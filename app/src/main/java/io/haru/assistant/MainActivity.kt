@@ -265,6 +265,8 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
                     onSelectCompanionMode = ::selectCompanionMode,
                     onAddCompanionTask = ::addCompanionTask,
                     onCompleteCompanionTask = ::completeCompanionTask,
+                    onUpdateCompanionTask = ::updateCompanionTask,
+                    onDeleteCompanionTask = ::deleteCompanionTask,
                     onAddQuickReminder = ::addQuickReminder,
                     onSetLockScreenCompanion = ::setLockScreenCompanion,
                     onOpenLockScreenNotificationSettings = ::openLockScreenNotificationSettings,
@@ -402,6 +404,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
                 companionSnapshot.reminders.count { it.dueAt > now },
             liveShareEnabled = liveShareActive,
             liveMonitorEnabled = liveMonitorActive,
+            todayLines = companionSnapshot.lockScreenLines(now),
         )
     }
 
@@ -414,6 +417,23 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
     private fun completeCompanionTask(index: Int) {
         if (index !in companionSnapshot.tasks.indices) return
         companionSnapshot = companionStore.completeTask(index)
+        refreshCompanionStatus()
+    }
+
+    private fun updateCompanionTask(
+        index: Int,
+        text: String,
+    ) {
+        if (index !in companionSnapshot.tasks.indices) return
+        companionSnapshot =
+            companionStore.updateTask(index, text)
+        refreshCompanionStatus()
+    }
+
+    private fun deleteCompanionTask(index: Int) {
+        if (index !in companionSnapshot.tasks.indices) return
+        companionSnapshot =
+            companionStore.deleteTask(index)
         refreshCompanionStatus()
     }
 
