@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
@@ -290,11 +291,14 @@ private fun AssistantPane(
 ) {
     val state = viewModel.uiState
 
+    val assistantScrollState = rememberScrollState()
+
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(horizontal = 20.dp, vertical = 12.dp)
-            .verticalScroll(rememberScrollState()),
+            .imePadding()
+            .verticalScroll(assistantScrollState)
+            .padding(horizontal = 20.dp, vertical = 12.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         HaruFace(mood = state.mood, modifier = Modifier.sizeCompat(170.dp))
@@ -487,8 +491,11 @@ private fun NewsEntry(
             item.source + if (item.published.isBlank()) "" else " · " + item.published,
             style = MaterialTheme.typography.labelSmall,
         )
-        TextButton(onClick = { onOpenUrl(item.link) }) {
-            Text("Google Maps ↗")
+        TextButton(
+            onClick = { onOpenUrl(item.link) },
+            enabled = item.link.startsWith("https://"),
+        ) {
+            Text("Read article ↗")
         }
         HorizontalDivider()
     }
