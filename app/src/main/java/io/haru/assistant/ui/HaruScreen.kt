@@ -66,6 +66,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import io.haru.assistant.HaruViewModel
 import io.haru.assistant.companion.CompanionSnapshot
+import io.haru.assistant.companion.HaruBubbleStatus
 import io.haru.assistant.core.HaruMood
 import io.haru.assistant.location.TrustedLocation
 import io.haru.assistant.onlineai.GeminiModel
@@ -85,6 +86,9 @@ fun HaruScreen(
     todayLines: List<String>,
     companionSnapshot: CompanionSnapshot,
     haruBubbleEnabled: Boolean,
+    haruBubbleStatus: HaruBubbleStatus,
+    companionQuiet: Boolean,
+    openCompanionRequest: Int,
     onlineProvider: OnlineProvider,
     selectedGeminiModel: GeminiModel,
     geminiModels: List<GeminiModel>,
@@ -111,6 +115,7 @@ fun HaruScreen(
     onUpdateCompanionTask: (Int, String) -> Unit,
     onDeleteCompanionTask: (Int) -> Unit,
     onRequestHaruBubble: () -> Unit,
+    onRefreshBubbleStatus: () -> Unit,
     onToggleHaruBubble: () -> Unit,
     onSelectOnlineProvider: (OnlineProvider) -> Unit,
     onSelectGeminiModel: (GeminiModel) -> Unit,
@@ -136,7 +141,18 @@ fun HaruScreen(
     var showUpdate by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
     var showAbout by remember { mutableStateOf(false) }
+    var showBubbleSetup by remember { mutableStateOf(false) }
     val tabs = listOf("HARU", "Map")
+    LaunchedEffect(openCompanionRequest) {
+        if (openCompanionRequest > 0) {
+            selectedTab = 0
+            showSettings = false
+            showOnlineAi = false
+            showAbout = false
+            showUpdate = false
+            showBubbleSetup = false
+        }
+    }
 
     Surface(modifier = modifier.fillMaxSize()) {
         Column(
@@ -186,6 +202,10 @@ fun HaruScreen(
                         viewModel = viewModel,
                         todayLines = todayLines,
                         companionSnapshot = companionSnapshot,
+                        haruBubbleEnabled = haruBubbleEnabled,
+                        companionQuiet = companionQuiet,
+                        companionVisible = selectedTab == 0 && !showSettings && !showAbout && !showOnlineAi && !showUpdate && !showBubbleSetup,
+                        onOpenBubbleSetup = { onRefreshBubbleStatus(); showBubbleSetup = true },
                         onSubmitClick = onSubmitClick,
                         onMicClick = onMicClick,
                         onAddTask = onAddCompanionTask,
@@ -217,6 +237,16 @@ fun HaruScreen(
                 }
             }
         }
+    }
+
+    if (showBubbleSetup) {
+        HaruBubbleSetupDialog(
+            status = haruBubbleStatus,
+            onDismiss = { showBubbleSetup = false },
+            onAdd = onRequestHaruBubble,
+            onRefresh = onRefreshBubbleStatus,
+            onToggle = onToggleHaruBubble,
+        )
     }
 
     if (showAbout) {
@@ -261,7 +291,12 @@ fun HaruScreen(
             memoryCount = memoryCount,
             appVersion = appVersion,
             onDismiss = { showSettings = false },
-            onRequestHaruBubble = onRequestHaruBubble,
+            haruBubbleStatus = haruBubbleStatus,
+            onRequestHaruBubble = {
+                showSettings = false
+                onRefreshBubbleStatus()
+                showBubbleSetup = true
+            },
             onToggleHaruBubble = onToggleHaruBubble,
             onOpenAi = {
                 showSettings = false
@@ -311,6 +346,10 @@ private fun SimpleHaruPane(
     viewModel: HaruViewModel,
     todayLines: List<String>,
     companionSnapshot: CompanionSnapshot,
+    haruBubbleEnabled: Boolean,
+    companionQuiet: Boolean,
+    companionVisible: Boolean,
+    onOpenBubbleSetup: () -> Unit,
     onSubmitClick: () -> Unit,
     onMicClick: () -> Unit,
     onAddTask: (String) -> Unit,
@@ -340,10 +379,18 @@ private fun SimpleHaruPane(
                 .verticalScroll(responseScrollState),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            HaruFace(
-                mood = state.mood,
-                modifier = Modifier.sizeCompat(96.dp),
-            )
+            if (haruBubbleEnabled && !state.isBusy) {
+                HaruCompanionCard(
+                    snapshot = companionSnapshot,
+                    quiet = companionQuiet,
+                    busy = state.isBusy,
+                    draft = state.command,
+                    visible = companionVisible && !showToday,
+                    onChat = viewModel::updateCommand,
+                )
+            } else {
+                HaruFace(mood = state.mood, modifier = Modifier.sizeCompat(96.dp))
+            }
 
             Spacer(Modifier.height(4.dp))
 
@@ -383,8 +430,9 @@ private fun SimpleHaruPane(
             }
 
             Spacer(Modifier.height(4.dp))
-            TextButton(onClick = onOpenSettings) {
-                Text("Settings")
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TextButton(onClick = onOpenBubbleSetup) { Text("Home bubble") }
+                TextButton(onClick = onOpenSettings) { Text("Settings") }
             }
         }
 
@@ -669,6 +717,7 @@ private fun TaskEditDialog(
 @Composable
 private fun SimpleSettingsDialog(
     haruBubbleEnabled: Boolean,
+    haruBubbleStatus: HaruBubbleStatus,
     onlineProvider: OnlineProvider,
     memoryCount: Int,
     appVersion: String,
@@ -689,14 +738,14 @@ private fun SimpleSettingsDialog(
         title = { Text("HARU settings") },
         text = {
             Column(
-                verticalArrangement =
-                    Arrangement.spacedBy(8.dp),
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 OutlinedButton(
                     onClick = onRequestHaruBubble,
                     modifier = Modifier.fillMaxWidth(),
                 ) {
-                    Text("Add HARU Bubble to Home")
+                    Text("Set up Home bubble")
                 }
 
                 OutlinedButton(
@@ -704,7 +753,7 @@ private fun SimpleSettingsDialog(
                     modifier = Modifier.fillMaxWidth(),
                 ) {
                     Text(
-                        "HARU Bubble · " +
+                        "Companion · " +
                             if (haruBubbleEnabled) {
                                 "On"
                             } else {
@@ -714,7 +763,7 @@ private fun SimpleSettingsDialog(
                 }
 
                 Text(
-                    "Place the widget in the upper-right or anywhere you prefer. Long-press it on the Home screen to move or remove it.",
+                    haruBubbleStatus.message,
                     style = MaterialTheme.typography.labelSmall,
                 )
 

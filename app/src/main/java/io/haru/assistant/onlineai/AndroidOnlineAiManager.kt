@@ -1,5 +1,6 @@
 package io.haru.assistant.onlineai
 
+import io.haru.assistant.util.readBoundedText
 import android.content.Context
 import io.haru.assistant.memory.AntigravitySession
 import io.haru.assistant.memory.ConversationExchange
@@ -124,7 +125,7 @@ class AndroidOnlineAiManager(
                 } else {
                     connection.errorStream
                 })?.bufferedReader(Charsets.UTF_8)
-                    ?.use { it.readText().take(MAX_CATALOG_RESPONSE_CHARS) }
+                    ?.use { it.readBoundedText(MAX_CATALOG_RESPONSE_CHARS) }
                     .orEmpty()
 
                 if (code !in 200..299) {
@@ -726,7 +727,7 @@ class AndroidOnlineAiManager(
             } else {
                 connection.errorStream
             })?.bufferedReader(Charsets.UTF_8)
-                ?.use { it.readText().take(MAX_AI_RESPONSE_CHARS) }
+                ?.use { it.readBoundedText(MAX_AI_RESPONSE_CHARS) }
                 .orEmpty()
 
             if (code !in 200..299) {

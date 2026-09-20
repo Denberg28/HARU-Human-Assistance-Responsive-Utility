@@ -11,6 +11,10 @@ on:
       - "gradle.properties"
       - ".github/workflows/android-apk.yml"
 
+concurrency:
+  group: haru-android-release
+  cancel-in-progress: false
+
 permissions:
   contents: write
 
@@ -41,6 +45,14 @@ jobs:
           path: ~/.android/debug.keystore
           key: haru-debug-signing-v1
 
+      - name: Require the existing signing identity
+        shell: bash
+        run: |
+          if [ ! -s "$HOME/.android/debug.keystore" ]; then
+            echo "Original HARU signing key is unavailable. Restore it before building an update."
+            exit 1
+          fi
+
       - name: Set up Gradle 9.6
         uses: gradle/actions/setup-gradle@v5
         with:
@@ -48,6 +60,18 @@ jobs:
 
       - name: Build optimized HARU APK
         run: gradle --no-daemon :app:testDebugUnitTest :app:lintRelease :app:assembleRelease --stacktrace
+
+      - name: Upload verification reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: haru-android-verification
+          path: |
+            app/build/reports/tests/
+            app/build/test-results/
+            app/build/reports/lint-results-release.*
+          if-no-files-found: ignore
+          retention-days: 14
 
       - name: Package APK
         shell: bash
@@ -75,10 +99,14 @@ jobs:
         shell: bash
         run: |
           TAG="v$VERSION"
-          NOTES="HARU Android $TAG shifts companion presence from a persistent notification to a native home-screen HARU Bubble widget. The bubble uses the existing HARU emoji pack, rotates expressions and idle lines roughly every 30 minutes, gives local time-of-day greetings, shows task/reminder counts, and refreshes immediately when Today changes. Settings can request Add HARU Bubble and pause/resume it. Tapping the face cycles expression/idle text; tapping the bubble opens HARU. Persistent companion notification code is removed; only actual due reminders use notifications. Map remains locked."
+          NOTES_FILE="docs/release-v$VERSION.md"
+          test -s "$NOTES_FILE"
           if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release upload "$TAG" "$APK" "$APK.sha256" --clobber
-            gh release edit "$TAG" --title "HARU $TAG" --notes "$NOTES" --latest
-          else
-            gh release create "$TAG" "$APK" "$APK.sha256"               --title "HARU $TAG"               --notes "$NOTES"               --latest
+            echo "Release $TAG already exists. Bump the app version; published APKs are not overwritten."
+            exit 1
           fi
+          gh release create "$TAG" "$APK" "$APK.sha256" \
+            --target "$GITHUB_SHA" \
+            --title "HARU $TAG" \
+            --notes-file "$NOTES_FILE" \
+            --latest

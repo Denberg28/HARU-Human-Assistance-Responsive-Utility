@@ -1,5 +1,6 @@
 package io.haru.assistant.update
 
+import io.haru.assistant.util.readBoundedText
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
@@ -38,7 +39,7 @@ class AndroidAppUpdateManager {
 
                 val releases = JSONArray(
                     connection.inputStream.bufferedReader(Charsets.UTF_8).use {
-                        it.readText().take(2_000_000)
+                        it.readBoundedText(2_000_000)
                     }
                 )
 

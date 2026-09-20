@@ -1,5 +1,6 @@
 package io.haru.assistant.location
 
+import io.haru.assistant.util.readBoundedText
 import android.util.Base64
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -351,7 +352,7 @@ class HaruLiveLocationManager {
                 }
             )
                 ?.bufferedReader(Charsets.UTF_8)
-                ?.use { it.readText().take(MAX_RESPONSE_CHARS) }
+                ?.use { it.readBoundedText(MAX_RESPONSE_CHARS) }
                 .orEmpty()
 
             if (code !in 200..299) {
