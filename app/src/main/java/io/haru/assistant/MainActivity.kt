@@ -267,6 +267,8 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
                     onCompleteCompanionTask = ::completeCompanionTask,
                     onAddQuickReminder = ::addQuickReminder,
                     onSetLockScreenCompanion = ::setLockScreenCompanion,
+                    onOpenLockScreenNotificationSettings = ::openLockScreenNotificationSettings,
+                    onTestLockScreenCompanion = ::testLockScreenCompanion,
                     onSelectOnlineProvider = ::selectOnlineProvider,
                     onSelectGeminiModel = ::selectGeminiModel,
                     onRefreshGeminiModels = ::refreshGeminiModels,
@@ -467,6 +469,47 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
         }
 
         refreshCompanionStatus()
+    }
+
+    private fun testLockScreenCompanion() {
+        if (!lockScreenCompanionEnabled) {
+            setLockScreenCompanion(true)
+        } else {
+            refreshCompanionStatus()
+        }
+    }
+
+    private fun openLockScreenNotificationSettings() {
+        val intent =
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                Intent(Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS).apply {
+                    putExtra(
+                        Settings.EXTRA_APP_PACKAGE,
+                        packageName,
+                    )
+                    putExtra(
+                        Settings.EXTRA_CHANNEL_ID,
+                        CompanionStatusNotifier.CHANNEL_ID,
+                    )
+                }
+            } else {
+                Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
+                    putExtra(
+                        Settings.EXTRA_APP_PACKAGE,
+                        packageName,
+                    )
+                }
+            }
+
+        runCatching { startActivity(intent) }
+            .onFailure {
+                startActivity(
+                    Intent(
+                        Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                        Uri.parse("package:$packageName"),
+                    )
+                )
+            }
     }
 
     private fun resetConversationMemory(

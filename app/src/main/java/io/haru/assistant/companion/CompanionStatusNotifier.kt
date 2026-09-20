@@ -42,7 +42,8 @@ class CompanionStatusStore(
 }
 
 object CompanionStatusNotifier {
-    const val CHANNEL_ID = "haru_companion_status"
+    const val CHANNEL_ID = "haru_companion_lockscreen_v2"
+    private const val LEGACY_CHANNEL_ID = "haru_companion_status"
     private const val NOTIFICATION_ID = 4107
 
     fun refresh(
@@ -75,6 +76,7 @@ object CompanionStatusNotifier {
             ) as NotificationManager
 
         ensureChannel(manager)
+        migrateLegacyChannel(manager)
 
         val openIntent =
             Intent(context, MainActivity::class.java).apply {
@@ -114,11 +116,10 @@ object CompanionStatusNotifier {
                 )
                 .setContentIntent(openPendingIntent)
                 .setCategory(NotificationCompat.CATEGORY_STATUS)
-                .setPriority(NotificationCompat.PRIORITY_LOW)
+                .setPriority(NotificationCompat.PRIORITY_DEFAULT)
                 .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
                 .setOngoing(true)
                 .setOnlyAlertOnce(true)
-                .setSilent(true)
                 .setShowWhen(false)
 
         chibiBitmap(context)?.let { bitmap ->
@@ -154,17 +155,35 @@ object CompanionStatusNotifier {
             NotificationChannel(
                 CHANNEL_ID,
                 "HARU lock-screen companion",
-                NotificationManager.IMPORTANCE_LOW,
+                NotificationManager.IMPORTANCE_DEFAULT,
             ).apply {
                 description =
                     "Quiet HARU companion status shown on the lock screen"
                 lockscreenVisibility =
                     Notification.VISIBILITY_PUBLIC
                 setShowBadge(false)
+                enableLights(false)
                 enableVibration(false)
                 setSound(null, null)
             }
         )
+    }
+
+    private fun migrateLegacyChannel(
+        manager: NotificationManager,
+    ) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+            return
+        }
+
+        if (
+            LEGACY_CHANNEL_ID != CHANNEL_ID &&
+            manager.getNotificationChannel(LEGACY_CHANNEL_ID) != null
+        ) {
+            manager.deleteNotificationChannel(
+                LEGACY_CHANNEL_ID
+            )
+        }
     }
 
     private fun chibiBitmap(
