@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -37,7 +36,6 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.ScrollableTabRow
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
@@ -45,19 +43,20 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.CornerRadius
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
@@ -66,16 +65,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import io.haru.assistant.HaruViewModel
 import io.haru.assistant.companion.CompanionSnapshot
-import io.haru.assistant.content.AndroidHazardBundle
-import io.haru.assistant.content.AndroidHazardItem
-import io.haru.assistant.content.AndroidNewsBundle
-import io.haru.assistant.content.AndroidNewsItem
-import io.haru.assistant.core.CompanionMode
 import io.haru.assistant.core.HaruMood
 import io.haru.assistant.location.TrustedLocation
 import io.haru.assistant.onlineai.GeminiModel
 import io.haru.assistant.onlineai.OnlineProvider
-import io.haru.assistant.voice.HaruVoiceController
 import org.maplibre.android.MapLibre
 import org.maplibre.android.annotations.MarkerOptions
 import org.maplibre.android.camera.CameraPosition
@@ -88,10 +81,8 @@ import java.util.Date
 @Composable
 fun HaruScreen(
     viewModel: HaruViewModel,
-    voiceStatus: HaruVoiceController.VoiceRuntimeStatus,
     todayLines: List<String>,
     companionSnapshot: CompanionSnapshot,
-    companionMode: CompanionMode,
     lockScreenCompanionEnabled: Boolean,
     onlineProvider: OnlineProvider,
     selectedGeminiModel: GeminiModel,
@@ -103,8 +94,6 @@ fun HaruScreen(
     appVersion: String,
     updateStatus: String,
     updateUrl: String,
-    newsBundle: AndroidNewsBundle,
-    hazardBundle: AndroidHazardBundle,
     trustedLocations: List<TrustedLocation>,
     currentDeviceLocation: TrustedLocation?,
     mapGpsActive: Boolean,
@@ -117,13 +106,9 @@ fun HaruScreen(
     liveMonitorActive: Boolean,
     onSubmitClick: () -> Unit,
     onMicClick: () -> Unit,
-    onSpeakClick: () -> Unit,
-    onSelectCompanionMode: (CompanionMode) -> Unit,
     onAddCompanionTask: (String) -> Unit,
-    onCompleteCompanionTask: (Int) -> Unit,
     onUpdateCompanionTask: (Int, String) -> Unit,
     onDeleteCompanionTask: (Int) -> Unit,
-    onAddQuickReminder: (String, Int) -> Unit,
     onSetLockScreenCompanion: (Boolean) -> Unit,
     onOpenLockScreenNotificationSettings: () -> Unit,
     onTestLockScreenCompanion: () -> Unit,
@@ -136,8 +121,6 @@ fun HaruScreen(
     onResetMemory: () -> Unit,
     onCheckUpdate: () -> Unit,
     onOpenUpdate: (String) -> Unit,
-    onRefreshNews: () -> Unit,
-    onRefreshHazards: () -> Unit,
     onOpenUrl: (String) -> Unit,
     onLocateMe: () -> Unit,
     onCreateLocationShare: (String, Int) -> Unit,
@@ -201,11 +184,9 @@ fun HaruScreen(
                         viewModel = viewModel,
                         todayLines = todayLines,
                         companionSnapshot = companionSnapshot,
-                        voiceStatus = voiceStatus,
                         onSubmitClick = onSubmitClick,
                         onMicClick = onMicClick,
                         onAddTask = onAddCompanionTask,
-                        onCompleteTask = onCompleteCompanionTask,
                         onUpdateTask = onUpdateCompanionTask,
                         onDeleteTask = onDeleteCompanionTask,
                         onOpenSettings = { showSettings = true },
@@ -299,17 +280,20 @@ private fun SimpleHaruPane(
     viewModel: HaruViewModel,
     todayLines: List<String>,
     companionSnapshot: CompanionSnapshot,
-    voiceStatus: HaruVoiceController.VoiceRuntimeStatus,
     onSubmitClick: () -> Unit,
     onMicClick: () -> Unit,
     onAddTask: (String) -> Unit,
-    onCompleteTask: (Int) -> Unit,
     onUpdateTask: (Int, String) -> Unit,
     onDeleteTask: (Int) -> Unit,
     onOpenSettings: () -> Unit,
 ) {
     val state = viewModel.uiState
     var showToday by remember { mutableStateOf(false) }
+    val responseScrollState = rememberScrollState()
+
+    LaunchedEffect(state.message) {
+        responseScrollState.scrollTo(0)
+    }
 
     Column(
         modifier = Modifier
@@ -322,7 +306,7 @@ private fun SimpleHaruPane(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth()
-                .verticalScroll(rememberScrollState()),
+                .verticalScroll(responseScrollState),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             HaruFace(
@@ -335,11 +319,8 @@ private fun SimpleHaruPane(
             if (state.isBusy && state.mood == HaruMood.THINKING) {
                 ThinkingDots()
             } else {
-                Text(
-                    text = state.message,
-                    style = MaterialTheme.typography.bodyMedium,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.fillMaxWidth(),
+                AssistantResponseText(
+                    message = state.message,
                 )
             }
 
@@ -368,18 +349,6 @@ private fun SimpleHaruPane(
                         }
                     }
                 }
-            }
-
-            if (state.latestUserMessage.isNotBlank()) {
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    "You: " +
-                        state.latestUserMessage
-                            .replace(Regex("\\s+"), " ")
-                            .take(160),
-                    style = MaterialTheme.typography.labelSmall,
-                    modifier = Modifier.fillMaxWidth(),
-                )
             }
 
             Spacer(Modifier.height(4.dp))
@@ -460,7 +429,6 @@ private fun SimpleHaruPane(
             snapshot = companionSnapshot,
             onDismiss = { showToday = false },
             onAddTask = onAddTask,
-            onCompleteTask = onCompleteTask,
             onUpdateTask = onUpdateTask,
             onDeleteTask = onDeleteTask,
         )
@@ -472,7 +440,6 @@ private fun SimpleTodayDialog(
     snapshot: CompanionSnapshot,
     onDismiss: () -> Unit,
     onAddTask: (String) -> Unit,
-    onCompleteTask: (Int) -> Unit,
     onUpdateTask: (Int, String) -> Unit,
     onDeleteTask: (Int) -> Unit,
 ) {
@@ -758,861 +725,6 @@ private fun SimpleSettingsDialog(
             }
         },
     )
-}
-
-@Composable
-private fun HomePane(
-    viewModel: HaruViewModel,
-    todayLines: List<String>,
-    companionSnapshot: CompanionSnapshot,
-    companionMode: CompanionMode,
-    lockScreenCompanionEnabled: Boolean,
-    onlineProvider: OnlineProvider,
-    memoryCount: Int,
-    mapGpsActive: Boolean,
-    currentDeviceLocation: TrustedLocation?,
-    liveShareActive: Boolean,
-    liveMonitorActive: Boolean,
-    newsCount: Int,
-    hazardCount: Int,
-    appVersion: String,
-    onSelectMode: (CompanionMode) -> Unit,
-    onAddTask: (String) -> Unit,
-    onCompleteTask: (Int) -> Unit,
-    onAddQuickReminder: (String, Int) -> Unit,
-    onSetLockScreenCompanion: (Boolean) -> Unit,
-    onOpenLockScreenNotificationSettings: () -> Unit,
-    onTestLockScreenCompanion: () -> Unit,
-    onTalk: () -> Unit,
-    onOpenAssistant: () -> Unit,
-    onOpenNews: () -> Unit,
-    onOpenHazards: () -> Unit,
-    onOpenMap: () -> Unit,
-    onOpenOnlineAi: () -> Unit,
-    onOpenUpdate: () -> Unit,
-) {
-    val state = viewModel.uiState
-    var modeMenuExpanded by remember { mutableStateOf(false) }
-    var showPriority by remember { mutableStateOf(false) }
-    var showToday by remember { mutableStateOf(false) }
-
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 20.dp, vertical = 12.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        HaruFace(
-            mood = state.mood,
-            modifier = Modifier.sizeCompat(140.dp),
-        )
-        Spacer(Modifier.height(6.dp))
-
-        Text(
-            text = "COMPANION NODE · " + companionMode.label.uppercase(),
-            style = MaterialTheme.typography.labelMedium,
-            fontWeight = FontWeight.SemiBold,
-        )
-        Text(
-            text = companionMode.role,
-            style = MaterialTheme.typography.titleMedium,
-        )
-        Text(
-            text = "Observe · Remember · Assist · Act · Alert",
-            style = MaterialTheme.typography.labelSmall,
-        )
-
-        Spacer(Modifier.height(10.dp))
-        Box(modifier = Modifier.fillMaxWidth()) {
-            OutlinedButton(
-                onClick = { modeMenuExpanded = true },
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Text("Mode · " + companionMode.label + " ▾")
-            }
-            DropdownMenu(
-                expanded = modeMenuExpanded,
-                onDismissRequest = { modeMenuExpanded = false },
-            ) {
-                CompanionMode.entries.forEach { mode ->
-                    DropdownMenuItem(
-                        text = {
-                            Text(
-                                (if (mode == companionMode) "✓ " else "") +
-                                    mode.label +
-                                    " · " +
-                                    mode.role
-                            )
-                        },
-                        onClick = {
-                            onSelectMode(mode)
-                            modeMenuExpanded = false
-                        },
-                    )
-                }
-            }
-        }
-
-        Spacer(Modifier.height(8.dp))
-        Card(
-            onClick = { showPriority = true },
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Column(Modifier.padding(12.dp)) {
-                Text(
-                    "Current priority  ›",
-                    fontWeight = FontWeight.SemiBold,
-                )
-                Text(
-                    companionMode.priority,
-                    style = MaterialTheme.typography.bodySmall,
-                )
-                Text(
-                    "Local core active · cloud AI is optional.",
-                    style = MaterialTheme.typography.labelSmall,
-                )
-            }
-        }
-
-        Spacer(Modifier.height(8.dp))
-        Card(
-            onClick = { showToday = true },
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Column(Modifier.padding(12.dp)) {
-                Text("Today  ›", fontWeight = FontWeight.SemiBold)
-                if (todayLines.isEmpty()) {
-                    Text(
-                        "No open tasks or upcoming reminders.",
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                } else {
-                    todayLines.take(4).forEach {
-                        Text(
-                            it,
-                            style = MaterialTheme.typography.bodySmall,
-                        )
-                    }
-                }
-            }
-        }
-
-        Spacer(Modifier.height(8.dp))
-        Card(modifier = Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(12.dp)) {
-                Text(
-                    "Lock-screen companion",
-                    fontWeight = FontWeight.SemiBold,
-                )
-                Text(
-                    if (lockScreenCompanionEnabled) {
-                        "HARU status is visible while the phone is locked."
-                    } else {
-                        "Off by default. Enable a quiet HARU status card on the lock screen."
-                    },
-                    style = MaterialTheme.typography.bodySmall,
-                )
-                OutlinedButton(
-                    onClick = {
-                        onSetLockScreenCompanion(
-                            !lockScreenCompanionEnabled
-                        )
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text(
-                        if (lockScreenCompanionEnabled) {
-                            "Turn off lock-screen HARU"
-                        } else {
-                            "Show HARU on lock screen"
-                        }
-                    )
-                }
-
-                if (lockScreenCompanionEnabled) {
-                    Spacer(Modifier.height(6.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement =
-                            Arrangement.spacedBy(8.dp),
-                    ) {
-                        OutlinedButton(
-                            onClick = onTestLockScreenCompanion,
-                            modifier = Modifier.weight(1f),
-                        ) {
-                            Text("Test now")
-                        }
-                        OutlinedButton(
-                            onClick =
-                                onOpenLockScreenNotificationSettings,
-                            modifier = Modifier.weight(1f),
-                        ) {
-                            Text("Lock-screen settings")
-                        }
-                    }
-                    Text(
-                        "After Test now, press the power button. If HARU is still hidden, open Lock-screen settings and allow this notification category on the lock screen.",
-                        style = MaterialTheme.typography.labelSmall,
-                    )
-                }
-
-                Text(
-                    "Low-power standby: no polling, wake lock, GPS, or network refresh is started by this status.",
-                    style = MaterialTheme.typography.labelSmall,
-                )
-            }
-        }
-
-        Spacer(Modifier.height(8.dp))
-        Card(modifier = Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(12.dp)) {
-                Text("Companion state", fontWeight = FontWeight.SemiBold)
-                Text(
-                    "GPS · " +
-                        if (mapGpsActive || currentDeviceLocation != null) {
-                            "ready"
-                        } else {
-                            "off"
-                        },
-                    style = MaterialTheme.typography.bodySmall,
-                )
-                Text(
-                    "Live share · " +
-                        (if (liveShareActive) "active" else "off") +
-                        "  |  Tracking · " +
-                        (if (liveMonitorActive) "active" else "off"),
-                    style = MaterialTheme.typography.bodySmall,
-                )
-                Text(
-                    "Memory · $memoryCount/10 encrypted",
-                    style = MaterialTheme.typography.bodySmall,
-                )
-                Text(
-                    "Reasoning · " +
-                        providerLabel(onlineProvider) +
-                        " · optional",
-                    style = MaterialTheme.typography.bodySmall,
-                )
-                Text(
-                    "Cached feeds · $newsCount news · $hazardCount hazard items",
-                    style = MaterialTheme.typography.labelSmall,
-                )
-            }
-        }
-
-        Spacer(Modifier.height(10.dp))
-        Text(
-            "Quick actions",
-            style = MaterialTheme.typography.titleSmall,
-            fontWeight = FontWeight.SemiBold,
-        )
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Button(
-                onClick = onTalk,
-                modifier = Modifier.weight(1f),
-            ) {
-                Text("Talk")
-            }
-            OutlinedButton(
-                onClick = onOpenAssistant,
-                modifier = Modifier.weight(1f),
-            ) {
-                Text("Reason")
-            }
-        }
-        Spacer(Modifier.height(6.dp))
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            OutlinedButton(
-                onClick = onOpenMap,
-                modifier = Modifier.weight(1f),
-            ) {
-                Text("Map")
-            }
-            OutlinedButton(
-                onClick = onOpenHazards,
-                modifier = Modifier.weight(1f),
-            ) {
-                Text("Hazards")
-            }
-        }
-        Spacer(Modifier.height(6.dp))
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            OutlinedButton(
-                onClick = onOpenNews,
-                modifier = Modifier.weight(1f),
-            ) {
-                Text("News")
-            }
-            OutlinedButton(
-                onClick = onOpenOnlineAi,
-                modifier = Modifier.weight(1f),
-            ) {
-                Text("AI setup")
-            }
-        }
-
-        TextButton(onClick = onOpenUpdate) {
-            Text("HARU v$appVersion · Check update")
-        }
-    }
-
-    if (showPriority) {
-        PriorityDialog(
-            mode = companionMode,
-            onDismiss = { showPriority = false },
-            onToday = {
-                showPriority = false
-                showToday = true
-            },
-            onTalk = {
-                showPriority = false
-                onTalk()
-            },
-            onReason = {
-                showPriority = false
-                onOpenAssistant()
-            },
-            onMap = {
-                showPriority = false
-                onOpenMap()
-            },
-            onHazards = {
-                showPriority = false
-                onOpenHazards()
-            },
-        )
-    }
-
-    if (showToday) {
-        TodayDialog(
-            snapshot = companionSnapshot,
-            onDismiss = { showToday = false },
-            onAddTask = onAddTask,
-            onCompleteTask = onCompleteTask,
-            onAddQuickReminder = onAddQuickReminder,
-        )
-    }
-}
-
-@Composable
-private fun PriorityDialog(
-    mode: CompanionMode,
-    onDismiss: () -> Unit,
-    onToday: () -> Unit,
-    onTalk: () -> Unit,
-    onReason: () -> Unit,
-    onMap: () -> Unit,
-    onHazards: () -> Unit,
-) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        confirmButton = {
-            TextButton(onClick = onDismiss) { Text("Done") }
-        },
-        title = { Text(mode.label + " priority") },
-        text = {
-            Column(
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                Text(mode.priority)
-                Text(
-                    "These are local shortcuts. They do not use cloud AI unless you choose Reason.",
-                    style = MaterialTheme.typography.labelSmall,
-                )
-                when (mode) {
-                    CompanionMode.FLIGHT -> {
-                        OutlinedButton(onClick = onToday, modifier = Modifier.fillMaxWidth()) {
-                            Text("Checklist / Today")
-                        }
-                        OutlinedButton(onClick = onMap, modifier = Modifier.fillMaxWidth()) {
-                            Text("GPS / Map")
-                        }
-                        OutlinedButton(onClick = onTalk, modifier = Modifier.fillMaxWidth()) {
-                            Text("Talk to HARU")
-                        }
-                    }
-                    CompanionMode.TRAVEL,
-                    CompanionMode.SAFETY -> {
-                        OutlinedButton(onClick = onMap, modifier = Modifier.fillMaxWidth()) {
-                            Text("Open Map")
-                        }
-                        OutlinedButton(onClick = onHazards, modifier = Modifier.fillMaxWidth()) {
-                            Text("Check Hazards")
-                        }
-                        OutlinedButton(onClick = onTalk, modifier = Modifier.fillMaxWidth()) {
-                            Text("Talk to HARU")
-                        }
-                    }
-                    CompanionMode.WORK,
-                    CompanionMode.NORMAL -> {
-                        OutlinedButton(onClick = onToday, modifier = Modifier.fillMaxWidth()) {
-                            Text("Manage Today")
-                        }
-                        OutlinedButton(onClick = onTalk, modifier = Modifier.fillMaxWidth()) {
-                            Text("Talk to HARU")
-                        }
-                        OutlinedButton(onClick = onReason, modifier = Modifier.fillMaxWidth()) {
-                            Text("Use Reasoning")
-                        }
-                    }
-                    CompanionMode.REST -> {
-                        OutlinedButton(onClick = onToday, modifier = Modifier.fillMaxWidth()) {
-                            Text("Essential reminders")
-                        }
-                        OutlinedButton(onClick = onTalk, modifier = Modifier.fillMaxWidth()) {
-                            Text("Talk to HARU")
-                        }
-                    }
-                }
-            }
-        },
-    )
-}
-
-@Composable
-private fun TodayDialog(
-    snapshot: CompanionSnapshot,
-    onDismiss: () -> Unit,
-    onAddTask: (String) -> Unit,
-    onCompleteTask: (Int) -> Unit,
-    onAddQuickReminder: (String, Int) -> Unit,
-) {
-    var taskText by remember { mutableStateOf("") }
-    var reminderText by remember { mutableStateOf("") }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        confirmButton = {
-            TextButton(onClick = onDismiss) { Text("Done") }
-        },
-        title = { Text("Today") },
-        text = {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(max = 520.dp)
-                    .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                Text("Tasks", fontWeight = FontWeight.SemiBold)
-                val openTasks = snapshot.tasks.withIndex().filter { !it.value.done }
-                if (openTasks.isEmpty()) {
-                    Text("No open tasks.", style = MaterialTheme.typography.bodySmall)
-                } else {
-                    openTasks.take(12).forEach { indexed ->
-                        OutlinedButton(
-                            onClick = { onCompleteTask(indexed.index) },
-                            modifier = Modifier.fillMaxWidth(),
-                        ) {
-                            Text("✓  " + indexed.value.text)
-                        }
-                    }
-                }
-
-                OutlinedTextField(
-                    value = taskText,
-                    onValueChange = { taskText = it.take(200) },
-                    label = { Text("New task") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                Button(
-                    onClick = {
-                        onAddTask(taskText)
-                        taskText = ""
-                    },
-                    enabled = taskText.isNotBlank(),
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text("Add task")
-                }
-
-                HorizontalDivider()
-                Text("Quick reminder", fontWeight = FontWeight.SemiBold)
-                snapshot.reminders
-                    .filter { it.dueAt > System.currentTimeMillis() }
-                    .sortedBy { it.dueAt }
-                    .take(6)
-                    .forEach { reminder ->
-                        Text(
-                            "⏰ " + reminder.text + " · " +
-                                DateFormat.getDateTimeInstance(
-                                    DateFormat.SHORT,
-                                    DateFormat.SHORT,
-                                ).format(Date(reminder.dueAt)),
-                            style = MaterialTheme.typography.bodySmall,
-                        )
-                    }
-
-                OutlinedTextField(
-                    value = reminderText,
-                    onValueChange = { reminderText = it.take(200) },
-                    label = { Text("Reminder text") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    OutlinedButton(
-                        onClick = {
-                            onAddQuickReminder(reminderText, 15)
-                            reminderText = ""
-                        },
-                        enabled = reminderText.isNotBlank(),
-                        modifier = Modifier.weight(1f),
-                    ) {
-                        Text("15 min")
-                    }
-                    OutlinedButton(
-                        onClick = {
-                            onAddQuickReminder(reminderText, 60)
-                            reminderText = ""
-                        },
-                        enabled = reminderText.isNotBlank(),
-                        modifier = Modifier.weight(1f),
-                    ) {
-                        Text("1 hour")
-                    }
-                }
-            }
-        },
-    )
-}
-
-@Composable
-private fun AssistantPane(
-    viewModel: HaruViewModel,
-    voiceStatus: HaruVoiceController.VoiceRuntimeStatus,
-    todayLines: List<String>,
-    onlineProvider: OnlineProvider,
-    onlineStatus: String,
-    memoryCount: Int,
-    onSubmitClick: () -> Unit,
-    onMicClick: () -> Unit,
-    onSpeakClick: () -> Unit,
-    onResetMemory: () -> Unit,
-    appVersion: String,
-    onOpenOnlineAi: () -> Unit,
-    onOpenUpdate: () -> Unit,
-) {
-    val state = viewModel.uiState
-
-    val assistantScrollState = rememberScrollState()
-
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .imePadding()
-            .verticalScroll(assistantScrollState)
-            .padding(horizontal = 20.dp, vertical = 12.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        Text(
-            "Reasoning console",
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.SemiBold,
-        )
-        Text(
-            "Local commands run first. Cloud AI is only used when needed.",
-            style = MaterialTheme.typography.labelSmall,
-        )
-        Spacer(Modifier.height(8.dp))
-        HaruFace(mood = state.mood, modifier = Modifier.sizeCompat(120.dp))
-        Spacer(Modifier.height(8.dp))
-
-        if (!state.isBusy || state.mood != HaruMood.THINKING) {
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(14.dp)) {
-                    Text(
-                        text = state.mood.name.lowercase().replaceFirstChar { it.uppercase() },
-                        style = MaterialTheme.typography.labelMedium,
-                    )
-                    Spacer(Modifier.height(4.dp))
-                    AssistantResponseText(state.message)
-                }
-            }
-        }
-
-        if (todayLines.isNotEmpty()) {
-            Spacer(Modifier.height(8.dp))
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(12.dp)) {
-                    Text("Today", fontWeight = FontWeight.SemiBold)
-                    todayLines.take(3).forEach {
-                        Text(it, style = MaterialTheme.typography.bodySmall)
-                    }
-                }
-            }
-        }
-
-        Spacer(Modifier.height(10.dp))
-        OutlinedButton(
-            onClick = onOpenOnlineAi,
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Text("AI · " + providerLabel(onlineProvider))
-        }
-        if (onlineStatus.isNotBlank()) {
-            Text(
-                onlineStatus,
-                style = MaterialTheme.typography.labelSmall,
-            )
-        }
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                "Memory $memoryCount/10 · encrypted · 5-turn AI window",
-                style = MaterialTheme.typography.labelSmall,
-            )
-            TextButton(
-                onClick = onResetMemory,
-                enabled = memoryCount > 0 || state.isBusy,
-            ) {
-                Text("Reset memory")
-            }
-        }
-        Text(
-            text = "Voice: " + voiceStatus.speechInput + " STT • " + voiceStatus.speechOutput,
-            style = MaterialTheme.typography.labelSmall,
-        )
-
-        Spacer(Modifier.height(12.dp))
-
-        if (state.latestUserMessage.isNotBlank()) {
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
-                    Text(
-                        text = "You",
-                        style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                    Text(
-                        text = state.latestUserMessage
-                            .replace(Regex("\\s+"), " ")
-                            .take(180),
-                        style = MaterialTheme.typography.bodySmall,
-                        maxLines = 1,
-                    )
-                }
-            }
-            if (state.isBusy && state.mood == HaruMood.THINKING) {
-                Spacer(Modifier.height(5.dp))
-                ThinkingDots()
-            }
-            Spacer(Modifier.height(8.dp))
-        }
-
-        OutlinedTextField(
-            value = state.command,
-            onValueChange = viewModel::updateCommand,
-            label = { Text("Ask HARU") },
-            placeholder = { Text("Type or tap Mic") },
-            singleLine = true,
-            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-            keyboardActions = KeyboardActions(onSend = { onSubmitClick() }),
-            modifier = Modifier.fillMaxWidth(),
-        )
-
-        Spacer(Modifier.height(10.dp))
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.Center,
-        ) {
-            Button(
-                onClick = onSubmitClick,
-                enabled = !state.isBusy && state.command.isNotBlank(),
-            ) {
-                Text("Send")
-            }
-            Spacer(Modifier.width(8.dp))
-            OutlinedButton(
-                onClick = onMicClick,
-                enabled = !state.isBusy || state.mood == HaruMood.LISTENING,
-            ) {
-                Text(if (state.mood == HaruMood.LISTENING) "Listening…" else "Mic")
-            }
-            Spacer(Modifier.width(8.dp))
-            OutlinedButton(
-                onClick = onSpeakClick,
-                enabled = !state.isBusy && state.message.isNotBlank(),
-            ) {
-                Text("Speak")
-            }
-        }
-
-        TextButton(onClick = onOpenUpdate) {
-            Text("HARU v$appVersion · Check update")
-        }
-    }
-}
-
-@Composable
-private fun NewsPane(
-    bundle: AndroidNewsBundle,
-    onRefresh: () -> Unit,
-    onOpenUrl: (String) -> Unit,
-) {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(14.dp)
-            .verticalScroll(rememberScrollState()),
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text("HARU News", style = MaterialTheme.typography.titleMedium)
-            OutlinedButton(onClick = onRefresh) { Text("Refresh") }
-        }
-        if (bundle.error.isNotBlank()) {
-            Text(bundle.error, style = MaterialTheme.typography.labelSmall)
-        }
-        Spacer(Modifier.height(8.dp))
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text("🇵🇭 Local", fontWeight = FontWeight.SemiBold)
-                bundle.local.forEach { NewsEntry(it, onOpenUrl) }
-                if (bundle.local.isEmpty()) Text("No local stories.", style = MaterialTheme.typography.bodySmall)
-            }
-            Column(modifier = Modifier.weight(1f)) {
-                Text("🌍 International", fontWeight = FontWeight.SemiBold)
-                bundle.international.forEach { NewsEntry(it, onOpenUrl) }
-                if (bundle.international.isEmpty()) Text("No world stories.", style = MaterialTheme.typography.bodySmall)
-            }
-        }
-    }
-}
-
-@Composable
-private fun NewsEntry(
-    item: AndroidNewsItem,
-    onOpenUrl: (String) -> Unit,
-) {
-    Column(modifier = Modifier.padding(vertical = 5.dp)) {
-        Text(
-            item.title,
-            style = MaterialTheme.typography.bodySmall,
-            fontWeight = FontWeight.SemiBold,
-        )
-        Text(
-            item.source + if (item.published.isBlank()) "" else " · " + item.published,
-            style = MaterialTheme.typography.labelSmall,
-        )
-        TextButton(
-            onClick = { onOpenUrl(item.link) },
-            enabled = item.link.startsWith("https://"),
-        ) {
-            Text("Read article ↗")
-        }
-        HorizontalDivider()
-    }
-}
-
-@Composable
-private fun HazardPane(
-    bundle: AndroidHazardBundle,
-    onRefresh: () -> Unit,
-    onOpenUrl: (String) -> Unit,
-) {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(14.dp)
-            .verticalScroll(rememberScrollState()),
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text("Weather & Hazards", style = MaterialTheme.typography.titleMedium)
-            OutlinedButton(onClick = onRefresh) { Text("Refresh") }
-        }
-
-        Text(
-            "Lightweight native summaries. No live weather page runs in the background.",
-            style = MaterialTheme.typography.labelSmall,
-        )
-
-        if (bundle.error.isNotBlank()) {
-            Spacer(Modifier.height(4.dp))
-            Text(bundle.error, style = MaterialTheme.typography.labelSmall)
-        }
-
-        Spacer(Modifier.height(10.dp))
-        Text("PAGASA summary", fontWeight = FontWeight.SemiBold)
-        Text(
-            "Official weekly outlook plus the current public weather outlook.",
-            style = MaterialTheme.typography.labelSmall,
-        )
-        bundle.pagasa.take(2).forEach { HazardEntry(it, onOpenUrl) }
-
-        OutlinedButton(
-            onClick = {
-                onOpenUrl(
-                    "https://bagong.pagasa.dost.gov.ph/" +
-                        "weather/weather-outlook-selected-philippine-cities"
-                )
-            },
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Text("PAGASA 5-day city outlook ↗")
-        }
-
-        Spacer(Modifier.height(12.dp))
-        Text("PHIVOLCS", fontWeight = FontWeight.SemiBold)
-        bundle.phivolcs.take(3).forEach { HazardEntry(it, onOpenUrl) }
-
-        bundle.noah.firstOrNull()?.let {
-            Spacer(Modifier.height(8.dp))
-            Text("UP NOAH", fontWeight = FontWeight.SemiBold)
-            HazardEntry(it, onOpenUrl)
-        }
-    }
-}
-
-@Composable
-private fun HazardEntry(
-    item: AndroidHazardItem,
-    onOpenUrl: (String) -> Unit,
-) {
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 4.dp),
-    ) {
-        Column(Modifier.padding(10.dp)) {
-            Text(item.title, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold)
-            if (item.issued.isNotBlank()) {
-                Text(item.issued, style = MaterialTheme.typography.labelSmall)
-            }
-            Text(item.summary, style = MaterialTheme.typography.bodySmall)
-            TextButton(onClick = { onOpenUrl(item.url) }) {
-                Text("Official source ↗")
-            }
-        }
-    }
 }
 
 @Composable
@@ -2318,82 +1430,336 @@ private fun ThinkingDots() {
     )
 }
 
-@Composable
-private fun AssistantResponseText(message: String) {
-    val clean = message
-        .replace("```", "")
-        .replace(Regex("\\*\\*(.*?)\\*\\*"), "$1")
-        .replace(Regex("__(.*?)__"), "$1")
-        .trim()
-    val scrollState = rememberScrollState()
-    var viewportHeightPx by remember { mutableIntStateOf(0) }
-    val trackColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)
-    val thumbColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.65f)
+internal sealed interface HaruResponseBlock {
+    data class Heading(
+        val text: String,
+        val level: Int,
+    ) : HaruResponseBlock
 
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .heightIn(max = 220.dp)
-            .onSizeChanged { viewportHeightPx = it.height },
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .verticalScroll(scrollState)
-                .padding(end = 10.dp),
-            verticalArrangement = Arrangement.spacedBy(3.dp),
-        ) {
-            clean.lines().forEach { raw ->
-                val line = raw.trimEnd()
-                when {
-                    line.isBlank() -> Spacer(Modifier.height(3.dp))
-                    line.startsWith("#") -> Text(
-                        text = line.trimStart('#', ' '),
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                    line.startsWith("- ") || line.startsWith("* ") -> Text(
-                        text = "• " + line.drop(2).trim(),
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
-                    else -> Text(
-                        text = line.replace("`", ""),
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
-                }
-            }
+    data class Bullet(val text: String) : HaruResponseBlock
+
+    data class Numbered(
+        val number: String,
+        val text: String,
+    ) : HaruResponseBlock
+
+    data class Quote(val text: String) : HaruResponseBlock
+
+    data class Code(val text: String) : HaruResponseBlock
+
+    data class Paragraph(val text: String) : HaruResponseBlock
+
+    data object Gap : HaruResponseBlock
+}
+
+internal fun parseAssistantResponse(
+    message: String,
+): List<HaruResponseBlock> {
+    val clean =
+        message
+            .replace("\r\n", "\n")
+            .replace("\r", "\n")
+            .replace("\u0000", "")
+            .trim()
+
+    if (clean.isBlank()) return emptyList()
+
+    val blocks = mutableListOf<HaruResponseBlock>()
+    val codeLines = mutableListOf<String>()
+    val paragraphLines = mutableListOf<String>()
+    var inCode = false
+
+    fun flushParagraph() {
+        if (paragraphLines.isEmpty()) return
+        blocks +=
+            HaruResponseBlock.Paragraph(
+                paragraphLines
+                    .joinToString(" ")
+                    .replace(Regex("""\s+"""), " ")
+                    .trim()
+            )
+        paragraphLines.clear()
+    }
+
+    fun flushCode() {
+        if (codeLines.isEmpty()) return
+        blocks +=
+            HaruResponseBlock.Code(
+                codeLines.joinToString("\n").trimEnd()
+            )
+        codeLines.clear()
+    }
+
+    clean.lines().forEach { raw ->
+        val trimmed = raw.trim()
+
+        if (trimmed.startsWith("```")) {
+            flushParagraph()
+            if (inCode) flushCode()
+            inCode = !inCode
+            return@forEach
         }
 
-        if (scrollState.maxValue > 0 && viewportHeightPx > 0) {
-            Canvas(
-                modifier = Modifier
-                    .align(Alignment.CenterEnd)
-                    .width(4.dp)
-                    .fillMaxHeight(),
-            ) {
-                val viewport = viewportHeightPx.toFloat()
-                val content = viewport + scrollState.maxValue.toFloat()
-                val thumbHeight = (viewport * viewport / content)
-                    .coerceAtLeast(24.dp.toPx())
-                    .coerceAtMost(viewport)
-                val maxOffset = (viewport - thumbHeight).coerceAtLeast(0f)
-                val fraction =
-                    (scrollState.value.toFloat() / scrollState.maxValue.toFloat())
-                        .coerceIn(0f, 1f)
-                val radius = size.width / 2f
+        if (inCode) {
+            codeLines += raw
+            return@forEach
+        }
 
-                drawRoundRect(
-                    color = trackColor,
-                    topLeft = Offset.Zero,
-                    size = Size(size.width, viewport),
-                    cornerRadius = CornerRadius(radius, radius),
-                )
-                drawRoundRect(
-                    color = thumbColor,
-                    topLeft = Offset(0f, maxOffset * fraction),
-                    size = Size(size.width, thumbHeight),
-                    cornerRadius = CornerRadius(radius, radius),
-                )
+        when {
+            trimmed.isBlank() -> {
+                flushParagraph()
+                if (blocks.lastOrNull() !is HaruResponseBlock.Gap) {
+                    blocks += HaruResponseBlock.Gap
+                }
+            }
+
+            HEADING_MARKDOWN.matches(trimmed) -> {
+                flushParagraph()
+                val match =
+                    HEADING_MARKDOWN.matchEntire(trimmed)
+                        ?: return@forEach
+                blocks +=
+                    HaruResponseBlock.Heading(
+                        text = match.groupValues[2],
+                        level = match.groupValues[1].length,
+                    )
+            }
+
+            trimmed.startsWith("- ") ||
+                trimmed.startsWith("* ") ||
+                trimmed.startsWith("• ") -> {
+                flushParagraph()
+                blocks +=
+                    HaruResponseBlock.Bullet(
+                        trimmed.drop(2).trim()
+                    )
+            }
+
+            ORDERED_MARKDOWN.matches(trimmed) -> {
+                flushParagraph()
+                val match =
+                    ORDERED_MARKDOWN.matchEntire(trimmed)
+                        ?: return@forEach
+                blocks +=
+                    HaruResponseBlock.Numbered(
+                        number = match.groupValues[1],
+                        text = match.groupValues[2],
+                    )
+            }
+
+            trimmed.startsWith("> ") -> {
+                flushParagraph()
+                blocks +=
+                    HaruResponseBlock.Quote(
+                        trimmed.drop(2).trim()
+                    )
+            }
+
+            else -> paragraphLines += trimmed
+        }
+    }
+
+    flushParagraph()
+    if (inCode) flushCode()
+
+    while (blocks.lastOrNull() is HaruResponseBlock.Gap) {
+        blocks.removeLast()
+    }
+
+    return blocks
+}
+
+@Composable
+private fun AssistantResponseText(message: String) {
+    val blocks =
+        remember(message) {
+            parseAssistantResponse(message)
+        }
+
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        blocks.forEach { block ->
+            when (block) {
+                is HaruResponseBlock.Heading -> {
+                    Text(
+                        text = formattedInlineText(block.text),
+                        style =
+                            if (block.level <= 2) {
+                                MaterialTheme.typography.titleMedium
+                            } else {
+                                MaterialTheme.typography.titleSmall
+                            },
+                        fontWeight = FontWeight.SemiBold,
+                        textAlign = TextAlign.Start,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+
+                is HaruResponseBlock.Bullet -> {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.Top,
+                    ) {
+                        Text(
+                            text = "•",
+                            modifier = Modifier.width(18.dp),
+                        )
+                        Text(
+                            text = formattedInlineText(block.text),
+                            style = MaterialTheme.typography.bodyMedium,
+                            textAlign = TextAlign.Start,
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                }
+
+                is HaruResponseBlock.Numbered -> {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.Top,
+                    ) {
+                        Text(
+                            text = block.number + ".",
+                            modifier = Modifier.width(28.dp),
+                        )
+                        Text(
+                            text = formattedInlineText(block.text),
+                            style = MaterialTheme.typography.bodyMedium,
+                            textAlign = TextAlign.Start,
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                }
+
+                is HaruResponseBlock.Quote -> {
+                    Text(
+                        text = formattedInlineText(block.text),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Start,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(start = 12.dp),
+                    )
+                }
+
+                is HaruResponseBlock.Code -> {
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        color =
+                            MaterialTheme.colorScheme.surfaceVariant,
+                        shape = MaterialTheme.shapes.small,
+                    ) {
+                        Text(
+                            text = block.text,
+                            style =
+                                MaterialTheme.typography.bodySmall.copy(
+                                    fontFamily = FontFamily.Monospace
+                                ),
+                            modifier = Modifier.padding(10.dp),
+                        )
+                    }
+                }
+
+                is HaruResponseBlock.Paragraph -> {
+                    Text(
+                        text = formattedInlineText(block.text),
+                        style = MaterialTheme.typography.bodyMedium,
+                        textAlign = TextAlign.Start,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+
+                HaruResponseBlock.Gap ->
+                    Spacer(Modifier.height(2.dp))
+            }
+        }
+    }
+}
+
+private val HEADING_MARKDOWN =
+    Regex("""^(#{1,6})\s+(.+)$""")
+
+private val ORDERED_MARKDOWN =
+    Regex("""^(\d+)[.)]\s+(.+)$""")
+
+private fun formattedInlineText(
+    value: String,
+): AnnotatedString {
+    val source =
+        value
+            .replace(
+                Regex("""\[([^\]]+)]\((?:https?://)?[^)]+\)"""),
+                "$1",
+            )
+            .replace(Regex("""__(.+?)__"""), "**$1**")
+            .replace(Regex("""(?<!_)_([^_]+)_(?!_)"""), "*$1*")
+            .replace(
+                Regex(
+                    """[\u0000-\u0008\u000B\u000C\u000E-\u001F]"""
+                ),
+                "",
+            )
+
+    return buildAnnotatedString {
+        var index = 0
+        while (index < source.length) {
+            when {
+                source.startsWith("**", index) -> {
+                    val end = source.indexOf("**", index + 2)
+                    if (end > index + 2) {
+                        pushStyle(
+                            SpanStyle(
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        )
+                        append(
+                            source.substring(index + 2, end)
+                        )
+                        pop()
+                        index = end + 2
+                    } else {
+                        append(source[index])
+                        index += 1
+                    }
+                }
+
+                source[index] == '`' -> {
+                    val end = source.indexOf('`', index + 1)
+                    if (end > index + 1) {
+                        pushStyle(
+                            SpanStyle(
+                                fontFamily = FontFamily.Monospace
+                            )
+                        )
+                        append(
+                            source.substring(index + 1, end)
+                        )
+                        pop()
+                        index = end + 1
+                    } else {
+                        index += 1
+                    }
+                }
+
+                source[index] == '*' -> {
+                    val end = source.indexOf('*', index + 1)
+                    if (end > index + 1) {
+                        append(
+                            source.substring(index + 1, end)
+                        )
+                        index = end + 1
+                    } else {
+                        index += 1
+                    }
+                }
+
+                else -> {
+                    append(source[index])
+                    index += 1
+                }
             }
         }
     }

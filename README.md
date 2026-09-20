@@ -115,3 +115,15 @@ The Android interface is intentionally compact:
 - Voice diagnostics removed from the visible main screen.
 - Tell HARU keeps safe spacing above Android navigation controls.
 - Map remains unchanged and locked.
+
+
+## Simple HARU v0.6.3
+
+Stabilization release:
+
+- AI responses render structured headings, lists, quotes, inline emphasis, and code blocks instead of raw Markdown symbols.
+- New answers reset to the top of the response area.
+- Retired News/Hazards services and legacy pre-v0.6 UI code are removed.
+- Primary surface remains **HARU + Today + Settings + Map**.
+- Map behavior remains unchanged and locked.
+- Response parsing has unit coverage for normal, malformed, and control-character input.
