@@ -96,3 +96,12 @@ The Android interface is intentionally compact:
 - Reminders: type `remind me in 30 min to call`.
 - Advanced AI, memory reset, lock-screen controls, and app update checks are kept behind Settings.
 - News, hazards, modes, priorities, and diagnostic cards are no longer shown as primary UI.
+
+
+## Simple HARU v0.6.1
+
+- Lock screen: HARU chibi large icon plus Today task/reminder lines.
+- Collapsed lock-screen notification shows the first Today item; expanded view shows up to four.
+- Today task flow: add -> tap task -> edit / done / delete.
+- Tell HARU is anchored to the bottom interaction area and stays above the keyboard.
+- Map remains unchanged and locked.
