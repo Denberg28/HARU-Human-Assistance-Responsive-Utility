@@ -20,7 +20,7 @@ No persistent companion notification, background AI polling, overlay permission,
 
 Get the APK from [GitHub Releases](https://github.com/Denberg28/HARU-Human-Assistance-Responsive-Utility/releases). Install over your existing HARU app to preserve local data. Uninstalling deletes tasks, credentials, and conversation history; it is not a routine update step.
 
-GitHub Actions **Build Android APK** runs Android unit/widget tests, release lint, and the optimized release build before publishing the APK and SHA-256 checksum. The toolchain is pinned in the Gradle files and workflow (Java 17, Gradle 9.6.0, compile SDK 37, target SDK 36, minimum SDK 26). For local builds use Android Studio with the same toolchain or installed Gradle:
+GitHub Actions **Build Android APK** runs Android unit/widget tests, release lint, and the optimized release build before publishing the APK and SHA-256 checksum. The toolchain is pinned in the Gradle files and workflow (Java 21, Gradle 9.6.0, compile SDK 37, target SDK 36, minimum SDK 26). For local builds use Android Studio with the same toolchain or installed Gradle:
 
 ```sh
 gradle --no-daemon :app:testDebugUnitTest :app:lintRelease :app:assembleRelease
