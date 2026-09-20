@@ -65,6 +65,8 @@ HARU is intentionally small: one UI shell, deterministic local skills, provider 
 
 HARU Android v0.5.0 is local-first and mode-aware. Home is the primary experience; the Assistant tab is a secondary reasoning console. Persistent modes are Normal, Flight, Travel, Work, Safety, and Rest. Mode switching is local and costs no AI request. Cloud AI is optional and receives the current mode only when reasoning is actually needed.
 
+HARU Android v0.5.1 adds an optional lock-screen companion status. It is implemented as a quiet persistent notification rather than a background service: no wake lock, location polling, network polling, or periodic timer is started by the feature. The notification exposes only the current HARU mode and generic companion status.
+
 HARU's companion loop is intentionally small:
 
 - local notes and tasks
