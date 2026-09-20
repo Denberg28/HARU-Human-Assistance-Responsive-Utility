@@ -28,22 +28,32 @@ class CompanionStatusStore(
         )
 
     fun isEnabled(): Boolean =
-        preferences.getBoolean(KEY_ENABLED, false)
+        if (preferences.getBoolean(KEY_USER_SET, false)) {
+            preferences.getBoolean(KEY_ENABLED, true)
+        } else {
+            true
+        }
 
     fun setEnabled(enabled: Boolean) {
         preferences.edit()
             .putBoolean(KEY_ENABLED, enabled)
+            .putBoolean(KEY_USER_SET, true)
             .apply()
     }
 
     companion object {
         private const val KEY_ENABLED = "lock_screen_enabled"
+        private const val KEY_USER_SET = "lock_screen_user_set"
     }
 }
 
 object CompanionStatusNotifier {
-    const val CHANNEL_ID = "haru_companion_lockscreen_v2"
-    private const val LEGACY_CHANNEL_ID = "haru_companion_status"
+    const val CHANNEL_ID = "haru_companion_lockscreen_v3"
+    private val LEGACY_CHANNEL_IDS =
+        listOf(
+            "haru_companion_status",
+            "haru_companion_lockscreen_v2",
+        )
     private const val NOTIFICATION_ID = 4107
 
     fun refresh(
@@ -61,6 +71,14 @@ object CompanionStatusNotifier {
             return
         }
 
+        val manager =
+            context.getSystemService(
+                Context.NOTIFICATION_SERVICE
+            ) as NotificationManager
+
+        ensureChannel(manager)
+        migrateLegacyChannel(manager)
+
         if (
             Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
             ContextCompat.checkSelfPermission(
@@ -70,14 +88,6 @@ object CompanionStatusNotifier {
         ) {
             return
         }
-
-        val manager =
-            context.getSystemService(
-                Context.NOTIFICATION_SERVICE
-            ) as NotificationManager
-
-        ensureChannel(manager)
-        migrateLegacyChannel(manager)
 
         val openIntent =
             Intent(context, MainActivity::class.java).apply {
@@ -139,7 +149,7 @@ object CompanionStatusNotifier {
                 )
                 .setContentIntent(openPendingIntent)
                 .setCategory(NotificationCompat.CATEGORY_STATUS)
-                .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+                .setPriority(NotificationCompat.PRIORITY_HIGH)
                 .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
                 .setOngoing(true)
                 .setOnlyAlertOnce(true)
@@ -177,11 +187,11 @@ object CompanionStatusNotifier {
         manager.createNotificationChannel(
             NotificationChannel(
                 CHANNEL_ID,
-                "HARU lock-screen companion",
+                "HARU companion",
                 NotificationManager.IMPORTANCE_DEFAULT,
             ).apply {
                 description =
-                    "Quiet HARU companion status shown on the lock screen"
+                    "HARU tasks, reminders, and companion status"
                 lockscreenVisibility =
                     Notification.VISIBILITY_PUBLIC
                 setShowBadge(false)
@@ -199,14 +209,19 @@ object CompanionStatusNotifier {
             return
         }
 
-        if (
-            LEGACY_CHANNEL_ID != CHANNEL_ID &&
-            manager.getNotificationChannel(LEGACY_CHANNEL_ID) != null
-        ) {
-            manager.deleteNotificationChannel(
-                LEGACY_CHANNEL_ID
-            )
-        }
+        LEGACY_CHANNEL_IDS
+            .filter { it != CHANNEL_ID }
+            .forEach { legacyId ->
+                if (
+                    manager.getNotificationChannel(
+                        legacyId
+                    ) != null
+                ) {
+                    manager.deleteNotificationChannel(
+                        legacyId
+                    )
+                }
+            }
     }
 
     private fun chibiBitmap(

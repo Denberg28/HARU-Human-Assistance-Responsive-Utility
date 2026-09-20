@@ -9,6 +9,7 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -135,6 +136,7 @@ fun HaruScreen(
     var showOnlineAi by remember { mutableStateOf(false) }
     var showUpdate by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
+    var showAbout by remember { mutableStateOf(false) }
     val tabs = listOf("HARU", "Map")
 
     Surface(modifier = modifier.fillMaxSize()) {
@@ -146,6 +148,7 @@ fun HaruScreen(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .clickable { showAbout = true }
                     .padding(top = 6.dp, bottom = 6.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
@@ -215,6 +218,41 @@ fun HaruScreen(
                 }
             }
         }
+    }
+
+    if (showAbout) {
+        AlertDialog(
+            onDismissRequest = { showAbout = false },
+            title = { Text("HARU") },
+            confirmButton = {
+                TextButton(onClick = { showAbout = false }) {
+                    Text("Close")
+                }
+            },
+            text = {
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Text(
+                        "Human Assistance & Responsive Utility",
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Text(
+                        "A compact personal assistant and companion focused on tasks, reminders, voice, and trusted location tools.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    HorizontalDivider()
+                    Text(
+                        "Creator: MD",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    Text(
+                        "Version $appVersion",
+                        style = MaterialTheme.typography.labelSmall,
+                    )
+                }
+            },
+        )
     }
 
     if (showSettings) {
@@ -754,7 +792,13 @@ private fun MapPane(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(14.dp)
+            .imePadding(),
+    ) {
+    Column(
+        modifier = Modifier
+            .weight(1f)
+            .fillMaxWidth()
+            .padding(horizontal = 14.dp, vertical = 10.dp)
             .verticalScroll(rememberScrollState()),
     ) {
         Text("Shared Locations", style = MaterialTheme.typography.titleMedium)
@@ -763,43 +807,7 @@ private fun MapPane(
             style = MaterialTheme.typography.labelSmall,
         )
 
-        Spacer(Modifier.height(8.dp))
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            if (mapGpsActive) {
-                Button(
-                    onClick = onLocateMe,
-                    modifier = Modifier.weight(1f),
-                ) {
-                    Text("📍 GPS ON")
-                }
-            } else {
-                OutlinedButton(
-                    onClick = onLocateMe,
-                    modifier = Modifier.weight(1f),
-                ) {
-                    Text("📍 My GPS")
-                }
-            }
-
-            OutlinedButton(
-                onClick = {
-                    currentDeviceLocation?.let { item ->
-                        onOpenUrl(
-                            "https://www.google.com/maps/search/?api=1&query=" +
-                                item.latitude + "," + item.longitude
-                        )
-                    }
-                },
-                enabled = currentDeviceLocation != null,
-                modifier = Modifier.weight(1f),
-            ) {
-                Text("Google Maps ↗")
-            }
-        }
-
+        Spacer(Modifier.height(6.dp))
         if (mapLocationStatus.isNotBlank()) {
             Text(
                 mapLocationStatus,
@@ -1014,6 +1022,53 @@ private fun MapPane(
                     ) {
                         Text("Open ↗")
                     }
+                }
+            }
+        }
+    }
+
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .navigationBarsPadding(),
+            tonalElevation = 3.dp,
+            shadowElevation = 6.dp,
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                if (mapGpsActive) {
+                    Button(
+                        onClick = onLocateMe,
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Text("📍 GPS ON")
+                    }
+                } else {
+                    OutlinedButton(
+                        onClick = onLocateMe,
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Text("📍 My GPS")
+                    }
+                }
+
+                OutlinedButton(
+                    onClick = {
+                        currentDeviceLocation?.let { item ->
+                            onOpenUrl(
+                                "https://www.google.com/maps/search/?api=1&query=" +
+                                    item.latitude + "," + item.longitude
+                            )
+                        }
+                    },
+                    enabled = currentDeviceLocation != null,
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text("Google Maps ↗")
                 }
             }
         }

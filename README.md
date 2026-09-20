@@ -127,3 +127,18 @@ Stabilization release:
 - Primary surface remains **HARU + Today + Settings + Map**.
 - Map behavior remains unchanged and locked.
 - Response parsing has unit coverage for normal, malformed, and control-character input.
+
+
+## Simple HARU v0.6.4 — feature lock
+
+The visible feature set is now locked around **HARU + Today + Settings + Map**.
+
+- Map primary actions (My GPS / Google Maps) stay in a fixed bottom bar above Android navigation.
+- Tap the large **HARU** header for About information, including **Creator: MD**.
+- HARU companion notifications default to enabled unless the user explicitly turns them off.
+- Android notification permission is requested once when needed.
+- The companion notification uses a fresh channel and shows Today tasks/reminders in the notification shade and lock screen.
+- Fired reminders use a fresh HARU reminder channel with public lock-screen visibility.
+- Notification behavior remains event-driven: no polling, wake lock, or additional standby GPS/network activity.
+
+Post-v0.6.4 development should prioritize notification reliability, reminder delivery, and companion behavior rather than adding visible feature clutter.
