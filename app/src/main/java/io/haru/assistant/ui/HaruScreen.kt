@@ -1563,7 +1563,7 @@ internal fun parseAssistantResponse(
     if (inCode) flushCode()
 
     while (blocks.lastOrNull() is HaruResponseBlock.Gap) {
-        blocks.removeLast()
+        blocks.removeAt(blocks.lastIndex)
     }
 
     return blocks
