@@ -75,7 +75,7 @@ jobs:
         shell: bash
         run: |
           TAG="v$VERSION"
-          NOTES="HARU Android $TAG is a stabilization release for Simple HARU. AI answers now render structured headings, numbered and bulleted lists, quotes, inline emphasis, and code blocks instead of raw Markdown markers. New answers reset to the top of the response viewport. Retired News/Hazards and legacy pre-v0.6 UI/runtime plumbing were removed. The visible product remains HARU + Today + Settings + the locked Map tab."
+          NOTES="HARU Android $TAG begins the feature-locked assistant/companion baseline. Map GPS/Google Maps actions now stay in a fixed floating bottom bar above Android navigation. Tapping the large HARU header opens About with Human Assistance & Responsive Utility and Creator: MD. HARU companion notifications default on unless explicitly disabled, migrate to a fresh notification channel, request notification permission once, and show tasks/reminders in the shade and lock screen. Fired reminders use a fresh high-importance HARU reminder channel with public lock-screen visibility. No polling, wake lock, or added standby GPS/network work."
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" "$APK" "$APK.sha256" --clobber
             gh release edit "$TAG" --title "HARU $TAG" --notes "$NOTES" --latest
