@@ -14,6 +14,7 @@ import java.net.URL
 enum class OnlineProvider {
     ANTIGRAVITY,
     GEMINI,
+    GROQ,
 }
 
 data class GeminiModel(
@@ -56,6 +57,7 @@ class AndroidOnlineAiManager(
         val provider = when (preferences.getString(KEY_PROVIDER, "")) {
             OnlineProvider.GEMINI.name,
             "GEMINI_FLASH_LITE" -> OnlineProvider.GEMINI
+            OnlineProvider.GROQ.name -> OnlineProvider.GROQ
             else -> OnlineProvider.ANTIGRAVITY
         }
 
@@ -231,6 +233,13 @@ class AndroidOnlineAiManager(
     fun hasGeminiKey(): Boolean =
         credentials.get("gemini").isNotBlank()
 
+    fun saveGroqKey(value: String) {
+        credentials.put("groq", value)
+    }
+
+    fun hasGroqKey(): Boolean =
+        credentials.get("groq").isNotBlank()
+
     suspend fun ask(
         provider: OnlineProvider,
         prompt: String,
@@ -279,6 +288,16 @@ class AndroidOnlineAiManager(
                     text =
                         askGemini(
                             modelId = settings().geminiModel.id,
+                            prompt = prompt,
+                            systemPrompt = systemPrompt,
+                            history = recentHistory,
+                            summary = cleanSummary,
+                        )
+                )
+            OnlineProvider.GROQ ->
+                OnlineAiReply(
+                    text =
+                        askGroq(
                             prompt = prompt,
                             systemPrompt = systemPrompt,
                             history = recentHistory,
@@ -474,6 +493,77 @@ class AndroidOnlineAiManager(
             text = text,
             antigravitySession = session,
         )
+    }
+
+    private fun askGroq(
+        prompt: String,
+        systemPrompt: String,
+        history: List<ConversationExchange>,
+        summary: String,
+    ): String {
+        val key = credentials.get("groq")
+        require(key.isNotBlank()) { "Groq API key is required." }
+
+        val messages = JSONArray()
+
+        if (systemPrompt.isNotBlank()) {
+            messages.put(
+                JSONObject()
+                    .put("role", "system")
+                    .put("content", systemPrompt)
+            )
+        }
+
+        if (summary.isNotBlank()) {
+            messages.put(
+                JSONObject()
+                    .put("role", "system")
+                    .put(
+                        "content",
+                        "Earlier conversation memory:\n$summary",
+                    )
+            )
+        }
+
+        history.forEach { exchange ->
+            messages.put(
+                JSONObject()
+                    .put("role", "user")
+                    .put("content", exchange.user)
+            )
+            messages.put(
+                JSONObject()
+                    .put("role", "assistant")
+                    .put("content", exchange.assistant)
+            )
+        }
+
+        messages.put(
+            JSONObject()
+                .put("role", "user")
+                .put("content", prompt)
+        )
+
+        val response = postJson(
+            GROQ_CHAT_URL,
+            JSONObject()
+                .put("model", GROQ_DEFAULT_MODEL)
+                .put("messages", messages),
+            mapOf("Authorization" to "Bearer $key"),
+            timeoutMs = 45_000,
+        )
+
+        val text =
+            response
+                .optJSONArray("choices")
+                ?.optJSONObject(0)
+                ?.optJSONObject("message")
+                ?.optString("content")
+                ?.trim()
+                .orEmpty()
+
+        if (text.isBlank()) error("Groq returned no text.")
+        return text
     }
 
     private fun askGemini(
@@ -719,6 +809,11 @@ class AndroidOnlineAiManager(
         private const val KEY_GEMINI_CATALOG = "gemini_catalog"
         private const val MODELS_URL =
             "https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000"
+        private const val GROQ_CHAT_URL =
+            "https://api.groq.com/openai/v1/chat/completions"
+
+        const val GROQ_DEFAULT_MODEL =
+            "qwen/qwen3.8-27b"
 
         val FALLBACK_GEMINI_MODEL =
             GeminiModel(
