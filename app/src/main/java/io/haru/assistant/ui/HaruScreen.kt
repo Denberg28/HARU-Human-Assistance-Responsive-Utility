@@ -119,6 +119,8 @@ fun HaruScreen(
     onCompleteCompanionTask: (Int) -> Unit,
     onAddQuickReminder: (String, Int) -> Unit,
     onSetLockScreenCompanion: (Boolean) -> Unit,
+    onOpenLockScreenNotificationSettings: () -> Unit,
+    onTestLockScreenCompanion: () -> Unit,
     onSelectOnlineProvider: (OnlineProvider) -> Unit,
     onSelectGeminiModel: (GeminiModel) -> Unit,
     onRefreshGeminiModels: () -> Unit,
@@ -227,6 +229,8 @@ fun HaruScreen(
                         onCompleteTask = onCompleteCompanionTask,
                         onAddQuickReminder = onAddQuickReminder,
                         onSetLockScreenCompanion = onSetLockScreenCompanion,
+                        onOpenLockScreenNotificationSettings = onOpenLockScreenNotificationSettings,
+                        onTestLockScreenCompanion = onTestLockScreenCompanion,
                         onTalk = onMicClick,
                         onOpenAssistant = { selectedTab = 1 },
                         onOpenNews = {
@@ -353,6 +357,8 @@ private fun HomePane(
     onCompleteTask: (Int) -> Unit,
     onAddQuickReminder: (String, Int) -> Unit,
     onSetLockScreenCompanion: (Boolean) -> Unit,
+    onOpenLockScreenNotificationSettings: () -> Unit,
+    onTestLockScreenCompanion: () -> Unit,
     onTalk: () -> Unit,
     onOpenAssistant: () -> Unit,
     onOpenNews: () -> Unit,
@@ -499,6 +505,34 @@ private fun HomePane(
                         }
                     )
                 }
+
+                if (lockScreenCompanionEnabled) {
+                    Spacer(Modifier.height(6.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement =
+                            Arrangement.spacedBy(8.dp),
+                    ) {
+                        OutlinedButton(
+                            onClick = onTestLockScreenCompanion,
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            Text("Test now")
+                        }
+                        OutlinedButton(
+                            onClick =
+                                onOpenLockScreenNotificationSettings,
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            Text("Lock-screen settings")
+                        }
+                    }
+                    Text(
+                        "After Test now, press the power button. If HARU is still hidden, open Lock-screen settings and allow this notification category on the lock screen.",
+                        style = MaterialTheme.typography.labelSmall,
+                    )
+                }
+
                 Text(
                     "Low-power standby: no polling, wake lock, GPS, or network refresh is started by this status.",
                     style = MaterialTheme.typography.labelSmall,
