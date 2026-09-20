@@ -1,6 +1,6 @@
 # HARU — Human Assistance & Responsive Utility
 
-HARU is a lightweight, free-first personal companion platform with two front ends:
+HARU is a lightweight, free-first personal companion platform. Android v0.6.0 deliberately simplifies the visible experience to two tabs: HARU and Map.
 
 - **Streamlit HARU Lab** for rapid testing and cloud/local use.
 - **Native Android app** for low-power voice, deterministic skills, Groq/Gemini/Antigravity AI, OpenStreetMap, hazards, reminders, and standalone APK distribution.
@@ -84,3 +84,15 @@ Android stores companion state in app-private preferences.
 ## Standalone Android install
 
 HARU Android is distributed as a standalone APK. Uninstall the previous HARU build before installing a standalone APK if Android presents it as an update. The app does not request package-install permission and contains no in-app updater.
+
+
+## Simple HARU v0.6.0
+
+The Android interface is intentionally compact:
+
+- **HARU** — one companion face, one Today card, one universal text/voice input, and one Settings entry.
+- **Map** — retained without redesign; existing MapLibre/GPS/live-sharing behavior is locked.
+- Tasks: type `task Buy milk` or open Today and add a task.
+- Reminders: type `remind me in 30 min to call`.
+- Advanced AI, memory reset, lock-screen controls, and app update checks are kept behind Settings.
+- News, hazards, modes, priorities, and diagnostic cards are no longer shown as primary UI.
