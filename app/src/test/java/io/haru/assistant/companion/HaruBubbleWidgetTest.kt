@@ -79,11 +79,11 @@ class HaruBubbleWidgetTest {
         assertEquals(1, HaruBubbleWidgetProvider.installedCount(context))
     }
 
-    @Test fun widgetReceiverCannotBeCalledByOtherApps() {
+    @Test fun widgetReceiverIsExportedForLauncherHosts() {
         val info = context.packageManager.getReceiverInfo(
             ComponentName(context, HaruBubbleWidgetProvider::class.java), PackageManager.GET_META_DATA,
         )
-        assertFalse(info.exported)
+        assertTrue(info.exported)
         assertNotEquals(0, info.metaData.getInt("android.appwidget.provider"))
     }
 }
