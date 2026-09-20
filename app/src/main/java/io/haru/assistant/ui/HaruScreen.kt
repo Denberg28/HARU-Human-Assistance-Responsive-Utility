@@ -1026,7 +1026,6 @@ private fun MapPane(
             }
         }
     }
-        }
 
         Surface(
             modifier = Modifier
