@@ -1405,13 +1405,10 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
         if (::companionStore.isInitialized) {
             companionSnapshot = companionStore.load()
         }
-        if (::companionStatusStore.isInitialized) {
-            lockScreenCompanionEnabled =
-                companionStatusStore.isEnabled()
-            CompanionStatusNotifier.refresh(
-                applicationContext,
-                companionMode,
-            )
+        if (::haruBubbleStore.isInitialized) {
+            haruBubbleEnabled =
+                haruBubbleStore.isEnabled()
+            refreshCompanionSurface()
         }
         if (::trustedLocationManager.isInitialized) {
             trustedLocations = trustedLocationManager.load()
