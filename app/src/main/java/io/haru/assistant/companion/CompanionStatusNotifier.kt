@@ -48,6 +48,10 @@ object CompanionStatusNotifier {
     fun refresh(
         context: Context,
         mode: CompanionMode,
+        openTasks: Int = 0,
+        upcomingReminders: Int = 0,
+        liveShareEnabled: Boolean = false,
+        liveMonitorEnabled: Boolean = false,
     ) {
         val store = CompanionStatusStore(context)
         if (!store.isEnabled()) {
@@ -88,7 +92,13 @@ object CompanionStatusNotifier {
                     PendingIntent.FLAG_IMMUTABLE,
             )
 
-        val status = mode.lockScreenStatus()
+        val status =
+            mode.lockScreenStatus(
+                openTasks = openTasks,
+                upcomingReminders = upcomingReminders,
+                liveShareEnabled = liveShareEnabled,
+                liveMonitorEnabled = liveMonitorEnabled,
+            )
 
         val builder =
             NotificationCompat.Builder(

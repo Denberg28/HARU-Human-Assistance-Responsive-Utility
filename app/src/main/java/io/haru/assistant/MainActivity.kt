@@ -150,10 +150,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
     private val notificationPermissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
             if (granted && lockScreenCompanionEnabled) {
-                CompanionStatusNotifier.refresh(
-                    applicationContext,
-                    companionMode,
-                )
+                refreshCompanionStatus()
             } else if (!granted && lockScreenCompanionEnabled) {
                 lockScreenCompanionEnabled = false
                 companionStatusStore.setEnabled(false)
@@ -210,10 +207,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
         companionMode = companionModeStore.load()
         lockScreenCompanionEnabled = companionStatusStore.isEnabled()
         cleanupLegacyStorageOnce()
-        CompanionStatusNotifier.refresh(
-            applicationContext,
-            companionMode,
-        )
+        refreshCompanionStatus()
         val onlineSettings = onlineAiManager.settings()
         onlineProvider = onlineSettings.provider
         selectedGeminiModel = onlineSettings.geminiModel
@@ -236,6 +230,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
                     viewModel = haruViewModel,
                     voiceStatus = voiceStatus,
                     todayLines = companionSnapshot.todayLines(),
+                    companionSnapshot = companionSnapshot,
                     companionMode = companionMode,
                     lockScreenCompanionEnabled = lockScreenCompanionEnabled,
                     onlineProvider = onlineProvider,
@@ -268,6 +263,9 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
                         voiceController.speak(haruViewModel.uiState.message)
                     },
                     onSelectCompanionMode = ::selectCompanionMode,
+                    onAddCompanionTask = ::addCompanionTask,
+                    onCompleteCompanionTask = ::completeCompanionTask,
+                    onAddQuickReminder = ::addQuickReminder,
                     onSetLockScreenCompanion = ::setLockScreenCompanion,
                     onSelectOnlineProvider = ::selectOnlineProvider,
                     onSelectGeminiModel = ::selectGeminiModel,
@@ -391,13 +389,55 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
         }
     }
 
+    private fun refreshCompanionStatus() {
+        if (!::companionStatusStore.isInitialized) return
+        val now = System.currentTimeMillis()
+        CompanionStatusNotifier.refresh(
+            context = applicationContext,
+            mode = companionMode,
+            openTasks = companionSnapshot.tasks.count { !it.done },
+            upcomingReminders =
+                companionSnapshot.reminders.count { it.dueAt > now },
+            liveShareEnabled = liveShareActive,
+            liveMonitorEnabled = liveMonitorActive,
+        )
+    }
+
+    private fun addCompanionTask(text: String) {
+        if (text.isBlank()) return
+        companionSnapshot = companionStore.addTask(text)
+        refreshCompanionStatus()
+    }
+
+    private fun completeCompanionTask(index: Int) {
+        if (index !in companionSnapshot.tasks.indices) return
+        companionSnapshot = companionStore.completeTask(index)
+        refreshCompanionStatus()
+    }
+
+    private fun addQuickReminder(
+        text: String,
+        minutes: Int,
+    ) {
+        if (text.isBlank() || minutes !in 1..1440) return
+        val dueAt =
+            System.currentTimeMillis() +
+                minutes * 60_000L
+        val reminder =
+            companionStore.addReminder(
+                text = text,
+                dueAt = dueAt,
+            )
+        companionSnapshot = companionStore.load()
+        ReminderScheduler.schedule(this, reminder)
+        requestNotificationPermissionIfNeeded()
+        refreshCompanionStatus()
+    }
+
     private fun selectCompanionMode(mode: CompanionMode) {
         companionMode = mode
         companionModeStore.save(mode)
-        CompanionStatusNotifier.refresh(
-            applicationContext,
-            mode,
-        )
+        refreshCompanionStatus()
         activeViewModel?.completeAi(
             mode.activationMessage,
             success = true,
@@ -426,10 +466,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
             return
         }
 
-        CompanionStatusNotifier.refresh(
-            applicationContext,
-            companionMode,
-        )
+        refreshCompanionStatus()
     }
 
     private fun resetConversationMemory(
@@ -959,6 +996,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
                 locationShareCode = bundle.shareText
                 locationShareMapUrl = bundle.googleMapsUrl
                 liveShareActive = true
+                refreshCompanionStatus()
                 liveTrackingStatus =
                     "Live sharing active · updates about every 4–12 seconds."
                 startLiveLocationPublisher()
@@ -1154,6 +1192,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
         }
 
         liveShareSession = null
+        refreshCompanionStatus()
         locationShareCode = ""
         locationShareMapUrl = ""
         liveTrackingStatus = "Live sharing stopped."
@@ -1165,6 +1204,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
         stopLiveMonitoring(clearStatus = false)
         liveMonitorSession = monitor
         liveMonitorActive = true
+        refreshCompanionStatus()
         liveTrackingStatus = "Connecting to live location…"
 
         liveMonitorJob = lifecycleScope.launch {
@@ -1230,6 +1270,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
         liveMonitorJob = null
         liveMonitorSession = null
         liveTrackedLocation = null
+        refreshCompanionStatus()
 
         if (clearStatus) {
             liveTrackingStatus =
@@ -1278,6 +1319,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
             }
             "clear notes", "delete all notes" -> {
                 companionSnapshot = companionStore.clearNotes()
+                refreshCompanionStatus()
                 return "All notes cleared."
             }
             "show tasks", "list tasks", "my tasks" -> {
@@ -1293,6 +1335,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
             }
             "clear tasks", "delete all tasks" -> {
                 companionSnapshot = companionStore.clearTasks()
+                refreshCompanionStatus()
                 return "All tasks cleared."
             }
             "show reminders", "list reminders", "my reminders" -> {
@@ -1316,6 +1359,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
                     ReminderScheduler.cancel(this, it.id)
                 }
                 companionSnapshot = companionStore.clearReminders()
+                refreshCompanionStatus()
                 return "All reminders cleared."
             }
         }
@@ -1324,6 +1368,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
             .matchEntire(clean)
             ?.let { match ->
                 companionSnapshot = companionStore.addNote(match.groupValues[1])
+                refreshCompanionStatus()
                 return "Noted: " + match.groupValues[1].trim()
             }
 
@@ -1331,6 +1376,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
             .matchEntire(clean)
             ?.let { match ->
                 companionSnapshot = companionStore.addTask(match.groupValues[1])
+                refreshCompanionStatus()
                 return "Added task: " + match.groupValues[1].trim()
             }
 
@@ -1343,6 +1389,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
                 }
                 val taskText = companionSnapshot.tasks[index].text
                 companionSnapshot = companionStore.completeTask(index)
+                refreshCompanionStatus()
                 return "Completed: " + taskText
             }
 
@@ -1351,6 +1398,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
             companionSnapshot = companionStore.load()
             ReminderScheduler.schedule(this, reminder)
             requestNotificationPermissionIfNeeded()
+            refreshCompanionStatus()
 
             val whenText = DateFormat.getDateTimeInstance(
                 DateFormat.MEDIUM,

@@ -31,6 +31,23 @@ class CompanionLockStatusTest {
     }
 
     @Test
+    fun meaningfulStateOverridesGenericStatusWithoutPrivateText() {
+        assertEquals(
+            "2 upcoming reminders • Work mode",
+            CompanionMode.WORK.lockScreenStatus(
+                openTasks = 3,
+                upcomingReminders = 2,
+            ).message,
+        )
+        assertEquals(
+            "Live location share enabled • Safety mode",
+            CompanionMode.SAFETY.lockScreenStatus(
+                liveShareEnabled = true,
+            ).message,
+        )
+    }
+
+    @Test
     fun restModeAdvertisesQuietStandby() {
         assertEquals(
             "Rest companion • quiet standby",
