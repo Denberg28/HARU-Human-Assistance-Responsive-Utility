@@ -75,7 +75,7 @@ jobs:
         shell: bash
         run: |
           TAG="v$VERSION"
-          NOTES="HARU Android $TAG restructures HARU from a chat-first app into a local-first Companion Node. The new Home dashboard centers persistent Normal, Flight, Travel, Work, Safety, and Rest modes, local companion state, Today items, and quick actions. Assistant is now a secondary reasoning console; cloud AI remains optional. Existing encrypted memory, Groq/Gemini/Antigravity providers, voice, MapLibre/GPS, live location sharing, news, hazards, reminders, and update behavior are preserved."
+          NOTES="HARU Android $TAG adds an opt-in low-power lock-screen Companion Status. It shows the HARU chibi icon plus the current companion mode and generic status without exposing task text or exact location. The implementation uses a quiet ongoing notification with no background service, wake lock, GPS polling, or network polling; it refreshes only on relevant state changes, app resume, or reboot. Existing Companion Node, AI providers, encrypted memory, voice, MapLibre/GPS, live sharing, news, hazards, reminders, and updater behavior are preserved."
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" "$APK" "$APK.sha256" --clobber
             gh release edit "$TAG" --title "HARU $TAG" --notes "$NOTES" --latest

@@ -25,6 +25,8 @@ import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.haru.assistant.companion.AndroidCompanionStore
 import io.haru.assistant.companion.CompanionSnapshot
+import io.haru.assistant.companion.CompanionStatusNotifier
+import io.haru.assistant.companion.CompanionStatusStore
 import io.haru.assistant.companion.ReminderScheduler
 import io.haru.assistant.content.AndroidHazardBundle
 import io.haru.assistant.content.AndroidHazardService
@@ -63,6 +65,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
     private lateinit var onlineAiManager: AndroidOnlineAiManager
     private lateinit var companionStore: AndroidCompanionStore
     private lateinit var companionModeStore: CompanionModeStore
+    private lateinit var companionStatusStore: CompanionStatusStore
     private lateinit var newsService: AndroidNewsService
     private lateinit var hazardService: AndroidHazardService
     private lateinit var trustedLocationManager: TrustedLocationManager
@@ -79,6 +82,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
     )
     private var companionSnapshot by mutableStateOf(CompanionSnapshot())
     private var companionMode by mutableStateOf(CompanionMode.NORMAL)
+    private var lockScreenCompanionEnabled by mutableStateOf(false)
 
     private var onlineProvider by mutableStateOf(OnlineProvider.ANTIGRAVITY)
     private var selectedGeminiModel by mutableStateOf(AndroidOnlineAiManager.FALLBACK_GEMINI_MODEL)
@@ -144,7 +148,18 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
         }
 
     private val notificationPermissionLauncher =
-        registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+            if (granted && lockScreenCompanionEnabled) {
+                CompanionStatusNotifier.refresh(
+                    applicationContext,
+                    companionMode,
+                )
+            } else if (!granted && lockScreenCompanionEnabled) {
+                lockScreenCompanionEnabled = false
+                companionStatusStore.setEnabled(false)
+                CompanionStatusNotifier.cancel(applicationContext)
+            }
+        }
 
     private val locationPermissionLauncher =
         registerForActivityResult(
@@ -183,6 +198,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
         onlineAiManager = AndroidOnlineAiManager(applicationContext)
         companionStore = AndroidCompanionStore(applicationContext)
         companionModeStore = CompanionModeStore(applicationContext)
+        companionStatusStore = CompanionStatusStore(applicationContext)
         newsService = AndroidNewsService()
         hazardService = AndroidHazardService()
         trustedLocationManager = TrustedLocationManager(applicationContext)
@@ -192,7 +208,12 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
 
         companionSnapshot = companionStore.load()
         companionMode = companionModeStore.load()
+        lockScreenCompanionEnabled = companionStatusStore.isEnabled()
         cleanupLegacyStorageOnce()
+        CompanionStatusNotifier.refresh(
+            applicationContext,
+            companionMode,
+        )
         val onlineSettings = onlineAiManager.settings()
         onlineProvider = onlineSettings.provider
         selectedGeminiModel = onlineSettings.geminiModel
@@ -216,6 +237,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
                     voiceStatus = voiceStatus,
                     todayLines = companionSnapshot.todayLines(),
                     companionMode = companionMode,
+                    lockScreenCompanionEnabled = lockScreenCompanionEnabled,
                     onlineProvider = onlineProvider,
                     selectedGeminiModel = selectedGeminiModel,
                     geminiModels = geminiModels,
@@ -246,6 +268,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
                         voiceController.speak(haruViewModel.uiState.message)
                     },
                     onSelectCompanionMode = ::selectCompanionMode,
+                    onSetLockScreenCompanion = ::setLockScreenCompanion,
                     onSelectOnlineProvider = ::selectOnlineProvider,
                     onSelectGeminiModel = ::selectGeminiModel,
                     onRefreshGeminiModels = ::refreshGeminiModels,
@@ -371,9 +394,41 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
     private fun selectCompanionMode(mode: CompanionMode) {
         companionMode = mode
         companionModeStore.save(mode)
+        CompanionStatusNotifier.refresh(
+            applicationContext,
+            mode,
+        )
         activeViewModel?.completeAi(
             mode.activationMessage,
             success = true,
+        )
+    }
+
+    private fun setLockScreenCompanion(enabled: Boolean) {
+        lockScreenCompanionEnabled = enabled
+        companionStatusStore.setEnabled(enabled)
+
+        if (!enabled) {
+            CompanionStatusNotifier.cancel(applicationContext)
+            return
+        }
+
+        if (
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(
+                this,
+                Manifest.permission.POST_NOTIFICATIONS,
+            ) != PackageManager.PERMISSION_GRANTED
+        ) {
+            notificationPermissionLauncher.launch(
+                Manifest.permission.POST_NOTIFICATIONS
+            )
+            return
+        }
+
+        CompanionStatusNotifier.refresh(
+            applicationContext,
+            companionMode,
         )
     }
 
@@ -1366,6 +1421,14 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
 
         if (::companionStore.isInitialized) {
             companionSnapshot = companionStore.load()
+        }
+        if (::companionStatusStore.isInitialized) {
+            lockScreenCompanionEnabled =
+                companionStatusStore.isEnabled()
+            CompanionStatusNotifier.refresh(
+                applicationContext,
+                companionMode,
+            )
         }
         if (::trustedLocationManager.isInitialized) {
             trustedLocations = trustedLocationManager.load()
