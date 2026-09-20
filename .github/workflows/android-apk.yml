@@ -75,7 +75,7 @@ jobs:
         shell: bash
         run: |
           TAG="v$VERSION"
-          NOTES="HARU Android $TAG fixes news article action labels, keeps article links HTTPS-only, and improves Assistant keyboard behavior so the input area resizes above the on-screen keyboard while the pane remains touch-scrollable. Existing AI providers, encrypted memory, voice, map, location sharing, hazards, reminders, and update behavior are unchanged."
+          NOTES="HARU Android $TAG restructures HARU from a chat-first app into a local-first Companion Node. The new Home dashboard centers persistent Normal, Flight, Travel, Work, Safety, and Rest modes, local companion state, Today items, and quick actions. Assistant is now a secondary reasoning console; cloud AI remains optional. Existing encrypted memory, Groq/Gemini/Antigravity providers, voice, MapLibre/GPS, live location sharing, news, hazards, reminders, and update behavior are preserved."
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" "$APK" "$APK.sha256" --clobber
             gh release edit "$TAG" --title "HARU $TAG" --notes "$NOTES" --latest
