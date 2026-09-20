@@ -137,10 +137,6 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
             if (granted && lockScreenCompanionEnabled) {
                 refreshCompanionStatus()
-            } else if (!granted && lockScreenCompanionEnabled) {
-                lockScreenCompanionEnabled = false
-                companionStatusStore.setEnabled(false)
-                CompanionStatusNotifier.cancel(applicationContext)
             }
         }
 
@@ -265,6 +261,8 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
                 )
             }
         }
+
+        requestCompanionNotificationPermissionOnce()
     }
 
     private fun submitWithAi(
@@ -1393,6 +1391,49 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
         }
 
         return null
+    }
+
+    private fun requestCompanionNotificationPermissionOnce() {
+        if (!lockScreenCompanionEnabled) return
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+            refreshCompanionStatus()
+            return
+        }
+
+        if (
+            ContextCompat.checkSelfPermission(
+                this,
+                Manifest.permission.POST_NOTIFICATIONS,
+            ) == PackageManager.PERMISSION_GRANTED
+        ) {
+            refreshCompanionStatus()
+            return
+        }
+
+        val preferences =
+            getSharedPreferences(
+                "haru_notification_prompt",
+                Context.MODE_PRIVATE,
+            )
+        if (
+            preferences.getBoolean(
+                "initial_permission_prompted",
+                false,
+            )
+        ) {
+            return
+        }
+
+        preferences.edit()
+            .putBoolean(
+                "initial_permission_prompted",
+                true,
+            )
+            .apply()
+
+        notificationPermissionLauncher.launch(
+            Manifest.permission.POST_NOTIFICATIONS
+        )
     }
 
     private fun requestNotificationPermissionIfNeeded() {
