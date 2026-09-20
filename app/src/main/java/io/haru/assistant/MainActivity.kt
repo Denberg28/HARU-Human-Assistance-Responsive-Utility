@@ -1415,7 +1415,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
                 return "Noted: " + match.groupValues[1].trim()
             }
 
-        Regex("(?i)^(?:add task|todo|to-do|add to tasks)\\s+(.+)$")
+        Regex("(?i)^(?:task|add task|todo|to-do|add to tasks)\\s+(.+)$")
             .matchEntire(clean)
             ?.let { match ->
                 companionSnapshot = companionStore.addTask(match.groupValues[1])
