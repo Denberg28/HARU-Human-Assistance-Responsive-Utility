@@ -86,6 +86,7 @@ fun HaruScreen(
     voiceStatus: HaruVoiceController.VoiceRuntimeStatus,
     todayLines: List<String>,
     companionMode: CompanionMode,
+    lockScreenCompanionEnabled: Boolean,
     onlineProvider: OnlineProvider,
     selectedGeminiModel: GeminiModel,
     geminiModels: List<GeminiModel>,
@@ -112,6 +113,7 @@ fun HaruScreen(
     onMicClick: () -> Unit,
     onSpeakClick: () -> Unit,
     onSelectCompanionMode: (CompanionMode) -> Unit,
+    onSetLockScreenCompanion: (Boolean) -> Unit,
     onSelectOnlineProvider: (OnlineProvider) -> Unit,
     onSelectGeminiModel: (GeminiModel) -> Unit,
     onRefreshGeminiModels: () -> Unit,
@@ -199,6 +201,7 @@ fun HaruScreen(
                         viewModel = viewModel,
                         todayLines = todayLines,
                         companionMode = companionMode,
+                        lockScreenCompanionEnabled = lockScreenCompanionEnabled,
                         onlineProvider = onlineProvider,
                         memoryCount = memoryCount,
                         mapGpsActive = mapGpsActive,
@@ -214,6 +217,7 @@ fun HaruScreen(
                                 hazardBundle.noah.size,
                         appVersion = appVersion,
                         onSelectMode = onSelectCompanionMode,
+                        onSetLockScreenCompanion = onSetLockScreenCompanion,
                         onTalk = onMicClick,
                         onOpenAssistant = { selectedTab = 1 },
                         onOpenNews = {
@@ -324,6 +328,7 @@ private fun HomePane(
     viewModel: HaruViewModel,
     todayLines: List<String>,
     companionMode: CompanionMode,
+    lockScreenCompanionEnabled: Boolean,
     onlineProvider: OnlineProvider,
     memoryCount: Int,
     mapGpsActive: Boolean,
@@ -334,6 +339,7 @@ private fun HomePane(
     hazardCount: Int,
     appVersion: String,
     onSelectMode: (CompanionMode) -> Unit,
+    onSetLockScreenCompanion: (Boolean) -> Unit,
     onTalk: () -> Unit,
     onOpenAssistant: () -> Unit,
     onOpenNews: () -> Unit,
@@ -438,6 +444,44 @@ private fun HomePane(
                         )
                     }
                 }
+            }
+        }
+
+        Spacer(Modifier.height(8.dp))
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(12.dp)) {
+                Text(
+                    "Lock-screen companion",
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(
+                    if (lockScreenCompanionEnabled) {
+                        "HARU status is visible while the phone is locked."
+                    } else {
+                        "Off by default. Enable a quiet HARU status card on the lock screen."
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                OutlinedButton(
+                    onClick = {
+                        onSetLockScreenCompanion(
+                            !lockScreenCompanionEnabled
+                        )
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(
+                        if (lockScreenCompanionEnabled) {
+                            "Turn off lock-screen HARU"
+                        } else {
+                            "Show HARU on lock screen"
+                        }
+                    )
+                }
+                Text(
+                    "Low-power standby: no polling, wake lock, GPS, or network refresh is started by this status.",
+                    style = MaterialTheme.typography.labelSmall,
+                )
             }
         }
 
