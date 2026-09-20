@@ -12,6 +12,7 @@ import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import io.haru.assistant.MainActivity
+import io.haru.assistant.core.CompanionModeStore
 
 class ReminderReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
@@ -65,7 +66,18 @@ class ReminderReceiver : BroadcastReceiver() {
 
         notificationManager.notify(reminderId.hashCode(), notification)
 
-        AndroidCompanionStore(context).removeReminder(reminderId)
+        val snapshot =
+            AndroidCompanionStore(context)
+                .removeReminder(reminderId)
+        val now = System.currentTimeMillis()
+
+        CompanionStatusNotifier.refresh(
+            context = context,
+            mode = CompanionModeStore(context).load(),
+            openTasks = snapshot.tasks.count { !it.done },
+            upcomingReminders =
+                snapshot.reminders.count { it.dueAt > now },
+        )
     }
 
     companion object {
