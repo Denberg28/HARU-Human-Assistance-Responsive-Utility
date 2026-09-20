@@ -53,6 +53,7 @@ object CompanionStatusNotifier {
         upcomingReminders: Int = 0,
         liveShareEnabled: Boolean = false,
         liveMonitorEnabled: Boolean = false,
+        todayLines: List<String> = emptyList(),
     ) {
         val store = CompanionStatusStore(context)
         if (!store.isEnabled()) {
@@ -111,8 +112,18 @@ object CompanionStatusNotifier {
                 .setContentTitle(status.title)
                 .setContentText(status.message)
                 .setStyle(
-                    NotificationCompat.BigTextStyle()
-                        .bigText(status.message)
+                    if (todayLines.isNotEmpty()) {
+                        NotificationCompat.InboxStyle().apply {
+                            setBigContentTitle(status.title)
+                            todayLines.take(4).forEach { line ->
+                                addLine(line.take(100))
+                            }
+                            setSummaryText(status.message)
+                        }
+                    } else {
+                        NotificationCompat.BigTextStyle()
+                            .bigText(status.message)
+                    }
                 )
                 .setContentIntent(openPendingIntent)
                 .setCategory(NotificationCompat.CATEGORY_STATUS)
