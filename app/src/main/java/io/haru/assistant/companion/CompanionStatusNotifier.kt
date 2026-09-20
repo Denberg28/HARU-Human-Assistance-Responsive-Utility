@@ -111,7 +111,9 @@ object CompanionStatusNotifier {
                 .setSilent(true)
                 .setShowWhen(false)
 
-        chibiBitmap(context)?.let(builder::setLargeIcon)
+        chibiBitmap(context)?.let { bitmap ->
+            builder.setLargeIcon(bitmap)
+        }
 
         manager.notify(
             NOTIFICATION_ID,
