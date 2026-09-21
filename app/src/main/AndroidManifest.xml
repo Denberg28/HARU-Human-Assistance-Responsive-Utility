@@ -36,23 +36,17 @@
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
             </intent-filter>
         </receiver>
-        <receiver
-            android:name=".companion.HaruBubbleActionReceiver"
-            android:exported="false" />
-        <!-- Launcher discovery stays public; custom state-changing commands are private. -->
-        <receiver
-            android:name=".companion.HaruBubbleWidgetProvider"
-            android:label="HARU Bubble"
-            android:exported="true">
+        <service
+            android:name=".lockscreen.HaruLockScreenWallpaperService"
+            android:exported="true"
+            android:permission="android.permission.BIND_WALLPAPER">
             <intent-filter>
-                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
-                <action android:name="android.intent.action.TIME_SET" />
-                <action android:name="android.intent.action.TIMEZONE_CHANGED" />
+                <action android:name="android.service.wallpaper.WallpaperService" />
             </intent-filter>
             <meta-data
-                android:name="android.appwidget.provider"
-                android:resource="@xml/haru_bubble_widget_info" />
-        </receiver>
+                android:name="android.service.wallpaper"
+                android:resource="@xml/haru_lockscreen_wallpaper" />
+        </service>
         <activity
             android:name=".MainActivity"
             android:exported="true"
