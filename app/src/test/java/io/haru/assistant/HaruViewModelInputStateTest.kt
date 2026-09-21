@@ -1,6 +1,5 @@
 package io.haru.assistant
 
-import io.haru.assistant.core.CommandSource
 import io.haru.assistant.core.HaruMood
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -10,33 +9,14 @@ import org.junit.Test
 class HaruViewModelInputStateTest {
 
     @Test
-    fun companionDraftIsTrackedAndCanBeClearedWithoutTouchingUserText() {
+    fun inputContainsOnlyUserOrVoiceText() {
         val viewModel = HaruViewModel()
 
-        viewModel.setCompanionDraft("Help me reflect on today.")
-        assertEquals(CommandSource.COMPANION, viewModel.uiState.commandSource)
-        assertEquals("Help me reflect on today.", viewModel.uiState.command)
-
-        viewModel.clearCompanionDraft()
         assertEquals("", viewModel.uiState.command)
-        assertEquals(CommandSource.NONE, viewModel.uiState.commandSource)
+        viewModel.updateCommand("hello")
 
-        viewModel.updateCommand("My own draft")
-        viewModel.clearCompanionDraft()
-        assertEquals("My own draft", viewModel.uiState.command)
-        assertEquals(CommandSource.USER, viewModel.uiState.commandSource)
-    }
-
-    @Test
-    fun editingCompanionDraftTransfersOwnershipToUser() {
-        val viewModel = HaruViewModel()
-
-        viewModel.setCompanionDraft("Starter")
-        viewModel.updateCommand("Starter edited")
-
-        assertEquals(CommandSource.USER, viewModel.uiState.commandSource)
-        viewModel.clearCompanionDraft()
-        assertEquals("Starter edited", viewModel.uiState.command)
+        assertEquals("hello", viewModel.uiState.command)
+        assertTrue(viewModel.uiState.canSubmit)
     }
 
     @Test
@@ -71,14 +51,25 @@ class HaruViewModelInputStateTest {
     }
 
     @Test
-    fun resetRemovesAllDraftOwnership() {
+    fun submittedInputClearsAndIsRememberedAsLatestUserMessage() {
         val viewModel = HaruViewModel()
-        viewModel.setCompanionDraft("Starter")
+        viewModel.updateCommand("hello")
+
+        viewModel.submit()
+
+        assertEquals("", viewModel.uiState.command)
+        assertEquals("hello", viewModel.uiState.latestUserMessage)
+    }
+
+    @Test
+    fun resetClearsInputAndConversationMarker() {
+        val viewModel = HaruViewModel()
+        viewModel.updateCommand("hello")
+        viewModel.recordLatestUser("hello")
 
         viewModel.resetConversation()
 
         assertEquals("", viewModel.uiState.command)
-        assertEquals(CommandSource.NONE, viewModel.uiState.commandSource)
         assertEquals("", viewModel.uiState.latestUserMessage)
     }
 }

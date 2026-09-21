@@ -57,7 +57,7 @@ class HaruBubbleWidgetTest {
         assertEquals(View.VISIBLE, view(id).findViewById<View>(R.id.haru_bubble_content).visibility)
     }
 
-    @Test fun textTapOpensConversationDraftDirectly() {
+    @Test fun textTapOpensChatWithoutInjectingEditableText() {
         val id = addWidget()
         view(id).findViewById<View>(R.id.haru_bubble_line).performClick()
         shadowOf(Looper.getMainLooper()).idle()
@@ -65,7 +65,7 @@ class HaruBubbleWidgetTest {
         assertNotNull(launch)
         assertEquals(ComponentName(context, MainActivity::class.java), launch.component)
         assertEquals(HaruBubbleWidgetProvider.ACTION_CHAT, launch.action)
-        assertTrue(launch.getStringExtra(HaruBubbleWidgetProvider.EXTRA_PROMPT)!!.isNotBlank())
+        assertTrue(launch.extras == null || launch.extras!!.isEmpty)
     }
 
     @Test fun resizeAndSystemRefreshKeepWidgetUsable() {

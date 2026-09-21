@@ -39,7 +39,6 @@ class HaruBubbleWidgetProvider : AppWidgetProvider() {
         const val ACTION_REFRESH = "io.haru.assistant.action.HARU_BUBBLE_REFRESH"
         const val ACTION_PINNED = "io.haru.assistant.action.HARU_BUBBLE_PINNED"
         const val ACTION_CHAT = "io.haru.assistant.action.HARU_BUBBLE_CHAT"
-        const val EXTRA_PROMPT = "bubble_prompt"
         private const val AUTO_ROTATION_MS = 30L * 60L * 1000L
 
         fun installedCount(context: Context): Int =
@@ -81,7 +80,6 @@ class HaruBubbleWidgetProvider : AppWidgetProvider() {
             val openIntent = Intent(context, MainActivity::class.java).apply {
                 action = ACTION_CHAT
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
-                if (enabled) putExtra(EXTRA_PROMPT, content.conversationPrompt)
             }
             val open = PendingIntent.getActivity(context, id, openIntent,
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
