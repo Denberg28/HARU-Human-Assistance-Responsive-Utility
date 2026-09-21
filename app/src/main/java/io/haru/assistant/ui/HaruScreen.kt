@@ -419,9 +419,7 @@ private fun SimpleHaruPane(
 
             Card(
                 onClick = { showToday = true },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .focusRequester(chatFocusRequester),
+                modifier = Modifier.fillMaxWidth(),
             ) {
                 Column(Modifier.padding(12.dp)) {
                     Text(
@@ -469,7 +467,9 @@ private fun SimpleHaruPane(
                     KeyboardOptions(imeAction = ImeAction.Send),
                 keyboardActions =
                     KeyboardActions(onSend = { if (state.canSubmit) onSubmitClick() }),
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .focusRequester(chatFocusRequester),
             )
 
             if (shouldShowCommandExamples(
