@@ -55,7 +55,7 @@ class HaruLockScreenInteractionTest {
         val scene = HaruLockScreenScene(context)
         val canvas = Canvas(Bitmap.createBitmap(400, 800, Bitmap.Config.ARGB_8888))
         scene.draw(canvas, 400, 800, 10_000, 0)
-        assertTrue(scene.contains(200f, 552f))
+        assertTrue(scene.contains(200f, 400f))
         assertFalse(scene.contains(200f, 50f))
         HaruCheckerStore(context).setEnabled(false)
         scene.draw(canvas, 400, 800, 10_100, 0)
@@ -77,6 +77,10 @@ class HaruLockScreenInteractionTest {
         val flags = activity.window.attributes.flags
         assertEquals(0, flags and WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         assertEquals(0, flags and WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD)
+        assertEquals(0, flags and WindowManager.LayoutParams.FLAG_DIM_BEHIND)
+        assertNotEquals(0, flags and WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL)
+        assertTrue(activity.window.attributes.height > 0)
+        assertNotEquals(0, activity.window.attributes.gravity and android.view.Gravity.BOTTOM)
         shadowOf(context.getSystemService(PowerManager::class.java)).setIsInteractive(false)
         activity.sendBroadcast(Intent(Intent.ACTION_SCREEN_OFF))
         shadowOf(android.os.Looper.getMainLooper()).idle()
@@ -90,7 +94,7 @@ class HaruLockScreenInteractionTest {
     }
 
     @Test
-    fun sessionHasPrivateSeparateTaskAndCannotExposeMainActivityOnLockedBack() {
+    fun barHasPrivateSeparateTaskAndCannotExposeMainActivityAfterUnlock() {
         val info = context.packageManager.getActivityInfo(
             ComponentName(context, HaruLockScreenActivity::class.java), PackageManager.GET_META_DATA)
         assertFalse(info.exported)
