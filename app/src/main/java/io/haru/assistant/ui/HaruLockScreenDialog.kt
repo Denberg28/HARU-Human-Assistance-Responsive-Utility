@@ -1,5 +1,8 @@
 package io.haru.assistant.ui
 
+import android.content.Intent
+import androidx.compose.ui.platform.LocalContext
+import io.haru.assistant.lockscreen.HaruLockScreenActivity
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -22,6 +25,7 @@ fun HaruLockScreenDialog(
     onSetWallpaper: () -> Unit,
     onToggle: () -> Unit,
 ) {
+    val context = LocalContext.current
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("HARU on your lock screen") },
@@ -49,6 +53,26 @@ fun HaruLockScreenDialog(
                 )
 
                 Button(
+                    enabled = enabled,
+                    onClick = {
+                        onDismiss()
+                        context.startActivity(Intent(context, HaruLockScreenActivity::class.java).apply {
+                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
+                        })
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text("Start interactive session")
+                }
+
+                Text(
+                    "Start a session, then press the power button to lock your phone. " +
+                        "Wake the screen and tap HARU to change her expression. " +
+                        "Close the session to return to your normal lock screen.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+
+                OutlinedButton(
                     onClick = onSetWallpaper,
                     modifier = Modifier.fillMaxWidth(),
                 ) {
@@ -75,8 +99,9 @@ fun HaruLockScreenDialog(
                 )
 
                 Text(
-                    "HARU runs, rests, sleeps at night, and reacts when you tap her bubble. " +
-                        "Animation stops whenever the wallpaper is not visible.",
+                    "Wallpaper taps depend on your phone: some lock screens block them. " +
+                        "Use the interactive session when wallpaper taps do not work. " +
+                        "Animation pauses when the screen is off.",
                     style = MaterialTheme.typography.bodySmall,
                 )
             }
