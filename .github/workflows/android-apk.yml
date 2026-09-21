@@ -40,37 +40,45 @@ jobs:
           test -d "$ANDROID_HOME"
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --version
 
-      - name: Restore protected signing key when configured
-        id: protected-key
+      - name: Restore protected HARU release signer
         if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
         env:
-          HARU_SIGNING_KEY_BASE64: ${{ secrets.HARU_SIGNING_KEY_BASE64 }}
+          HARU_SIGNING_BUNDLE_BASE64: ${{ secrets.HARU_SIGNING_BUNDLE_BASE64 }}
         shell: bash
         run: |
-          if [ -n "$HARU_SIGNING_KEY_BASE64" ]; then
-            install -d -m 700 "$HOME/.android"
-            printf '%s' "$HARU_SIGNING_KEY_BASE64" | base64 --decode > "$HOME/.android/debug.keystore"
-            chmod 600 "$HOME/.android/debug.keystore"
-            echo "restored=true" >> "$GITHUB_OUTPUT"
+          if [ -z "$HARU_SIGNING_BUNDLE_BASE64" ]; then
+            echo "HARU_SIGNING_BUNDLE_BASE64 is not configured. Publication is blocked."
+            exit 1
           fi
 
-      - name: Restore legacy signing key for upgrade compatibility
-        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && steps.protected-key.outputs.restored != 'true'
-        uses: actions/cache/restore@v4
-        with:
-          path: ~/.android/debug.keystore
-          key: haru-debug-signing-v1
+          SIGNING_DIR="$RUNNER_TEMP/haru-signing"
+          install -d -m 700 "$SIGNING_DIR"
+          printf '%s' "$HARU_SIGNING_BUNDLE_BASE64" | base64 --decode > "$RUNNER_TEMP/haru-signing.tar.gz"
+          tar -xzf "$RUNNER_TEMP/haru-signing.tar.gz" -C "$SIGNING_DIR"
+          test -s "$SIGNING_DIR/haru-release.jks"
+          test -s "$SIGNING_DIR/signing.properties"
 
-      - name: Report signing-key source
-        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
-        shell: bash
-        run: |
-          if [ -s "$HOME/.android/debug.keystore" ]; then
-            echo "A stored HARU signing keystore is available."
-          else
-            echo "No stored keystore was restored. Continue only to build and verify the configured signer."
-            echo "Publication is still blocked unless the APK certificate exactly matches v0.7.0."
-          fi
+          STORE_PASSWORD=$(sed -n 's/^storePassword=//p' "$SIGNING_DIR/signing.properties")
+          KEY_PASSWORD=$(sed -n 's/^keyPassword=//p' "$SIGNING_DIR/signing.properties")
+          KEY_ALIAS=$(sed -n 's/^keyAlias=//p' "$SIGNING_DIR/signing.properties")
+          test -n "$STORE_PASSWORD"
+          test -n "$KEY_PASSWORD"
+          test -n "$KEY_ALIAS"
+
+          echo "::add-mask::$STORE_PASSWORD"
+          echo "::add-mask::$KEY_PASSWORD"
+          echo "HARU_KEYSTORE_PATH=$SIGNING_DIR/haru-release.jks" >> "$GITHUB_ENV"
+          echo "HARU_STORE_PASSWORD=$STORE_PASSWORD" >> "$GITHUB_ENV"
+          echo "HARU_KEY_PASSWORD=$KEY_PASSWORD" >> "$GITHUB_ENV"
+          echo "HARU_KEY_ALIAS=$KEY_ALIAS" >> "$GITHUB_ENV"
+
+          EXPECTED="287e7b70e0b49c9f2beeb2fd94ed7699c14616c7baef09d43befa6848b035ebf"
+          ACTUAL=$(keytool -list -v \
+            -keystore "$SIGNING_DIR/haru-release.jks" \
+            -storepass "$STORE_PASSWORD" \
+            -alias "$KEY_ALIAS" 2>/dev/null \
+            | awk -F': ' '/SHA256:/{gsub(":", "", $2); print tolower($2); exit}')
+          test "$ACTUAL" = "$EXPECTED"
 
       - name: Set up Gradle 9.6
         uses: gradle/actions/setup-gradle@v5
@@ -97,23 +105,17 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
-      - name: Verify APK and existing signing certificate
+      - name: Verify APK signing certificate
         if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
-        env:
-          GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
-          mkdir -p "$RUNNER_TEMP/haru-previous"
-          gh release download v0.7.0 --pattern 'HARU-v0.7.0-Standalone-arm64.apk' --dir "$RUNNER_TEMP/haru-previous"
-          PREVIOUS="$RUNNER_TEMP/haru-previous/HARU-v0.7.0-Standalone-arm64.apk"
-          echo "cc25eb1bf96ee00840d45e6df8021ebd6cfeb5697fd2aac672b0c59d193b5424  $PREVIOUS" | sha256sum --check
+          EXPECTED="287e7b70e0b49c9f2beeb2fd94ed7699c14616c7baef09d43befa6848b035ebf"
           APKSIGNER=$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -1)
           test -n "$APKSIGNER"
-          "$APKSIGNER" verify --print-certs "$PREVIOUS" > "$RUNNER_TEMP/previous-cert.txt"
           "$APKSIGNER" verify --print-certs app/build/outputs/apk/release/app-release.apk > "$RUNNER_TEMP/current-cert.txt"
-          grep 'Signer #1 certificate SHA-256 digest:' "$RUNNER_TEMP/previous-cert.txt" > "$RUNNER_TEMP/previous-fingerprint.txt"
-          grep 'Signer #1 certificate SHA-256 digest:' "$RUNNER_TEMP/current-cert.txt" > "$RUNNER_TEMP/current-fingerprint.txt"
-          diff "$RUNNER_TEMP/previous-fingerprint.txt" "$RUNNER_TEMP/current-fingerprint.txt"
+          ACTUAL=$(sed -n 's/^Signer #1 certificate SHA-256 digest: //p' "$RUNNER_TEMP/current-cert.txt" \
+            | head -1 | tr -d ':' | tr '[:upper:]' '[:lower:]')
+          test "$ACTUAL" = "$EXPECTED"
 
       - name: Package APK
         if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
