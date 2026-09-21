@@ -5,7 +5,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import io.haru.assistant.core.CommandRouter
-import io.haru.assistant.core.CommandSource
 import io.haru.assistant.core.HaruMood
 import io.haru.assistant.core.HaruUiState
 
@@ -17,24 +16,7 @@ class HaruViewModel(
         private set
 
     fun updateCommand(value: String) {
-        val clean = sanitizeCommand(value)
-        uiState = uiState.copy(
-            command = clean,
-            commandSource = if (clean.isBlank()) CommandSource.NONE else CommandSource.USER,
-        )
-    }
-
-    fun setCompanionDraft(value: String) {
-        if (uiState.isBusy || uiState.command.isNotBlank()) return
-        val clean = sanitizeCommand(value)
-        if (clean.isBlank()) return
-        uiState = uiState.copy(command = clean, commandSource = CommandSource.COMPANION)
-    }
-
-    fun clearCompanionDraft() {
-        if (uiState.commandSource == CommandSource.COMPANION) {
-            uiState = uiState.copy(command = "", commandSource = CommandSource.NONE)
-        }
+        uiState = uiState.copy(command = sanitizeCommand(value))
     }
 
     fun recordLatestUser(value: String) {
@@ -46,7 +28,6 @@ class HaruViewModel(
 
     fun setListening() {
         if (uiState.isBusy) return
-        clearCompanionDraft()
         uiState = uiState.copy(
             mood = HaruMood.LISTENING,
             message = "Listening…",
@@ -73,7 +54,6 @@ class HaruViewModel(
             mood = if (result.success) HaruMood.HAPPY else HaruMood.CONFUSED,
             message = result.message,
             command = "",
-            commandSource = CommandSource.NONE,
             isBusy = false
         )
     }
@@ -89,7 +69,6 @@ class HaruViewModel(
                 mood = HaruMood.HAPPY,
                 message = localResult.message,
                 command = "",
-                commandSource = CommandSource.NONE,
                 isBusy = false,
             )
             return null
@@ -99,7 +78,6 @@ class HaruViewModel(
             mood = HaruMood.THINKING,
             message = "Thinking…",
             command = "",
-            commandSource = CommandSource.NONE,
             isBusy = true,
         )
         return command
