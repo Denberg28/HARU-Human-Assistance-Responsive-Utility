@@ -60,7 +60,7 @@ class HaruBubbleActionReceiver : BroadcastReceiver() {
                     {
                         store.advance()
                         HaruBubbleWidgetProvider.refreshAll(context)
-                        pending.finish()
+                        pending?.finish()
                     },
                     HaruIdlePolicy.ACKNOWLEDGEMENT_MS,
                 )
