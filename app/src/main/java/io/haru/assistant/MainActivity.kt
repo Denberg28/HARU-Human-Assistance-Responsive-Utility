@@ -1280,7 +1280,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
                     ReminderScheduler.cancel(this, it.id)
                 }
                 companionSnapshot = companionStore.clearReminders()
-                        return "All reminders cleared."
+                return "All reminders cleared."
             }
         }
 
@@ -1288,14 +1288,14 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
             .matchEntire(clean)
             ?.let { match ->
                 companionSnapshot = companionStore.addNote(match.groupValues[1])
-                        return "Noted: " + match.groupValues[1].trim()
+                return "Noted: " + match.groupValues[1].trim()
             }
 
         Regex("(?i)^(?:task|add task|todo|to-do|add to tasks)\\s+(.+)$")
             .matchEntire(clean)
             ?.let { match ->
                 companionSnapshot = companionStore.addTask(match.groupValues[1])
-                        return "Added task: " + match.groupValues[1].trim()
+                return "Added task: " + match.groupValues[1].trim()
             }
 
         Regex("(?i)^(?:done|complete|finish)\\s+(?:task\\s+)?(\\d+)$")
@@ -1307,7 +1307,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
                 }
                 val taskText = companionSnapshot.tasks[index].text
                 companionSnapshot = companionStore.completeTask(index)
-                        return "Completed: " + taskText
+                return "Completed: " + taskText
             }
 
         companionStore.parseRelativeReminder(clean)?.let { (text, dueAt) ->
@@ -1315,7 +1315,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
             companionSnapshot = companionStore.load()
             ReminderScheduler.schedule(this, reminder)
             requestNotificationPermissionIfNeeded()
-    
+
             val whenText = DateFormat.getDateTimeInstance(
                 DateFormat.MEDIUM,
                 DateFormat.SHORT,
