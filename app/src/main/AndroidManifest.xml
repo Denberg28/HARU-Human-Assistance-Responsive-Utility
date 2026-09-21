@@ -36,23 +36,13 @@
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
             </intent-filter>
         </receiver>
-        <service
-            android:name=".lockscreen.HaruLockScreenWallpaperService"
-            android:exported="true"
-            android:permission="android.permission.BIND_WALLPAPER">
-            <intent-filter>
-                <action android:name="android.service.wallpaper.WallpaperService" />
-            </intent-filter>
-            <meta-data
-                android:name="android.service.wallpaper"
-                android:resource="@xml/haru_lockscreen_wallpaper" />
-        </service>
         <activity
             android:name=".lockscreen.HaruLockScreenActivity"
             android:exported="false"
             android:excludeFromRecents="true"
             android:taskAffinity="io.haru.assistant.pet"
-            android:showWhenLocked="true" />
+            android:showWhenLocked="true"
+            android:theme="@style/Theme.Haru.LockBar" />
         <activity
             android:name=".MainActivity"
             android:exported="true"
