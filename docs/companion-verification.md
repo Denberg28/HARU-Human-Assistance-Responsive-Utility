@@ -1,39 +1,55 @@
-# Companion verification — v0.7.1
+# HARU checker verification — v0.9.0
 
-## Defects found
+## Behavior model
 
-- The v0.7.0 enabled preference was shown as On without querying bound widget instances. Pin requests ignored the Boolean result and had no success callback; unsupported launcher help was written behind an open Settings dialog.
-- Idle lines were unreachable whenever any open task or future reminder existed.
-- The in-app face was deliberately static; no idle conversation loop existed.
-- Widget resize, time-zone changes, and app replacement were not handled.
-- The launcher-visible widget receiver also accepted custom state-changing broadcasts from other apps. Custom commands now use a separate non-exported receiver.
-- Four network readers limited text only after reading the entire response into memory.
+HARU's caring presence is no longer a Home-screen AppWidget. v0.9.0 uses an Android live-wallpaper service intended for the lock screen.
 
-## Implemented behavior
+The checker is local-only:
+- no automatic AI request;
+- no microphone activation;
+- no foreground service;
+- no wake lock;
+- no overlay permission;
+- no background polling.
 
-Use AppWidgetManager for actual placement, a dedicated setup dialog for all outcomes, a private action/callback receiver, and manual widget-picker instructions. Preserve the Android-controlled 30-minute update schedule. User taps get immediate local content updates. In-app idle rotation is lifecycle-scoped to RESUMED and stops while hidden, typing, busy, paused, or in Rest mode. Conversation starters produce editable drafts; only Send starts a request. No microphone activation, ongoing service, wake lock, overlay permission, or automatic network request is introduced.
+Normal Tell HARU, Mic, reminders, Map, and online AI remain separate explicit actions.
 
-Regression tests cover content with pending/overdue items, pause gating, placement status, widget inflation and clicks, compact sizing, app replacement refresh, receiver isolation, and bounded network reads. Robolectric runs widget tests at API 26 and API 36. These tests simulate Android; they are not a physical launcher test.
+## Lock-screen states
 
-## Device acceptance checks (not executed in the build runner)
+- **Idle:** caring check-in and normal HARU face.
+- **Running:** HARU moves horizontally with alternating running frames.
+- **Resting:** calm face with the current local check-in.
+- **Sleeping:** used automatically from 22:00 through 05:59 and whenever Rest mode is active.
+- **Delighted:** tapping HARU's bubble produces a short purring/acknowledgement reaction.
 
-1. If v0.7.0 or an earlier build is installed, note any information you need, then uninstall it. The old CI signing key was not retained, so Android cannot update that build in place. Uninstalling resets HARU app-private data because backup is disabled.
-2. Install v0.7.1 as the new stable-signing baseline.
-3. Open Home bubble with no widget: status says Not on Home screen yet. Cancel Add: no false success.
-4. Confirm Add, return to HARU, and Check placement: status says active. On a launcher without pin support, add from Widgets manually and verify detection.
-5. Add a task, return Home, and tap the face at least four times: expressions and conversation starters still change. Tap text: HARU opens its primary tab with a draft. No message is sent until Send.
-6. Start typing or receiving an AI reply; background and return through the widget: the draft/reply is not replaced. Return from the Map tab via widget: HARU tab is selected.
-7. Inside HARU, idle for 20 seconds: expression or starter changes. Open a dialog, type, switch to Map, or background: automatic rotation pauses. Pause in Settings, restart HARU, and confirm the widget is still paused. Resume restores it.
-8. Resize the widget; verify face/text stay legible at default and compact sizes. Check with large system text settings.
-9. Reboot and reopen; verify widgets refresh, reminders remain scheduled, and taps work. Force-stop intentionally prevents Android background operation until HARU is opened again.
-10. Check Home after about 30 minutes with normal battery policy. Record device model, launcher version, and battery mode if Android delays refresh. No exact periodic deadline is promised.
+The wallpaper uses a compact bubble and a day/night background. Fast redraws are used only for running/delighted states; static states use a one-second heartbeat. All rendering callbacks stop when Android reports the wallpaper as not visible.
 
-## Platform references
+## Device acceptance checks
 
-- https://developer.android.com/reference/android/appwidget/AppWidgetManager#requestPinAppWidget(android.content.ComponentName,%20android.os.Bundle,%20android.app.PendingIntent)
-- https://developer.android.com/develop/ui/views/appwidgets/advanced
-- https://developer.android.com/develop/ui/views/appwidgets/overview
+1. Install v0.9.0 over v0.8.0 or any release using the stable v0.7.1+ signer.
+2. Open HARU → **Lock screen** → **Set HARU as live wallpaper**.
+3. In the Android/HyperOS wallpaper preview, choose **Lock screen only** if the phone offers it. Some OEM wallpaper pickers only offer Home or Home + Lock; this is an Android/OEM limitation and HARU does not bypass it with overlays.
+4. Lock the phone and confirm HARU appears below the typical clock region without covering the main clock.
+5. Tap HARU's bubble. Confirm a brief delighted/purring reaction, then a return to the checker state.
+6. Observe long enough to see idle, resting, and running states. Running should remain inside screen bounds.
+7. At night (22:00–05:59), or after selecting Rest mode, confirm HARU shows the sleeping state.
+8. Pause check-ins from HARU settings. Confirm the live wallpaper background remains but HARU's checker bubble is hidden. Resume and confirm it returns.
+9. Add tasks/reminders. Check-ins may show counts, but must never display task/reminder text on the lock screen.
+10. Verify Tell HARU, Mic, Today, reminders, Map, and location sharing still work independently.
+11. Check battery behavior over an equal-duration comparison. No runtime/battery percentage is claimed without physical measurement.
 
-## Release limitations
+## Automated gates
 
-v0.7.0 and earlier were signed by an ephemeral CI debug key that was not retained, so their signing identity cannot be used for a future update. v0.7.1 establishes a new stable signing identity. CI requires HARU_SIGNING_BUNDLE_BASE64, verifies the decoded keystore against the pinned public certificate SHA-256 fingerprint, signs the release APK with that key, and verifies the APK fingerprint again before publication. The signing bundle must be kept private and backed up; losing it would again prevent normal Android upgrades.
+CI requires:
+- Python runtime validation;
+- Android unit tests;
+- checker content/cadence/store migration tests;
+- lock-screen service manifest registration test;
+- release lint;
+- optimized APK assembly;
+- stable release signing and APK signature verification;
+- SHA-256 checksum verification before publication.
+
+## Platform limitation
+
+Android live wallpaper is the supported interactive animated surface used here. The phone's wallpaper picker controls whether a live wallpaper can be assigned to Lock only, Home only, or both. HARU opens the system live-wallpaper preview and does not request overlay privileges to circumvent that choice.
