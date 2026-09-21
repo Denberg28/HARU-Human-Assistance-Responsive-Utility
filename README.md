@@ -56,3 +56,7 @@ Desktop companion data is stored in `~/.haru/companion.json`. Streamlit Cloud us
 ```sh
 python -m unittest discover -s tests -v
 ```
+
+### Interactive lock-screen HARU
+
+Choose **Lock screen → Start interactive session**, leave it open and lock with the power button. Wake the screen to tap HARU. Close the session to return to the phone’s system lock screen. Unlocking ends the session. This explicit session uses the original face pack and keeps the device lock in place. Ordinary live-wallpaper taps depend on the phone’s lock screen and cannot be guaranteed.
