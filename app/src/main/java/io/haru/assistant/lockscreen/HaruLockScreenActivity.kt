@@ -8,6 +8,7 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.drawable.ColorDrawable
 import android.os.Build
 import android.os.Bundle
 import android.os.PowerManager
@@ -15,73 +16,85 @@ import android.os.SystemClock
 import android.view.Gravity
 import android.view.View
 import android.view.WindowManager
-import android.widget.Button
-import android.widget.LinearLayout
-import android.widget.TextView
 
-/** Explicit foreground session. Never launches itself or dismisses the device keyguard. */
+/**
+ * Compact, explicitly opened HARU touch window above the device keyguard.
+ *
+ * The window is limited to HARU's bar. It does not paint a replacement wallpaper,
+ * dismiss the keyguard, keep the display awake, or consume touches outside the bar.
+ */
 class HaruLockScreenActivity : Activity() {
     internal lateinit var pet: HaruLockPetView
         private set
+
     private var resumed = false
-    private val screenReceiver = object : BroadcastReceiver() {
-        override fun onReceive(context: Context, intent: Intent) {
-            when (intent.action) {
-                Intent.ACTION_SCREEN_OFF -> pet.setActive(false)
-                Intent.ACTION_SCREEN_ON -> pet.setActive(resumed)
-                Intent.ACTION_USER_PRESENT -> finishAndRemoveTask()
+
+    private val screenReceiver =
+        object : BroadcastReceiver() {
+            override fun onReceive(context: Context, intent: Intent) {
+                when (intent.action) {
+                    Intent.ACTION_SCREEN_OFF -> pet.setActive(false)
+                    Intent.ACTION_SCREEN_ON -> pet.setActive(resumed)
+                    Intent.ACTION_USER_PRESENT -> finishAndRemoveTask()
+                }
             }
         }
-    }
 
-    @SuppressLint("UnspecifiedRegisterReceiverFlag") // Pre-33 branch listens only to protected system actions.
+    @SuppressLint("UnspecifiedRegisterReceiverFlag")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        if (Build.VERSION.SDK_INT >= 27) setShowWhenLocked(true)
-        else {
+
+        if (Build.VERSION.SDK_INT >= 27) {
+            setShowWhenLocked(true)
+        } else {
             @Suppress("DEPRECATION")
             window.addFlags(WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED)
         }
-        // No TURN_SCREEN_ON, KEEP_SCREEN_ON, dismiss-keyguard, overlay or accessibility service.
-        val root = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER_HORIZONTAL
-            setBackgroundColor(Color.rgb(250, 247, 252))
-            val inset = (24 * resources.displayMetrics.density).toInt()
-            setPadding(inset, inset, inset, inset)
-            fitsSystemWindows = true
-        }
-        fun label(value: String, size: Float) = TextView(this).apply {
-            text = value
-            textSize = size
-            gravity = Gravity.CENTER
-            setTextColor(Color.rgb(69, 55, 82))
-        }
-        root.addView(label("HARU", 26f))
-        root.addView(label("Interactive lock-screen session", 14f))
-        root.addView(View(this), LinearLayout.LayoutParams(1, 0, 2f))
+
+        configureBarWindow()
         pet = HaruLockPetView(this)
-        root.addView(pet, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,
-            (104 * resources.displayMetrics.density * resources.configuration.fontScale.coerceAtMost(1.5f)).toInt()))
-        root.addView(label("Tap HARU for a happy reaction.", 14f))
-        root.addView(View(this), LinearLayout.LayoutParams(1, 0, 1f))
-        root.addView(label("Leave this session open, then lock your phone with the power button. Wake the screen to pet HARU. Your normal screen lock stays in place.", 14f))
-        root.addView(Button(this).apply {
-            text = "Close session"
-            setOnClickListener { finishAndRemoveTask() }
-        })
-        setContentView(root)
-        val screenEvents = IntentFilter().apply {
-            addAction(Intent.ACTION_SCREEN_OFF)
-            addAction(Intent.ACTION_SCREEN_ON)
-            addAction(Intent.ACTION_USER_PRESENT)
-        }
+        setContentView(pet)
+        sizeBarWindow()
+
+        val screenEvents =
+            IntentFilter().apply {
+                addAction(Intent.ACTION_SCREEN_OFF)
+                addAction(Intent.ACTION_SCREEN_ON)
+                addAction(Intent.ACTION_USER_PRESENT)
+            }
+
         if (Build.VERSION.SDK_INT >= 33) {
             registerReceiver(screenReceiver, screenEvents, Context.RECEIVER_NOT_EXPORTED)
         } else {
-            // These three broadcasts can only be sent by Android. No AndroidX private permission needed.
             registerReceiver(screenReceiver, screenEvents)
         }
+    }
+
+    private fun configureBarWindow() {
+        window.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+        window.clearFlags(
+            WindowManager.LayoutParams.FLAG_DIM_BEHIND or
+                WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON or
+                WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD or
+                WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON,
+        )
+        window.addFlags(WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL)
+        window.setDimAmount(0f)
+    }
+
+    private fun sizeBarWindow() {
+        val density = resources.displayMetrics.density
+        val fontScale = resources.configuration.fontScale.coerceIn(1f, 1.5f)
+        val barHeightPx = ((80f * fontScale + 16f) * density).toInt()
+        val bottomOffsetPx = (168f * density).toInt()
+
+        window.setLayout(WindowManager.LayoutParams.MATCH_PARENT, barHeightPx)
+        window.setGravity(Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL)
+        window.attributes =
+            window.attributes.apply {
+                y = bottomOffsetPx
+                dimAmount = 0f
+            }
     }
 
     override fun onResume() {
@@ -107,14 +120,17 @@ internal class HaruLockPetView(context: Context) : View(context) {
     internal val scene = HaruLockScreenScene(context)
     internal var active = false
         private set
+
     private val power = context.getSystemService(PowerManager::class.java)
-    private val frame = object : Runnable {
-        override fun run() {
-            if (!active || !isShown || !power.isInteractive) return
-            invalidate()
-            postDelayed(this, scene.nextFrameDelayMs)
+
+    private val frame =
+        object : Runnable {
+            override fun run() {
+                if (!active || !isShown || !power.isInteractive) return
+                invalidate()
+                postDelayed(this, scene.nextFrameDelayMs)
+            }
         }
-    }
 
     init {
         isClickable = true
@@ -136,7 +152,13 @@ internal class HaruLockPetView(context: Context) : View(context) {
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
-        scene.draw(canvas, width, height, SystemClock.elapsedRealtime(), System.currentTimeMillis(), 0.5f)
+        scene.draw(
+            canvas,
+            width,
+            height,
+            SystemClock.elapsedRealtime(),
+            System.currentTimeMillis(),
+        )
         if (SystemClock.elapsedRealtime() >= scene.delightedUntil) {
             contentDescription = "HARU. Tap for a happy reaction."
         }
