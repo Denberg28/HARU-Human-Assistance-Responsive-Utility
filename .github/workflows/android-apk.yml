@@ -113,8 +113,12 @@ jobs:
           APKSIGNER=$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -1)
           test -n "$APKSIGNER"
           "$APKSIGNER" verify --print-certs app/build/outputs/apk/release/app-release.apk > "$RUNNER_TEMP/current-cert.txt"
-          ACTUAL=$(sed -n 's/^Signer #1 certificate SHA-256 digest: //p' "$RUNNER_TEMP/current-cert.txt" \
-            | head -1 | tr -d ':' | tr '[:upper:]' '[:lower:]')
+          ACTUAL=$(grep -m1 'Signer #1 certificate SHA-256 digest:' "$RUNNER_TEMP/current-cert.txt" \
+            | cut -d: -f2- \
+            | tr -cd '0-9A-Fa-f' \
+            | tr '[:upper:]' '[:lower:]')
+          echo "Expected HARU certificate SHA-256: $EXPECTED"
+          echo "Built APK certificate SHA-256:     $ACTUAL"
           test "$ACTUAL" = "$EXPECTED"
 
       - name: Package APK
