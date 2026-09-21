@@ -46,13 +46,17 @@ class HaruLockScreenWallpaperService : WallpaperService() {
         private var visible = false
         private var delightedUntil = 0L
         private var touchDownInside = false
+        private var nextFrameDelayMs = IDLE_FRAME_MS
 
         private val frame =
             object : Runnable {
                 override fun run() {
                     drawFrame()
                     if (visible) {
-                        handler.postDelayed(this, FRAME_MS)
+                        handler.postDelayed(
+                            this,
+                            nextFrameDelayMs,
+                        )
                     }
                 }
             }
@@ -165,6 +169,13 @@ class HaruLockScreenWallpaperService : WallpaperService() {
                         nowElapsed = nowElapsed,
                         quiet = quiet,
                     )
+
+                nextFrameDelayMs =
+                    when (motion) {
+                        Motion.RUNNING,
+                        Motion.DELIGHTED -> ACTIVE_FRAME_MS
+                        else -> IDLE_FRAME_MS
+                    }
 
                 val density = resources.displayMetrics.density
                 val bubbleHeight = 88f * density
@@ -388,7 +399,8 @@ class HaruLockScreenWallpaperService : WallpaperService() {
     }
 
     companion object {
-        private const val FRAME_MS = 80L
+        private const val ACTIVE_FRAME_MS = 80L
+        private const val IDLE_FRAME_MS = 1_000L
         private const val MOTION_SLOT_MS = 10_000L
         private const val RUN_CYCLE_MS = 20_000L
     }
