@@ -41,8 +41,7 @@ fun HaruCompanionCard(
     busy: Boolean,
     draft: String,
     visible: Boolean,
-    onChat: (String) -> Unit,
-    onAnother: () -> Unit,
+    onChat: () -> Unit,
 ) {
     var step by remember { mutableLongStateOf(0L) }
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
@@ -53,7 +52,6 @@ fun HaruCompanionCard(
             now = System.currentTimeMillis()
             while (isActive) {
                 delay(HaruIdlePolicy.INTERVAL_MS)
-                onAnother()
                 now = System.currentTimeMillis()
                 step = (step + 1L) % 12L
             }
@@ -77,8 +75,7 @@ fun HaruCompanionCard(
                 modifier = Modifier
                     .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
                     .clickable(enabled = !busy, role = Role.Button, onClickLabel = "Another expression and conversation starter") {
-                        onAnother()
-                        now = System.currentTimeMillis()
+                                now = System.currentTimeMillis()
                         step = (step + 1L) % 12L
                     }
                     .padding(vertical = 12.dp),
@@ -89,7 +86,7 @@ fun HaruCompanionCard(
                 now = System.currentTimeMillis()
                 step = (step + 1L) % 12L
             }) { Text("Another") }
-            TextButton(enabled = !busy && draft.isBlank(), onClick = { onChat(content.conversationPrompt) }) {
+            TextButton(enabled = !busy, onClick = onChat) {
                 Text("Let's chat")
             }
         }
