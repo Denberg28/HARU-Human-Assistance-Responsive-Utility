@@ -47,7 +47,8 @@ class HaruLockScreenWallpaperService : WallpaperService() {
         private var heightPx = 0
         private var visible = false
         private var delightedUntil = 0L
-        private var touchDownInside = false
+        private var lastInteractionAt = 0L
+        private val tapBounds = RectF()
         private var nextFrameDelayMs = HaruLockScreenMotionPolicy.IDLE_FRAME_MS
 
         private val frame =
@@ -101,34 +102,13 @@ class HaruLockScreenWallpaperService : WallpaperService() {
         }
 
         override fun onTouchEvent(event: MotionEvent) {
-            if (!checkerStore.isEnabled()) {
-                super.onTouchEvent(event)
-                return
+            if (
+                checkerStore.isEnabled() &&
+                event.actionMasked == MotionEvent.ACTION_DOWN &&
+                tapBounds.contains(event.x, event.y)
+            ) {
+                reactToPet()
             }
-
-            when (event.actionMasked) {
-                MotionEvent.ACTION_DOWN -> {
-                    touchDownInside =
-                        bubbleBounds.contains(event.x, event.y) ||
-                            catBounds.contains(event.x, event.y)
-                }
-
-                MotionEvent.ACTION_UP -> {
-                    if (
-                        touchDownInside &&
-                        (
-                            bubbleBounds.contains(event.x, event.y) ||
-                                catBounds.contains(event.x, event.y)
-                            )
-                    ) {
-                        reactToPet()
-                    }
-                    touchDownInside = false
-                }
-
-                MotionEvent.ACTION_CANCEL -> touchDownInside = false
-            }
-
             super.onTouchEvent(event)
         }
 
@@ -143,10 +123,7 @@ class HaruLockScreenWallpaperService : WallpaperService() {
             if (
                 checkerStore.isEnabled() &&
                 action == WallpaperManager.COMMAND_TAP &&
-                (
-                    bubbleBounds.contains(x.toFloat(), y.toFloat()) ||
-                        catBounds.contains(x.toFloat(), y.toFloat())
-                    )
+                tapBounds.contains(x.toFloat(), y.toFloat())
             ) {
                 reactToPet()
             }
@@ -154,8 +131,11 @@ class HaruLockScreenWallpaperService : WallpaperService() {
         }
 
         private fun reactToPet() {
+            val now = SystemClock.elapsedRealtime()
+            if (now - lastInteractionAt < TAP_DEBOUNCE_MS) return
+            lastInteractionAt = now
             delightedUntil =
-                SystemClock.elapsedRealtime() +
+                now +
                     HaruLockScreenMotionPolicy.INTERACTION_MS
             handler.removeCallbacks(frame)
             if (visible) {
@@ -394,6 +374,15 @@ class HaruLockScreenWallpaperService : WallpaperService() {
                 } else {
                     1f
                 }
+            val sway =
+                if (
+                    motion == HaruLockMotion.IDLE ||
+                    motion == HaruLockMotion.RESTING
+                ) {
+                    sin(nowElapsed / 420.0).toFloat() * 2f * density
+                } else {
+                    0f
+                }
             val tailSwing =
                 sin(
                     nowElapsed /
@@ -412,152 +401,134 @@ class HaruLockScreenWallpaperService : WallpaperService() {
                     0f
                 }
 
-            val bodyW = 48f * density * breathing
-            val bodyH = 30f * density * breathing
-            val headR = 17f * density
-            val bodyLeft = baseCx - 25f * density
-            val bodyTop = baseCy - 2f * density
-            val headCx = baseCx + 14f * density
-            val headCy = baseCy - 10f * density
+            val cx = baseCx
+            val cy = baseCy + sway
+            val headR = 16f * density
+            val headCy = cy - 11f * density
+            val body = RectF(
+                cx - 21f * density,
+                cy + 1f * density,
+                cx + 18f * density,
+                cy + (26f * breathing) * density,
+            )
 
-            catPaint.style = Paint.Style.FILL
+            catPaint.style = Paint.Style.STROKE
+            catPaint.strokeWidth = 3f * density
+            catPaint.strokeCap = Paint.Cap.ROUND
+            catPaint.strokeJoin = Paint.Join.ROUND
             catPaint.color = Color.rgb(69, 60, 77)
-            canvas.drawOval(
-                RectF(
-                    bodyLeft,
-                    bodyTop,
-                    bodyLeft + bodyW,
-                    bodyTop + bodyH,
-                ),
+
+            canvas.drawCircle(cx, headCy, headR, catPaint)
+
+            earPath.reset()
+            earPath.moveTo(cx - 11f * density, headCy - 10f * density)
+            earPath.lineTo(cx - 16f * density, headCy - 27f * density)
+            earPath.lineTo(cx - 4f * density, headCy - 17f * density)
+            canvas.drawPath(earPath, catPaint)
+
+            earPath.reset()
+            earPath.moveTo(cx + 4f * density, headCy - 17f * density)
+            earPath.lineTo(cx + 16f * density, headCy - 27f * density)
+            earPath.lineTo(cx + 11f * density, headCy - 10f * density)
+            canvas.drawPath(earPath, catPaint)
+
+            canvas.drawOval(body, catPaint)
+
+            val tail = Path()
+            tail.moveTo(body.left + 4f * density, body.centerY())
+            tail.cubicTo(
+                body.left - 18f * density,
+                body.centerY() - 9f * density,
+                body.left - 24f * density,
+                body.centerY() + (tailSwing * 10f + 14f) * density,
+                body.left - 6f * density,
+                body.bottom - 1f * density,
+            )
+            canvas.drawPath(tail, catPaint)
+
+            val pawY = body.bottom
+            canvas.drawLine(
+                cx - 8f * density,
+                pawY,
+                cx - 10f * density,
+                pawY + (5f + pawPhase * 4f) * density,
                 catPaint,
             )
-            canvas.drawCircle(headCx, headCy, headR, catPaint)
-
-            earPath.reset()
-            earPath.moveTo(
-                headCx - 13f * density,
-                headCy - 9f * density,
+            canvas.drawLine(
+                cx + 7f * density,
+                pawY,
+                cx + 9f * density,
+                pawY + (5f - pawPhase * 4f) * density,
+                catPaint,
             )
-            earPath.lineTo(
-                headCx - 7f * density,
-                headCy - 27f * density,
-            )
-            earPath.lineTo(
-                headCx - 1f * density,
-                headCy - 10f * density,
-            )
-            earPath.close()
-            canvas.drawPath(earPath, catPaint)
-
-            earPath.reset()
-            earPath.moveTo(
-                headCx + 2f * density,
-                headCy - 10f * density,
-            )
-            earPath.lineTo(
-                headCx + 10f * density,
-                headCy - 27f * density,
-            )
-            earPath.lineTo(
-                headCx + 15f * density,
-                headCy - 7f * density,
-            )
-            earPath.close()
-            canvas.drawPath(earPath, catPaint)
 
             detailPaint.style = Paint.Style.STROKE
+            detailPaint.strokeWidth = 1.7f * density
             detailPaint.strokeCap = Paint.Cap.ROUND
-            detailPaint.strokeWidth = 3f * density
             detailPaint.color = Color.rgb(69, 60, 77)
 
-            val tailStartX = bodyLeft + 5f * density
-            val tailStartY = bodyTop + 15f * density
-            val tail = Path()
-            tail.moveTo(tailStartX, tailStartY)
-            tail.cubicTo(
-                tailStartX - 19f * density,
-                tailStartY - 7f * density,
-                tailStartX - 22f * density,
-                tailStartY + (tailSwing * 12f + 13f) * density,
-                tailStartX - 7f * density,
-                tailStartY + 17f * density,
-            )
-            canvas.drawPath(tail, detailPaint)
-
-            detailPaint.style = Paint.Style.FILL
-            detailPaint.color = Color.rgb(246, 235, 245)
-
             if (blinkClosed) {
-                detailPaint.style = Paint.Style.STROKE
-                detailPaint.strokeWidth = 1.7f * density
                 canvas.drawLine(
-                    headCx - 8f * density,
+                    cx - 8f * density,
                     headCy,
-                    headCx - 3f * density,
+                    cx - 3f * density,
                     headCy + 1f * density,
                     detailPaint,
                 )
                 canvas.drawLine(
-                    headCx + 3f * density,
+                    cx + 3f * density,
                     headCy + 1f * density,
-                    headCx + 8f * density,
+                    cx + 8f * density,
                     headCy,
                     detailPaint,
                 )
             } else {
                 detailPaint.style = Paint.Style.FILL
                 canvas.drawCircle(
-                    headCx - 5f * density,
+                    cx - 5f * density,
                     headCy,
-                    1.8f * density,
+                    1.5f * density,
                     detailPaint,
                 )
                 canvas.drawCircle(
-                    headCx + 6f * density,
+                    cx + 5f * density,
                     headCy,
-                    1.8f * density,
+                    1.5f * density,
                     detailPaint,
                 )
             }
 
-            detailPaint.color = Color.rgb(230, 177, 195)
-            canvas.drawCircle(
-                headCx + 0.5f * density,
-                headCy + 5f * density,
-                1.7f * density,
-                detailPaint,
-            )
-
             detailPaint.style = Paint.Style.STROKE
-            detailPaint.strokeWidth = 2.4f * density
-            detailPaint.strokeCap = Paint.Cap.ROUND
-            detailPaint.color = Color.rgb(69, 60, 77)
-
-            val pawY =
-                bodyTop +
-                    bodyH -
-                    1f * density
-            canvas.drawLine(
-                baseCx - 8f * density,
-                pawY,
-                baseCx - 10f * density,
-                pawY + (5f + pawPhase * 4f) * density,
+            detailPaint.strokeWidth = 1.8f * density
+            detailPaint.color = Color.rgb(197, 109, 145)
+            canvas.drawCircle(
+                cx,
+                headCy + 5f * density,
+                1.2f * density,
                 detailPaint,
             )
-            canvas.drawLine(
-                baseCx + 7f * density,
-                pawY,
-                baseCx + 9f * density,
-                pawY + (5f - pawPhase * 4f) * density,
+            canvas.drawArc(
+                RectF(
+                    cx - 5f * density,
+                    headCy + 3f * density,
+                    cx + 5f * density,
+                    headCy + 10f * density,
+                ),
+                if (motion == HaruLockMotion.DELIGHTED) 0f else 20f,
+                if (motion == HaruLockMotion.DELIGHTED) 180f else 140f,
+                false,
                 detailPaint,
             )
 
             catBounds.set(
-                bodyLeft - 24f * density,
-                headCy - 28f * density,
-                headCx + 20f * density,
+                body.left - 24f * density,
+                headCy - 30f * density,
+                body.right + 20f * density,
                 pawY + 14f * density,
             )
+            tapBounds.set(bounds)
+            tapBounds.union(catBounds)
+            tapBounds.inset(-24f * density, -18f * density)
 
             if (motion == HaruLockMotion.SLEEPING) {
                 detailPaint.style = Paint.Style.FILL
@@ -566,7 +537,7 @@ class HaruLockScreenWallpaperService : WallpaperService() {
                 detailPaint.color = Color.rgb(180, 167, 192)
                 canvas.drawText(
                     "z",
-                    headCx + 18f * density,
+                    cx + 18f * density,
                     headCy - 12f * density,
                     detailPaint,
                 )
@@ -577,8 +548,8 @@ class HaruLockScreenWallpaperService : WallpaperService() {
                 detailPaint.color = Color.rgb(197, 109, 145)
                 canvas.drawText(
                     "♡",
-                    headCx,
-                    headCy - 28f * density,
+                    cx + 18f * density,
+                    headCy - 20f * density,
                     detailPaint,
                 )
             }
@@ -594,5 +565,6 @@ class HaruLockScreenWallpaperService : WallpaperService() {
 
     companion object {
         private const val RUN_CYCLE_MS = 18_000L
+        private const val TAP_DEBOUNCE_MS = 250L
     }
 }
