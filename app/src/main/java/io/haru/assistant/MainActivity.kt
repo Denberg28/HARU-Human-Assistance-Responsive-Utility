@@ -81,7 +81,6 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
     private var companionMode by mutableStateOf(CompanionMode.NORMAL)
     private var haruBubbleEnabled by mutableStateOf(true)
     private var haruBubbleStatus by mutableStateOf(HaruBubbleStatus())
-    private var pendingBubblePrompt by mutableStateOf<String?>(null)
     private var openCompanionRequest by mutableStateOf(0)
 
     private var onlineProvider by mutableStateOf(OnlineProvider.ANTIGRAVITY)
@@ -215,16 +214,6 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
             HaruTheme {
                 val haruViewModel: HaruViewModel = viewModel()
                 activeViewModel = haruViewModel
-                LaunchedEffect(pendingBubblePrompt) {
-                    pendingBubblePrompt?.let { prompt ->
-                        if (!haruViewModel.uiState.isBusy && haruViewModel.uiState.command.isBlank()) {
-                            haruViewModel.setCompanionDraft(prompt)
-                        }
-                        // Never send a network request, interrupt a reply, or replace a user's draft.
-                        pendingBubblePrompt = null
-                    }
-                }
-
                 HaruScreen(
                     viewModel = haruViewModel,
                     todayLines = companionSnapshot.todayLines(),
@@ -425,7 +414,6 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
 
     private fun toggleHaruBubble() {
         haruBubbleEnabled = !haruBubbleEnabled
-        if (!haruBubbleEnabled) activeViewModel?.clearCompanionDraft()
         haruBubbleStore.setEnabled(haruBubbleEnabled)
         refreshCompanionSurface()
         refreshBubbleStatus()
@@ -460,9 +448,6 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
     private fun receiveBubbleIntent(incoming: Intent?) {
         if (incoming?.action != HaruBubbleWidgetProvider.ACTION_CHAT) return
         openCompanionRequest += 1
-        pendingBubblePrompt = incoming.getStringExtra(HaruBubbleWidgetProvider.EXTRA_PROMPT)
-            ?.take(500)?.takeIf { it.isNotBlank() }
-        incoming.removeExtra(HaruBubbleWidgetProvider.EXTRA_PROMPT)
     }
 
     override fun onNewIntent(intent: Intent) {
