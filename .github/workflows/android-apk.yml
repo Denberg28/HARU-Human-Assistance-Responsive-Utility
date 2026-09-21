@@ -17,7 +17,7 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   release-apk:
@@ -40,9 +40,23 @@ jobs:
           test -d "$ANDROID_HOME"
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --version
 
-      - name: Restore stable HARU signing key
+      - name: Restore protected signing key when configured
+        id: protected-key
         if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
-        uses: actions/cache@v4
+        env:
+          HARU_SIGNING_KEY_BASE64: ${{ secrets.HARU_SIGNING_KEY_BASE64 }}
+        shell: bash
+        run: |
+          if [ -n "$HARU_SIGNING_KEY_BASE64" ]; then
+            install -d -m 700 "$HOME/.android"
+            printf '%s' "$HARU_SIGNING_KEY_BASE64" | base64 --decode > "$HOME/.android/debug.keystore"
+            chmod 600 "$HOME/.android/debug.keystore"
+            echo "restored=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Restore legacy signing key for upgrade compatibility
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && steps.protected-key.outputs.restored != 'true'
+        uses: actions/cache/restore@v4
         with:
           path: ~/.android/debug.keystore
           key: haru-debug-signing-v1
@@ -61,6 +75,11 @@ jobs:
         with:
           gradle-version: "9.6.0"
 
+      - name: Validate companion runtime before release
+        run: |
+          python -m pip install --disable-pip-version-check -r requirements.txt
+          python -m unittest discover -s tests -v
+
       - name: Build optimized HARU APK
         run: gradle --no-daemon :app:testDebugUnitTest :app:lintRelease :app:assembleRelease --stacktrace
 
@@ -75,6 +94,24 @@ jobs:
             app/build/reports/lint-results-release.*
           if-no-files-found: ignore
           retention-days: 14
+
+      - name: Verify APK and existing signing certificate
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/haru-previous"
+          gh release download v0.7.0 --pattern 'HARU-v0.7.0-Standalone-arm64.apk' --dir "$RUNNER_TEMP/haru-previous"
+          PREVIOUS="$RUNNER_TEMP/haru-previous/HARU-v0.7.0-Standalone-arm64.apk"
+          echo "cc25eb1bf96ee00840d45e6df8021ebd6cfeb5697fd2aac672b0c59d193b5424  $PREVIOUS" | sha256sum --check
+          APKSIGNER=$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -1)
+          test -n "$APKSIGNER"
+          "$APKSIGNER" verify --print-certs "$PREVIOUS" > "$RUNNER_TEMP/previous-cert.txt"
+          "$APKSIGNER" verify --print-certs app/build/outputs/apk/release/app-release.apk > "$RUNNER_TEMP/current-cert.txt"
+          grep 'Signer #1 certificate SHA-256 digest:' "$RUNNER_TEMP/previous-cert.txt" > "$RUNNER_TEMP/previous-fingerprint.txt"
+          grep 'Signer #1 certificate SHA-256 digest:' "$RUNNER_TEMP/current-cert.txt" > "$RUNNER_TEMP/current-fingerprint.txt"
+          diff "$RUNNER_TEMP/previous-fingerprint.txt" "$RUNNER_TEMP/current-fingerprint.txt"
 
       - name: Package APK
         if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
@@ -98,8 +135,30 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  publish:
+    needs: release-apk
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout built source
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+      - name: Identify release
+        shell: bash
+        run: |
+          VERSION=$(grep -m1 'versionName = ' app/build.gradle.kts | sed -E 's/.*"([^"]+)".*/\1/')
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "APK=HARU-v$VERSION-Standalone-arm64.apk" >> "$GITHUB_ENV"
+      - name: Download verified APK
+        uses: actions/download-artifact@v4
+        with:
+          name: HARU-v${{ env.VERSION }}-Standalone-arm64
+      - name: Verify artifact checksum
+        run: sha256sum --check "$APK.sha256"
       - name: Publish GitHub release
-        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash

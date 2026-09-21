@@ -110,6 +110,7 @@ class AndroidOnlineAiManager(
 
             val connection = URL(MODELS_URL).openConnection() as HttpURLConnection
             connection.requestMethod = "GET"
+            connection.instanceFollowRedirects = false
             connection.connectTimeout = 15_000
             connection.readTimeout = 20_000
             connection.useCaches = false
@@ -706,6 +707,7 @@ class AndroidOnlineAiManager(
     ): JSONObject {
         val connection = URL(url).openConnection() as HttpURLConnection
         connection.requestMethod = "POST"
+        connection.instanceFollowRedirects = false
         connection.connectTimeout = timeoutMs
         connection.readTimeout = timeoutMs
         connection.doOutput = true

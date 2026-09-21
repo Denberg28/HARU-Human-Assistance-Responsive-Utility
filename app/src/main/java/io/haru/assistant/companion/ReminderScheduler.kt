@@ -4,8 +4,19 @@ import android.app.AlarmManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 
 object ReminderScheduler {
+    fun rescheduleAll(context: Context) {
+        AndroidCompanionStore(context).load().reminders.forEach { schedule(context, it) }
+    }
+
+    private fun reminderIntent(context: Context, id: String) =
+        Intent(context, ReminderReceiver::class.java).apply {
+            data = Uri.Builder().scheme("haru").authority("reminder").appendPath(id).build()
+            putExtra("reminder_id", id)
+        }
+
     fun schedule(
         context: Context,
         reminder: CompanionReminder,
@@ -13,10 +24,9 @@ object ReminderScheduler {
         val alarmManager =
             context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
 
-        val intent = Intent(context, ReminderReceiver::class.java).apply {
-            putExtra("reminder_id", reminder.id)
-            putExtra("reminder_text", reminder.text)
-        }
+        // Remove pre-0.7.1 alarms as well when upgrading their identity.
+        cancel(context, reminder.id)
+        val intent = reminderIntent(context, reminder.id)
 
         val requestCode = reminder.id.hashCode()
         val pendingIntent = PendingIntent.getBroadcast(
@@ -28,7 +38,7 @@ object ReminderScheduler {
 
         alarmManager.setAndAllowWhileIdle(
             AlarmManager.RTC_WAKEUP,
-            reminder.dueAt,
+            maxOf(reminder.dueAt, System.currentTimeMillis()),
             pendingIntent,
         )
     }
@@ -40,15 +50,17 @@ object ReminderScheduler {
         val alarmManager =
             context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
 
-        val intent = Intent(context, ReminderReceiver::class.java)
-        val pendingIntent = PendingIntent.getBroadcast(
-            context,
-            reminderId.hashCode(),
-            intent,
-            PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE,
-        ) ?: return
-
-        alarmManager.cancel(pendingIntent)
-        pendingIntent.cancel()
+        // Cancel both new URI identities and legacy hash-only identities.
+        listOf(reminderIntent(context, reminderId), Intent(context, ReminderReceiver::class.java))
+            .forEach { intent ->
+                val pendingIntent = PendingIntent.getBroadcast(
+                    context, reminderId.hashCode(), intent,
+                    PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE,
+                )
+                if (pendingIntent != null) {
+                    alarmManager.cancel(pendingIntent)
+                    pendingIntent.cancel()
+                }
+            }
     }
 }

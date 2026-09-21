@@ -30,6 +30,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import io.haru.assistant.companion.AndroidCompanionStore
 import io.haru.assistant.companion.CompanionSnapshot
 import io.haru.assistant.companion.HaruBubbleStatus
+import io.haru.assistant.companion.HaruBubbleActionReceiver
 import io.haru.assistant.companion.HaruBubbleStore
 import io.haru.assistant.companion.HaruBubbleWidgetProvider
 import io.haru.assistant.companion.ReminderScheduler
@@ -142,7 +143,9 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
         }
 
     private val notificationPermissionLauncher =
-        registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+            if (granted) ReminderScheduler.rescheduleAll(this)
+        }
 
     private val locationPermissionLauncher =
         registerForActivityResult(
@@ -440,7 +443,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
         if (!haruBubbleStatus.pinSupported) return // Setup always displays manual launcher steps.
         val callback = PendingIntent.getBroadcast(
             this, 7003,
-            Intent(this, HaruBubbleWidgetProvider::class.java).setAction(HaruBubbleWidgetProvider.ACTION_PINNED),
+            Intent(this, HaruBubbleActionReceiver::class.java).setAction(HaruBubbleWidgetProvider.ACTION_PINNED),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
         // true means a request was accepted, not that a widget was installed.
@@ -1441,6 +1444,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
 
         if (::companionStore.isInitialized) {
             companionSnapshot = companionStore.load()
+            ReminderScheduler.rescheduleAll(this)
         }
         if (::haruBubbleStore.isInitialized) {
             haruBubbleEnabled =

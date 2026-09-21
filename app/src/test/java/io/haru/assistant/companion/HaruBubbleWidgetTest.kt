@@ -50,7 +50,7 @@ class HaruBubbleWidgetTest {
         HaruBubbleWidgetProvider.refreshAll(context)
         assertEquals(View.GONE, view(id).findViewById<View>(R.id.haru_bubble_content).visibility)
         assertEquals(View.VISIBLE, view(id).findViewById<View>(R.id.haru_bubble_paused).visibility)
-        HaruBubbleWidgetProvider().onReceive(context, Intent(HaruBubbleWidgetProvider.ACTION_CYCLE))
+        HaruBubbleActionReceiver().onReceive(context, Intent(HaruBubbleWidgetProvider.ACTION_CYCLE))
         assertEquals(0L, HaruBubbleStore(context).step())
         HaruBubbleStore(context).setEnabled(true)
         HaruBubbleWidgetProvider.refreshAll(context)
@@ -77,6 +77,18 @@ class HaruBubbleWidgetTest {
         assertTrue(view(id).findViewById<TextView>(R.id.haru_bubble_line).text.isNotBlank())
         ReminderBootReceiver().onReceive(context, Intent(Intent.ACTION_MY_PACKAGE_REPLACED))
         assertEquals(1, HaruBubbleWidgetProvider.installedCount(context))
+    }
+
+    @Test fun publicProviderIgnoresPrivateCycleCommand() {
+        addWidget()
+        HaruBubbleWidgetProvider().onReceive(context, Intent(HaruBubbleWidgetProvider.ACTION_CYCLE))
+        assertEquals(0L, HaruBubbleStore(context).step())
+        HaruBubbleActionReceiver().onReceive(context, Intent(HaruBubbleWidgetProvider.ACTION_CYCLE))
+        assertEquals(1L, HaruBubbleStore(context).step())
+        val info = context.packageManager.getReceiverInfo(
+            ComponentName(context, HaruBubbleActionReceiver::class.java), 0,
+        )
+        assertFalse(info.exported)
     }
 
     @Test fun widgetReceiverIsExportedForLauncherHosts() {

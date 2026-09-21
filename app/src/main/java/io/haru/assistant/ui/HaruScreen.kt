@@ -64,6 +64,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import io.haru.assistant.HaruViewModel
 import io.haru.assistant.companion.CompanionSnapshot
 import io.haru.assistant.companion.HaruBubbleStatus
@@ -1177,18 +1178,19 @@ private fun TrustedLocationsMap(
                 }
             }
 
-            onStart()
-            onResume()
         }
     }
 
-    DisposableEffect(mapView) {
+    val mapLifecycle = LocalLifecycleOwner.current.lifecycle
+    DisposableEffect(mapView, mapLifecycle) {
+        val binding = MapLifecycleBinding(
+            mapLifecycle, mapView::onStart, mapView::onResume,
+            mapView::onPause, mapView::onStop, mapView::onDestroy,
+        )
         onDispose {
             mapController = null
             mapView.setOnTouchListener(null)
-            mapView.onPause()
-            mapView.onStop()
-            mapView.onDestroy()
+            binding.close()
         }
     }
 

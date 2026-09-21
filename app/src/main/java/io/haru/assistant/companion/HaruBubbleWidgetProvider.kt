@@ -29,12 +29,7 @@ class HaruBubbleWidgetProvider : AppWidgetProvider() {
     override fun onReceive(context: Context, intent: Intent) {
         super.onReceive(context, intent)
         when (intent.action) {
-            ACTION_CYCLE -> {
-                if (installedCount(context) == 0 || !HaruBubbleStore(context).isEnabled()) return
-                HaruBubbleStore(context).advance()
-                refreshAll(context)
-            }
-            ACTION_PINNED, ACTION_REFRESH, Intent.ACTION_TIME_CHANGED,
+            Intent.ACTION_TIME_CHANGED,
             Intent.ACTION_TIMEZONE_CHANGED -> refreshAll(context)
         }
     }
@@ -94,7 +89,7 @@ class HaruBubbleWidgetProvider : AppWidgetProvider() {
             views.setOnClickPendingIntent(R.id.haru_bubble_line, open)
             views.setOnClickPendingIntent(R.id.haru_bubble_paused, open)
 
-            val cycleIntent = Intent(context, HaruBubbleWidgetProvider::class.java).apply {
+            val cycleIntent = Intent(context, HaruBubbleActionReceiver::class.java).apply {
                 action = ACTION_CYCLE
                 addFlags(Intent.FLAG_RECEIVER_FOREGROUND)
             }

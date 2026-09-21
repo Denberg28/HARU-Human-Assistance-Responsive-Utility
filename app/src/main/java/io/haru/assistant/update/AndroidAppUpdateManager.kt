@@ -67,7 +67,7 @@ class AndroidAppUpdateManager {
                     if (bestApk.isBlank() || isNewer(version, bestVersion)) {
                         bestVersion = version
                         bestApk = apk
-                        bestReleaseUrl = release.optString("html_url")
+                        bestReleaseUrl = "https://github.com${TrustedReleaseUrl.REPOSITORY_PATH}/releases/tag/v$version"
                     }
                 }
 
@@ -99,11 +99,7 @@ class AndroidAppUpdateManager {
             val url = item.optString("browser_download_url")
             if (name != expectedName) continue
 
-            val parsed = runCatching { URL(url) }.getOrNull() ?: continue
-            if (
-                parsed.protocol.equals("https", ignoreCase = true) &&
-                parsed.host.equals("github.com", ignoreCase = true)
-            ) {
+            if (TrustedReleaseUrl.apk(version, expectedName, url)) {
                 return url
             }
         }

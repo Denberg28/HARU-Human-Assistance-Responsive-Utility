@@ -16,8 +16,11 @@ import io.haru.assistant.MainActivity
 class ReminderReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val reminderId = intent.getStringExtra("reminder_id").orEmpty()
-        val reminderText = intent.getStringExtra("reminder_text").orEmpty()
-        if (reminderId.isBlank() || reminderText.isBlank()) return
+        if (reminderId.isBlank()) return
+        val store = AndroidCompanionStore(context)
+        val reminder = store.load().reminders.firstOrNull { it.id == reminderId } ?: return
+        if (reminder.dueAt > System.currentTimeMillis()) return
+        val reminderText = reminder.text
 
         val notificationManager =
             context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
@@ -47,6 +50,11 @@ class ReminderReceiver : BroadcastReceiver() {
             return
         }
 
+        // Keep undelivered reminders in Today when the app or channel is muted.
+        if (!notificationManager.areNotificationsEnabled() ||
+            notificationManager.getNotificationChannel(CHANNEL_ID)?.importance ==
+            NotificationManager.IMPORTANCE_NONE) return
+
         val openIntent = Intent(context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
         }
@@ -75,10 +83,9 @@ class ReminderReceiver : BroadcastReceiver() {
                 .setContentIntent(openPendingIntent)
                 .build()
 
-        notificationManager.notify(reminderId.hashCode(), notification)
+        notificationManager.notify(reminderId, 0, notification)
 
-        AndroidCompanionStore(context)
-            .removeReminder(reminderId)
+        store.removeReminder(reminderId)
 
         HaruBubbleWidgetProvider.refreshAll(context)
     }

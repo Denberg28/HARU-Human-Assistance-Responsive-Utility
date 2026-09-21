@@ -36,9 +36,10 @@
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
             </intent-filter>
         </receiver>
-        <!-- App widget hosts/launchers are outside HARU, so the widget provider must be exported.
-             The provider exposes only widget rendering/refresh/cycle behavior; privileged HARU
-             operations remain in non-exported receivers and the exported launcher activity. -->
+        <receiver
+            android:name=".companion.HaruBubbleActionReceiver"
+            android:exported="false" />
+        <!-- Launcher discovery stays public; custom state-changing commands are private. -->
         <receiver
             android:name=".companion.HaruBubbleWidgetProvider"
             android:label="HARU Bubble"
