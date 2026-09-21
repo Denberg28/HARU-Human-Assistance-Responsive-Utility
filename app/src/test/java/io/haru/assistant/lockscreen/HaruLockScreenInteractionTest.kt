@@ -66,7 +66,7 @@ class HaruLockScreenInteractionTest {
     fun lockedSessionHandlesClickWithoutUnlockingAndStopsOnScreenOff() {
         HaruCheckerStore(context).setEnabled(true)
         val keyguard = context.getSystemService(KeyguardManager::class.java)
-        shadowOf(keyguard).setIsKeyguardLocked(true)
+        shadowOf(keyguard).setKeyguardLocked(true)
         shadowOf(context.getSystemService(PowerManager::class.java)).setIsInteractive(true)
         val controller = Robolectric.buildActivity(HaruLockScreenActivity::class.java).setup()
         val activity = controller.get()
