@@ -1,7 +1,7 @@
 package io.haru.assistant.companion
 
 object HaruIdlePolicy {
-    const val ACKNOWLEDGEMENT_MS = 1_400L
+    const val ACKNOWLEDGEMENT_MS = 650L
 
     private val CHECK_INTERVALS_MS =
         longArrayOf(
