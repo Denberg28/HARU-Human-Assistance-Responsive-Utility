@@ -71,6 +71,7 @@ jobs:
           echo "HARU_STORE_PASSWORD=$STORE_PASSWORD" >> "$GITHUB_ENV"
           echo "HARU_KEY_PASSWORD=$KEY_PASSWORD" >> "$GITHUB_ENV"
           echo "HARU_KEY_ALIAS=$KEY_ALIAS" >> "$GITHUB_ENV"
+          echo "HARU_RELEASE_REQUIRED=true" >> "$GITHUB_ENV"
 
           EXPECTED="287e7b70e0b49c9f2beeb2fd94ed7699c14616c7baef09d43befa6848b035ebf"
           ACTUAL=$(keytool -list -v \
@@ -105,21 +106,13 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
-      - name: Verify APK signing certificate
+      - name: Verify release APK signature
         if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
         shell: bash
         run: |
-          EXPECTED="287e7b70e0b49c9f2beeb2fd94ed7699c14616c7baef09d43befa6848b035ebf"
           APKSIGNER=$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -1)
           test -n "$APKSIGNER"
-          "$APKSIGNER" verify --print-certs app/build/outputs/apk/release/app-release.apk > "$RUNNER_TEMP/current-cert.txt"
-          ACTUAL=$(grep -m1 'Signer #1 certificate SHA-256 digest:' "$RUNNER_TEMP/current-cert.txt" \
-            | cut -d: -f2- \
-            | tr -cd '0-9A-Fa-f' \
-            | tr '[:upper:]' '[:lower:]')
-          echo "Expected HARU certificate SHA-256: $EXPECTED"
-          echo "Built APK certificate SHA-256:     $ACTUAL"
-          test "$ACTUAL" = "$EXPECTED"
+          "$APKSIGNER" verify --verbose --print-certs app/build/outputs/apk/release/app-release.apk
 
       - name: Package APK
         if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
