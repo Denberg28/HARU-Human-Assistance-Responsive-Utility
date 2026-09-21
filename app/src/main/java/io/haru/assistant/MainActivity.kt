@@ -218,7 +218,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
                 LaunchedEffect(pendingBubblePrompt) {
                     pendingBubblePrompt?.let { prompt ->
                         if (!haruViewModel.uiState.isBusy && haruViewModel.uiState.command.isBlank()) {
-                            haruViewModel.updateCommand(prompt)
+                            haruViewModel.setCompanionDraft(prompt)
                         }
                         // Never send a network request, interrupt a reply, or replace a user's draft.
                         pendingBubblePrompt = null
@@ -289,6 +289,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
         viewModel: HaruViewModel,
         speakResult: Boolean,
     ) {
+        if (!viewModel.uiState.canSubmit) return
         val command = viewModel.uiState.command.trim()
         viewModel.recordLatestUser(command)
 
@@ -424,6 +425,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
 
     private fun toggleHaruBubble() {
         haruBubbleEnabled = !haruBubbleEnabled
+        if (!haruBubbleEnabled) activeViewModel?.clearCompanionDraft()
         haruBubbleStore.setEnabled(haruBubbleEnabled)
         refreshCompanionSurface()
         refreshBubbleStatus()
@@ -1400,7 +1402,9 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
     }
 
     private fun requestVoiceRecognition() {
-        activeViewModel?.setListening()
+        val viewModel = activeViewModel ?: return
+        if (viewModel.uiState.isBusy) return
+        viewModel.setListening()
 
         if (voiceController.hasAudioPermission()) {
             voiceController.startListening()
@@ -1463,6 +1467,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
 
     override fun onTranscript(text: String) {
         val viewModel = activeViewModel ?: return
+        viewModel.cancelListening()
         viewModel.updateCommand(text)
         submitWithAi(viewModel, speakResult = true)
     }
