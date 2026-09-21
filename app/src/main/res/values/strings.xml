@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">HARU</string>
-    <string name="haru_lockscreen_description">HARU caring checker with running, resting, sleeping, and tap reactions.</string>
+    <string name="haru_home_widget_description">Compact draggable HARU check-in companion for the Home screen.</string>
 </resources>
