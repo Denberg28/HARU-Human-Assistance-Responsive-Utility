@@ -67,6 +67,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import io.haru.assistant.HaruViewModel
 import io.haru.assistant.companion.CompanionSnapshot
+import io.haru.assistant.companion.HaruHomeWidgetStatus
 import io.haru.assistant.core.HaruMood
 import io.haru.assistant.location.TrustedLocation
 import io.haru.assistant.onlineai.GeminiModel
@@ -86,6 +87,7 @@ fun HaruScreen(
     todayLines: List<String>,
     companionSnapshot: CompanionSnapshot,
     haruCheckerEnabled: Boolean,
+    haruHomeWidgetStatus: HaruHomeWidgetStatus,
     companionQuiet: Boolean,
     onlineProvider: OnlineProvider,
     selectedGeminiModel: GeminiModel,
@@ -112,6 +114,8 @@ fun HaruScreen(
     onAddCompanionTask: (String) -> Unit,
     onUpdateCompanionTask: (Int, String) -> Unit,
     onDeleteCompanionTask: (Int) -> Unit,
+    onRequestHaruHomeWidget: () -> Unit,
+    onRefreshHaruHomeWidget: () -> Unit,
     onToggleHaruChecker: () -> Unit,
     onSelectOnlineProvider: (OnlineProvider) -> Unit,
     onSelectGeminiModel: (GeminiModel) -> Unit,
@@ -137,7 +141,7 @@ fun HaruScreen(
     var showUpdate by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
     var showAbout by remember { mutableStateOf(false) }
-    var showLockScreenSetup by remember { mutableStateOf(false) }
+    var showHomeWidgetSetup by remember { mutableStateOf(false) }
     val tabs = listOf("HARU", "Map")
     Surface(modifier = modifier.fillMaxSize()) {
         Column(
@@ -189,8 +193,8 @@ fun HaruScreen(
                         companionSnapshot = companionSnapshot,
                         haruCheckerEnabled = haruCheckerEnabled,
                         companionQuiet = companionQuiet,
-                        companionVisible = selectedTab == 0 && !showSettings && !showAbout && !showOnlineAi && !showUpdate && !showLockScreenSetup,
-                        onOpenLockScreenSetup = { showLockScreenSetup = true },
+                        companionVisible = selectedTab == 0 && !showSettings && !showAbout && !showOnlineAi && !showUpdate && !showHomeWidgetSetup,
+                        onOpenHomeWidgetSetup = { showHomeWidgetSetup = true },
                         onSubmitClick = onSubmitClick,
                         onMicClick = onMicClick,
                         onAddTask = onAddCompanionTask,
@@ -224,10 +228,12 @@ fun HaruScreen(
         }
     }
 
-    if (showLockScreenSetup) {
-        HaruLockScreenDialog(
-            enabled = haruCheckerEnabled,
-            onDismiss = { showLockScreenSetup = false },
+    if (showHomeWidgetSetup) {
+        HaruHomeWidgetDialog(
+            status = haruHomeWidgetStatus,
+            onDismiss = { showHomeWidgetSetup = false },
+            onAdd = onRequestHaruHomeWidget,
+            onRefresh = onRefreshHaruHomeWidget,
             onToggle = onToggleHaruChecker,
         )
     }
@@ -274,9 +280,9 @@ fun HaruScreen(
             memoryCount = memoryCount,
             appVersion = appVersion,
             onDismiss = { showSettings = false },
-            onOpenLockScreen = {
+            onOpenHomeWidget = {
                 showSettings = false
-                showLockScreenSetup = true
+                showHomeWidgetSetup = true
             },
             onToggleHaruChecker = onToggleHaruChecker,
             onOpenAi = {
@@ -330,7 +336,7 @@ private fun SimpleHaruPane(
     haruCheckerEnabled: Boolean,
     companionQuiet: Boolean,
     companionVisible: Boolean,
-    onOpenLockScreenSetup: () -> Unit,
+    onOpenHomeWidgetSetup: () -> Unit,
     onSubmitClick: () -> Unit,
     onMicClick: () -> Unit,
     onAddTask: (String) -> Unit,
@@ -410,7 +416,7 @@ private fun SimpleHaruPane(
 
             Spacer(Modifier.height(4.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                TextButton(onClick = onOpenLockScreenSetup) { Text("Lock screen") }
+                TextButton(onClick = onOpenHomeWidgetSetup) { Text("Home companion") }
                 TextButton(onClick = onOpenSettings) { Text("Settings") }
             }
         }
@@ -712,7 +718,7 @@ private fun SimpleSettingsDialog(
     memoryCount: Int,
     appVersion: String,
     onDismiss: () -> Unit,
-    onOpenLockScreen: () -> Unit,
+    onOpenHomeWidget: () -> Unit,
     onToggleHaruChecker: () -> Unit,
     onOpenAi: () -> Unit,
     onResetMemory: () -> Unit,
@@ -732,10 +738,10 @@ private fun SimpleSettingsDialog(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 OutlinedButton(
-                    onClick = onOpenLockScreen,
+                    onClick = onOpenHomeWidget,
                     modifier = Modifier.fillMaxWidth(),
                 ) {
-                    Text("Set up lock-screen HARU")
+                    Text("Set up Home companion")
                 }
 
                 OutlinedButton(
@@ -753,7 +759,7 @@ private fun SimpleSettingsDialog(
                 }
 
                 Text(
-                    "Lock-screen animation is provided by Android live wallpaper; lock-only selection depends on the device launcher.",
+                    "HARU's interactive companion is a normal Home-screen widget. Long-press it to drag, resize, or remove it. It never overlays HARU or other apps.",
                     style = MaterialTheme.typography.labelSmall,
                 )
 
