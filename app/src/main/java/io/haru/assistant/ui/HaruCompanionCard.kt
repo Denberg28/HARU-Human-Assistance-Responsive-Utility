@@ -42,7 +42,14 @@ fun HaruCompanionCard(
     draft: String,
     visible: Boolean,
 ) {
-    var step by remember { mutableLongStateOf(0L) }
+    var step by remember {
+        mutableLongStateOf(
+            Math.floorMod(
+                System.currentTimeMillis() / 60_000L,
+                120L,
+            )
+        )
+    }
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     var acknowledged by remember { mutableStateOf(false) }
     val lifecycle = LocalLifecycleOwner.current.lifecycle
