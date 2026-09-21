@@ -53,6 +53,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
@@ -206,6 +208,7 @@ fun HaruScreen(
                         haruBubbleEnabled = haruBubbleEnabled,
                         companionQuiet = companionQuiet,
                         companionVisible = selectedTab == 0 && !showSettings && !showAbout && !showOnlineAi && !showUpdate && !showBubbleSetup,
+                        chatFocusRequest = openCompanionRequest,
                         onOpenBubbleSetup = { onRefreshBubbleStatus(); showBubbleSetup = true },
                         onSubmitClick = onSubmitClick,
                         onMicClick = onMicClick,
@@ -350,6 +353,7 @@ private fun SimpleHaruPane(
     haruBubbleEnabled: Boolean,
     companionQuiet: Boolean,
     companionVisible: Boolean,
+    chatFocusRequest: Int,
     onOpenBubbleSetup: () -> Unit,
     onSubmitClick: () -> Unit,
     onMicClick: () -> Unit,
@@ -361,6 +365,14 @@ private fun SimpleHaruPane(
     val state = viewModel.uiState
     var showToday by remember { mutableStateOf(false) }
     val responseScrollState = rememberScrollState()
+    val chatFocusRequester = remember { FocusRequester() }
+    var localChatFocusRequest by remember { mutableIntStateOf(0) }
+
+    LaunchedEffect(chatFocusRequest, localChatFocusRequest) {
+        if (chatFocusRequest > 0 || localChatFocusRequest > 0) {
+            chatFocusRequester.requestFocus()
+        }
+    }
 
     LaunchedEffect(state.message) {
         responseScrollState.scrollTo(0)
@@ -387,8 +399,7 @@ private fun SimpleHaruPane(
                     busy = state.isBusy,
                     draft = state.command,
                     visible = companionVisible && !showToday,
-                    onChat = viewModel::setCompanionDraft,
-                    onAnother = viewModel::clearCompanionDraft,
+                    onChat = { localChatFocusRequest += 1 },
                 )
             } else {
                 HaruFace(mood = state.mood, modifier = Modifier.sizeCompat(96.dp))
@@ -408,7 +419,9 @@ private fun SimpleHaruPane(
 
             Card(
                 onClick = { showToday = true },
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .focusRequester(chatFocusRequester),
             ) {
                 Column(Modifier.padding(12.dp)) {
                     Text(
