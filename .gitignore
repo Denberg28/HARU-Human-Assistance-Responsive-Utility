@@ -14,3 +14,11 @@ app/build
 .env
 .env.*
 !.env.example
+
+# Local build/test outputs and signing material
+__pycache__/
+*.py[cod]
+*.keystore
+*.jks
+*.apk
+*.aab

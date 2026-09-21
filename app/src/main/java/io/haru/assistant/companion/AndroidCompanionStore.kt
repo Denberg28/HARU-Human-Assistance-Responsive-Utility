@@ -45,44 +45,7 @@ data class CompanionSnapshot(
         return lines
     }
 
-    fun lockScreenLines(
-        now: Long = System.currentTimeMillis(),
-    ): List<String> {
-        val lines = mutableListOf<String>()
 
-        tasks
-            .filterNot { it.done }
-            .take(3)
-            .forEach { task ->
-                lines += "□ " + task.text.take(90)
-            }
-
-        reminders
-            .filter { it.dueAt > now }
-            .sortedBy { it.dueAt }
-            .take((4 - lines.size).coerceAtLeast(0))
-            .forEach { reminder ->
-                val minutes =
-                    ((reminder.dueAt - now) / 60_000L)
-                        .coerceAtLeast(0L)
-                val whenText =
-                    when {
-                        minutes < 60 ->
-                            "in " + minutes + " min"
-                        minutes < 1440 ->
-                            "in " + (minutes / 60) + " hr"
-                        else ->
-                            "in " + (minutes / 1440) + " day"
-                    }
-                lines +=
-                    "⏰ " +
-                        reminder.text.take(72) +
-                        " · " +
-                        whenText
-            }
-
-        return lines.take(4)
-    }
 }
 
 class AndroidCompanionStore(

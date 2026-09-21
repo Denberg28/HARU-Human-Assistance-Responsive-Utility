@@ -2,6 +2,7 @@ package io.haru.assistant
 
 import android.Manifest
 import android.annotation.SuppressLint
+import android.app.PendingIntent
 import android.appwidget.AppWidgetManager
 import android.content.ComponentName
 import android.content.Context
@@ -19,6 +20,7 @@ import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -27,6 +29,8 @@ import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.haru.assistant.companion.AndroidCompanionStore
 import io.haru.assistant.companion.CompanionSnapshot
+import io.haru.assistant.companion.HaruBubbleStatus
+import io.haru.assistant.companion.HaruBubbleActionReceiver
 import io.haru.assistant.companion.HaruBubbleStore
 import io.haru.assistant.companion.HaruBubbleWidgetProvider
 import io.haru.assistant.companion.ReminderScheduler
@@ -76,6 +80,9 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
     private var companionSnapshot by mutableStateOf(CompanionSnapshot())
     private var companionMode by mutableStateOf(CompanionMode.NORMAL)
     private var haruBubbleEnabled by mutableStateOf(true)
+    private var haruBubbleStatus by mutableStateOf(HaruBubbleStatus())
+    private var pendingBubblePrompt by mutableStateOf<String?>(null)
+    private var openCompanionRequest by mutableStateOf(0)
 
     private var onlineProvider by mutableStateOf(OnlineProvider.ANTIGRAVITY)
     private var selectedGeminiModel by mutableStateOf(AndroidOnlineAiManager.FALLBACK_GEMINI_MODEL)
@@ -136,7 +143,9 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
         }
 
     private val notificationPermissionLauncher =
-        registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+            if (granted) ReminderScheduler.rescheduleAll(this)
+        }
 
     private val locationPermissionLauncher =
         registerForActivityResult(
@@ -199,16 +208,31 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
             memoryState.antigravitySession
                 ?.takeIf { it.isFresh() }
 
+        receiveBubbleIntent(intent)
+        refreshBubbleStatus()
+
         setContent {
             HaruTheme {
                 val haruViewModel: HaruViewModel = viewModel()
                 activeViewModel = haruViewModel
+                LaunchedEffect(pendingBubblePrompt) {
+                    pendingBubblePrompt?.let { prompt ->
+                        if (!haruViewModel.uiState.isBusy && haruViewModel.uiState.command.isBlank()) {
+                            haruViewModel.updateCommand(prompt)
+                        }
+                        // Never send a network request, interrupt a reply, or replace a user's draft.
+                        pendingBubblePrompt = null
+                    }
+                }
 
                 HaruScreen(
                     viewModel = haruViewModel,
                     todayLines = companionSnapshot.todayLines(),
                     companionSnapshot = companionSnapshot,
                     haruBubbleEnabled = haruBubbleEnabled,
+                    haruBubbleStatus = haruBubbleStatus,
+                    companionQuiet = companionMode == CompanionMode.REST,
+                    openCompanionRequest = openCompanionRequest,
                     onlineProvider = onlineProvider,
                     selectedGeminiModel = selectedGeminiModel,
                     geminiModels = geminiModels,
@@ -237,6 +261,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
                     onUpdateCompanionTask = ::updateCompanionTask,
                     onDeleteCompanionTask = ::deleteCompanionTask,
                     onRequestHaruBubble = ::requestHaruBubble,
+                    onRefreshBubbleStatus = ::refreshBubbleStatus,
                     onToggleHaruBubble = ::toggleHaruBubble,
                     onSelectOnlineProvider = ::selectOnlineProvider,
                     onSelectGeminiModel = ::selectGeminiModel,
@@ -401,32 +426,47 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
         haruBubbleEnabled = !haruBubbleEnabled
         haruBubbleStore.setEnabled(haruBubbleEnabled)
         refreshCompanionSurface()
+        refreshBubbleStatus()
+    }
+
+    private fun refreshBubbleStatus() {
+        haruBubbleStatus = HaruBubbleStatus(
+            installedCount = HaruBubbleWidgetProvider.installedCount(this),
+            enabled = haruBubbleStore.isEnabled(),
+            pinSupported = AppWidgetManager.getInstance(this).isRequestPinAppWidgetSupported,
+        )
     }
 
     private fun requestHaruBubble() {
-        val manager =
-            AppWidgetManager.getInstance(this)
-        val provider =
-            ComponentName(
-                this,
-                HaruBubbleWidgetProvider::class.java,
-            )
-
-        if (
-            Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
-            manager.isRequestPinAppWidgetSupported
-        ) {
+        refreshBubbleStatus()
+        val manager = AppWidgetManager.getInstance(this)
+        if (!haruBubbleStatus.pinSupported) return // Setup always displays manual launcher steps.
+        val callback = PendingIntent.getBroadcast(
+            this, 7003,
+            Intent(this, HaruBubbleActionReceiver::class.java).setAction(HaruBubbleWidgetProvider.ACTION_PINNED),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+        // true means a request was accepted, not that a widget was installed.
+        val requested = runCatching {
             manager.requestPinAppWidget(
-                provider,
-                null,
-                null,
+                ComponentName(this, HaruBubbleWidgetProvider::class.java), null, callback,
             )
-        } else {
-            activeViewModel?.completeAi(
-                "Add the HARU widget from your launcher’s Widgets menu, then place it where you want on the Home screen.",
-                success = true,
-            )
-        }
+        }.getOrDefault(false)
+        haruBubbleStatus = haruBubbleStatus.copy(requestPending = requested)
+    }
+
+    private fun receiveBubbleIntent(incoming: Intent?) {
+        if (incoming?.action != HaruBubbleWidgetProvider.ACTION_CHAT) return
+        openCompanionRequest += 1
+        pendingBubblePrompt = incoming.getStringExtra(HaruBubbleWidgetProvider.EXTRA_PROMPT)
+            ?.take(500)?.takeIf { it.isNotBlank() }
+        incoming.removeExtra(HaruBubbleWidgetProvider.EXTRA_PROMPT)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        receiveBubbleIntent(intent)
     }
 
     private fun resetConversationMemory(
@@ -1404,10 +1444,12 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
 
         if (::companionStore.isInitialized) {
             companionSnapshot = companionStore.load()
+            ReminderScheduler.rescheduleAll(this)
         }
         if (::haruBubbleStore.isInitialized) {
             haruBubbleEnabled =
                 haruBubbleStore.isEnabled()
+            refreshBubbleStatus()
             refreshCompanionSurface()
         }
         if (::trustedLocationManager.isInitialized) {

@@ -1,5 +1,6 @@
 package io.haru.assistant.update
 
+import io.haru.assistant.util.readBoundedText
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
@@ -38,7 +39,7 @@ class AndroidAppUpdateManager {
 
                 val releases = JSONArray(
                     connection.inputStream.bufferedReader(Charsets.UTF_8).use {
-                        it.readText().take(2_000_000)
+                        it.readBoundedText(2_000_000)
                     }
                 )
 
@@ -66,7 +67,7 @@ class AndroidAppUpdateManager {
                     if (bestApk.isBlank() || isNewer(version, bestVersion)) {
                         bestVersion = version
                         bestApk = apk
-                        bestReleaseUrl = release.optString("html_url")
+                        bestReleaseUrl = "https://github.com${TrustedReleaseUrl.REPOSITORY_PATH}/releases/tag/v$version"
                     }
                 }
 
@@ -98,11 +99,7 @@ class AndroidAppUpdateManager {
             val url = item.optString("browser_download_url")
             if (name != expectedName) continue
 
-            val parsed = runCatching { URL(url) }.getOrNull() ?: continue
-            if (
-                parsed.protocol.equals("https", ignoreCase = true) &&
-                parsed.host.equals("github.com", ignoreCase = true)
-            ) {
+            if (TrustedReleaseUrl.apk(version, expectedName, url)) {
                 return url
             }
         }

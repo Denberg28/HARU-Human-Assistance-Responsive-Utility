@@ -6,17 +6,18 @@ data class HaruBubbleContent(
     val face: String,
     val greeting: String,
     val line: String,
+    val conversationPrompt: String = "Let's have a short chat.",
 )
 
 object HaruBubbleContentFactory {
     private val idleLines =
         listOf(
-            "Ready when you are.",
-            "Anything for today?",
-            "I'm here.",
-            "Need a quick reminder?",
-            "One thing at a time.",
-            "What are we working on?",
+            "What's one small win today?" to "Help me reflect on one small win today.",
+            "What shall we work on?" to "Help me choose one thing to work on today.",
+            "How is your day going?" to "Ask me how my day is going. Keep it conversational.",
+            "Time for a little breather?" to "Suggest a simple one-minute break.",
+            "One thing at a time." to "Help me break my next task into one small step.",
+            "Something on your mind?" to "Let's have a short, friendly conversation.",
         )
 
     fun create(
@@ -24,6 +25,7 @@ object HaruBubbleContentFactory {
         step: Long,
         snapshot: CompanionSnapshot,
         now: Long,
+        quiet: Boolean = false,
     ): HaruBubbleContent {
         val greeting =
             when (hourOfDay) {
@@ -35,11 +37,16 @@ object HaruBubbleContentFactory {
 
         val openTasks =
             snapshot.tasks.count { !it.done }
-        val reminders =
-            snapshot.reminders.count { it.dueAt > now }
+        // Keep overdue, undelivered reminders visible instead of silently hiding them.
+        val reminders = snapshot.reminders.size
+        val overdue = snapshot.reminders.count { it.dueAt <= now }
+        val idle = idleLines[Math.floorMod(step, idleLines.size.toLong()).toInt()]
 
         val line =
             when {
+                quiet -> "A quiet moment. I'm here when you need me."
+                Math.floorMod(step, 3L) != 0L -> idle.first
+                overdue > 0 -> "$overdue reminder" + (if (overdue == 1) "" else "s") + " due. Open Today."
                 reminders > 0 && openTasks > 0 ->
                     "$openTasks task" +
                         (if (openTasks == 1) "" else "s") +
@@ -53,23 +60,20 @@ object HaruBubbleContentFactory {
                     "$openTasks task" +
                         (if (openTasks == 1) "" else "s") +
                         " for today."
-                else ->
-                    idleLines[
-                        Math.floorMod(
-                            step,
-                            idleLines.size.toLong(),
-                        ).toInt()
-                    ]
+                else -> idle.first
             }
 
         return HaruBubbleContent(
             face =
                 HaruFaces.idleRotation(
                     hourOfDay = hourOfDay,
-                    step = step,
+                    step = if (quiet) 0L else step,
                 ),
             greeting = greeting,
             line = line,
+            conversationPrompt = if (quiet) "Let's have a short, quiet chat."
+                else if (Math.floorMod(step, 3L) == 0L && (openTasks > 0 || reminders > 0)) "today"
+                else idle.second,
         )
     }
 }

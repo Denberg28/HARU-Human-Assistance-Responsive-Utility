@@ -96,4 +96,30 @@ class HaruBubbleContentTest {
                 first.line != second.line
         )
     }
+
+    @Test
+    fun pendingTasksDoNotSuppressIdleConversation() {
+        val snapshot = CompanionSnapshot(tasks = listOf(CompanionTask("Private task")))
+        val lines = (0L..5L).map { HaruBubbleContentFactory.create(10, it, snapshot, 0L) }
+        assertTrue(lines.map { it.line }.distinct().size >= 4)
+        assertTrue(lines.any { it.conversationPrompt != "today" })
+        assertTrue(lines.all { !it.line.contains("Private task") })
+    }
+
+    @Test
+    fun overdueRemindersStayVisible() {
+        val snapshot = CompanionSnapshot(reminders = listOf(CompanionReminder("a", "Private reminder", 10L)))
+        val content = HaruBubbleContentFactory.create(10, 0L, snapshot, 20L)
+        assertEquals("1 reminder due. Open Today.", content.line)
+        assertEquals("today", content.conversationPrompt)
+    }
+
+    @Test
+    fun quietModeHasStableContentAndNegativeStepsAreSafe() {
+        val snapshot = CompanionSnapshot()
+        val first = HaruBubbleContentFactory.create(23, Long.MIN_VALUE, snapshot, 0L, quiet = true)
+        val second = HaruBubbleContentFactory.create(23, Long.MAX_VALUE, snapshot, 0L, quiet = true)
+        assertEquals(first, second)
+        assertTrue(HaruBubbleContentFactory.create(5, Long.MIN_VALUE, snapshot, 0L).line.isNotBlank())
+    }
 }

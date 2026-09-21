@@ -33,13 +33,21 @@
             android:exported="false">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
             </intent-filter>
         </receiver>
         <receiver
+            android:name=".companion.HaruBubbleActionReceiver"
+            android:exported="false" />
+        <!-- Launcher discovery stays public; custom state-changing commands are private. -->
+        <receiver
             android:name=".companion.HaruBubbleWidgetProvider"
+            android:label="HARU Bubble"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+                <action android:name="android.intent.action.TIME_SET" />
+                <action android:name="android.intent.action.TIMEZONE_CHANGED" />
             </intent-filter>
             <meta-data
                 android:name="android.appwidget.provider"

@@ -4,51 +4,21 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class CompanionSnapshotTest {
-
-    @Test
-    fun lockScreenLinesPreferOpenTasksThenReminders() {
-        val now = 1_000_000L
-        val snapshot =
-            CompanionSnapshot(
-                tasks =
-                    listOf(
-                        CompanionTask("Buy milk"),
-                        CompanionTask("Finished", done = true),
-                        CompanionTask("Charge drone"),
-                    ),
-                reminders =
-                    listOf(
-                        CompanionReminder(
-                            id = "r1",
-                            text = "Call home",
-                            dueAt = now + 30 * 60_000L,
-                        )
-                    ),
-            )
-
-        assertEquals(
-            listOf(
-                "□ Buy milk",
-                "□ Charge drone",
-                "⏰ Call home · in 30 min",
-            ),
-            snapshot.lockScreenLines(now),
+    @Test fun todayShowsOpenTasksAndOverdueReminder() {
+        val snapshot = CompanionSnapshot(
+            tasks = listOf(CompanionTask("Buy milk"), CompanionTask("Finished", done = true)),
+            reminders = listOf(CompanionReminder("r1", "Call home", 1L)),
         )
+        assertEquals(listOf("Tasks: Buy milk", "⏰ Call home · due now"), snapshot.todayLines(60_001L))
     }
 
-    @Test
-    fun lockScreenLinesAreBounded() {
-        val snapshot =
-            CompanionSnapshot(
-                tasks =
-                    (1..8).map {
-                        CompanionTask("Task $it")
-                    }
-            )
-
-        assertEquals(
-            3,
-            snapshot.lockScreenLines().size,
+    @Test fun todayKeepsSummaryBounded() {
+        val snapshot = CompanionSnapshot(
+            tasks = (1..8).map { CompanionTask("Task $it") },
+            reminders = (1..8).map { CompanionReminder("$it", "Reminder $it", it * 60_000L) },
         )
+        val lines = snapshot.todayLines(0L)
+        assertEquals(3, lines.size)
+        assertEquals("Tasks: Task 1 · Task 2", lines.first())
     }
 }
