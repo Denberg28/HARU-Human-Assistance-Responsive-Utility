@@ -49,7 +49,7 @@ internal class HaruLockScreenScene(context: Context) {
         return true
     }
 
-    fun draw(canvas: Canvas, width: Int, height: Int, elapsed: Long, wall: Long, center: Float = 0.69f) {
+    fun draw(canvas: Canvas, width: Int, height: Int, elapsed: Long, wall: Long) {
         tapBounds.setEmpty()
         if (width <= 0 || height <= 0) return
         if (!checker.isEnabled()) {
@@ -83,13 +83,16 @@ internal class HaruLockScreenScene(context: Context) {
         }
         val cardWidth = min(width - 24f * density, 340f * density).coerceAtLeast(1f)
         val cardHeight = min(64f * density * fontScale, height.toFloat())
-        bounds.set((width - cardWidth) / 2f, height * center - cardHeight / 2f,
-            (width + cardWidth) / 2f, height * center + cardHeight / 2f)
+        bounds.set(
+            (width - cardWidth) / 2f,
+            (height - cardHeight) / 2f,
+            (width + cardWidth) / 2f,
+            (height + cardHeight) / 2f,
+        )
         paint.color = Color.rgb(237, 229, 243)
         canvas.drawRoundRect(bounds, 18f * density, 18f * density, paint)
-        // Stable card and hit area; only the existing chibi face moves.
+        // The visual card is the only HARU hit target.
         tapBounds.set(bounds)
-        tapBounds.inset(-8f * density, -8f * density)
         val faceWidth = min(120f * density, cardWidth * 0.40f)
         val textLeft = bounds.left + 12f * density
         val textWidth = (cardWidth - faceWidth - 30f * density).coerceAtLeast(1f)
