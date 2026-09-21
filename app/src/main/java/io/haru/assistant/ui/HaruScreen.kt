@@ -112,7 +112,6 @@ fun HaruScreen(
     onAddCompanionTask: (String) -> Unit,
     onUpdateCompanionTask: (Int, String) -> Unit,
     onDeleteCompanionTask: (Int) -> Unit,
-    onSetHaruLockScreen: () -> Unit,
     onToggleHaruChecker: () -> Unit,
     onSelectOnlineProvider: (OnlineProvider) -> Unit,
     onSelectGeminiModel: (GeminiModel) -> Unit,
@@ -229,7 +228,6 @@ fun HaruScreen(
         HaruLockScreenDialog(
             enabled = haruCheckerEnabled,
             onDismiss = { showLockScreenSetup = false },
-            onSetWallpaper = onSetHaruLockScreen,
             onToggle = onToggleHaruChecker,
         )
     }
