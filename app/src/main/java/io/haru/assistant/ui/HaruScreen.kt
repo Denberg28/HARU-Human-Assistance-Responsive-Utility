@@ -387,7 +387,8 @@ private fun SimpleHaruPane(
                     busy = state.isBusy,
                     draft = state.command,
                     visible = companionVisible && !showToday,
-                    onChat = viewModel::updateCommand,
+                    onChat = viewModel::setCompanionDraft,
+                    onAnother = viewModel::clearCompanionDraft,
                 )
             } else {
                 HaruFace(mood = state.mood, modifier = Modifier.sizeCompat(96.dp))
@@ -454,7 +455,7 @@ private fun SimpleHaruPane(
                 keyboardOptions =
                     KeyboardOptions(imeAction = ImeAction.Send),
                 keyboardActions =
-                    KeyboardActions(onSend = { onSubmitClick() }),
+                    KeyboardActions(onSend = { if (state.canSubmit) onSubmitClick() }),
                 modifier = Modifier.fillMaxWidth(),
             )
 
@@ -481,18 +482,14 @@ private fun SimpleHaruPane(
             ) {
                 Button(
                     onClick = onSubmitClick,
-                    enabled =
-                        !state.isBusy &&
-                            state.command.isNotBlank(),
+                    enabled = state.canSubmit,
                     modifier = Modifier.weight(1f),
                 ) {
                     Text("Send")
                 }
                 OutlinedButton(
                     onClick = onMicClick,
-                    enabled =
-                        !state.isBusy ||
-                            state.mood == HaruMood.LISTENING,
+                    enabled = !state.isBusy,
                     modifier = Modifier.weight(1f),
                 ) {
                     Text(
