@@ -57,8 +57,10 @@ Desktop companion data is stored in `~/.haru/companion.json`. Streamlit Cloud us
 python -m unittest discover -s tests -v
 ```
 
-### Interactive lock-screen HARU
+### HARU Home companion
 
-Choose **Lock screen → Show interactive HARU bar**, then lock with the power button. HARU is rendered as a compact translucent touch window only; the phone’s normal lock-screen wallpaper, clock, fingerprint area and controls remain underneath. Tap HARU for the reaction. Touches outside the HARU bar pass to the system lock screen, and unlocking closes the bar automatically.
+HARU's interactive companion is now a normal Android Home-screen widget rather than a lock-screen surface. Open **Home companion** in HARU and choose **Add HARU to Home screen**. Android requires launcher confirmation the first time a widget is pinned; after that, it stays on the Home screen until you remove it.
 
-The retired live-wallpaper implementation was removed because it replaced the user’s wallpaper and many OEM keyguards do not deliver wallpaper taps reliably. HARU does not request draw-over-other-apps, accessibility, keyguard-dismiss, wake-lock, or full-screen-intent permission.
+Long-press the widget to drag, resize, or remove it. Tapping the HARU bar gives an immediate local reaction and returns to the current check-in after about 650 ms. No chat opens, no network request is made, and no overlay service runs.
+
+This avoids the lock-screen overlap seen on some OEMs and keeps the HARU app fully usable while the companion remains available on the launcher.
