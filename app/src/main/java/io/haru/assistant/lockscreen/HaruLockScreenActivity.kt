@@ -1,5 +1,6 @@
 package io.haru.assistant.lockscreen
 
+import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.BroadcastReceiver
 import android.content.Context
@@ -17,7 +18,6 @@ import android.view.WindowManager
 import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.TextView
-import androidx.core.content.ContextCompat
 
 /** Explicit foreground session. Never launches itself or dismisses the device keyguard. */
 class HaruLockScreenActivity : Activity() {
@@ -34,6 +34,7 @@ class HaruLockScreenActivity : Activity() {
         }
     }
 
+    @SuppressLint("UnspecifiedRegisterReceiverFlag") // Pre-33 branch listens only to protected system actions.
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         if (Build.VERSION.SDK_INT >= 27) setShowWhenLocked(true)
@@ -70,11 +71,17 @@ class HaruLockScreenActivity : Activity() {
             setOnClickListener { finishAndRemoveTask() }
         })
         setContentView(root)
-        ContextCompat.registerReceiver(this, screenReceiver, IntentFilter().apply {
+        val screenEvents = IntentFilter().apply {
             addAction(Intent.ACTION_SCREEN_OFF)
             addAction(Intent.ACTION_SCREEN_ON)
             addAction(Intent.ACTION_USER_PRESENT)
-        }, ContextCompat.RECEIVER_NOT_EXPORTED)
+        }
+        if (Build.VERSION.SDK_INT >= 33) {
+            registerReceiver(screenReceiver, screenEvents, Context.RECEIVER_NOT_EXPORTED)
+        } else {
+            // These three broadcasts can only be sent by Android. No AndroidX private permission needed.
+            registerReceiver(screenReceiver, screenEvents)
+        }
     }
 
     override fun onResume() {
