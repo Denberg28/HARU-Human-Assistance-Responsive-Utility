@@ -256,7 +256,7 @@ fun HaruScreen(
                         fontWeight = FontWeight.SemiBold,
                     )
                     Text(
-                        "A compact personal assistant and companion focused on tasks, reminders, voice, and trusted location tools.",
+                        "A compact personal assistant with quiet caring check-ins, tasks, reminders, voice, and trusted location tools.",
                         style = MaterialTheme.typography.bodySmall,
                     )
                     HorizontalDivider()
