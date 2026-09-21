@@ -2,6 +2,9 @@ package io.haru.assistant
 
 import android.Manifest
 import android.annotation.SuppressLint
+import android.app.PendingIntent
+import android.appwidget.AppWidgetManager
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -25,7 +28,10 @@ import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.haru.assistant.companion.AndroidCompanionStore
 import io.haru.assistant.companion.CompanionSnapshot
+import io.haru.assistant.companion.HaruBubbleActionReceiver
+import io.haru.assistant.companion.HaruBubbleWidgetProvider
 import io.haru.assistant.companion.HaruCheckerStore
+import io.haru.assistant.companion.HaruHomeWidgetStatus
 import io.haru.assistant.companion.ReminderScheduler
 import io.haru.assistant.core.CompanionMode
 import io.haru.assistant.core.CompanionModeStore
@@ -73,6 +79,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
     private var companionSnapshot by mutableStateOf(CompanionSnapshot())
     private var companionMode by mutableStateOf(CompanionMode.NORMAL)
     private var haruCheckerEnabled by mutableStateOf(true)
+    private var haruHomeWidgetStatus by mutableStateOf(HaruHomeWidgetStatus())
 
     private var onlineProvider by mutableStateOf(OnlineProvider.ANTIGRAVITY)
     private var selectedGeminiModel by mutableStateOf(AndroidOnlineAiManager.FALLBACK_GEMINI_MODEL)
@@ -184,6 +191,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
         companionMode = companionModeStore.load()
         haruCheckerEnabled = haruCheckerStore.isEnabled()
         cleanupLegacyStorageOnce()
+        refreshHaruHomeWidgetStatus()
         val onlineSettings = onlineAiManager.settings()
         onlineProvider = onlineSettings.provider
         selectedGeminiModel = onlineSettings.geminiModel
@@ -207,6 +215,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
                     todayLines = companionSnapshot.todayLines(),
                     companionSnapshot = companionSnapshot,
                     haruCheckerEnabled = haruCheckerEnabled,
+                    haruHomeWidgetStatus = haruHomeWidgetStatus,
                     companionQuiet = companionMode == CompanionMode.REST,
                     onlineProvider = onlineProvider,
                     selectedGeminiModel = selectedGeminiModel,
@@ -235,6 +244,8 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
                     onAddCompanionTask = ::addCompanionTask,
                     onUpdateCompanionTask = ::updateCompanionTask,
                     onDeleteCompanionTask = ::deleteCompanionTask,
+                    onRequestHaruHomeWidget = ::requestHaruHomeWidget,
+                    onRefreshHaruHomeWidget = ::refreshHaruHomeWidgetStatus,
                     onToggleHaruChecker = ::toggleHaruChecker,
                     onSelectOnlineProvider = ::selectOnlineProvider,
                     onSelectGeminiModel = ::selectGeminiModel,
@@ -360,6 +371,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
     private fun addCompanionTask(text: String) {
         if (text.isBlank()) return
         companionSnapshot = companionStore.addTask(text)
+        HaruBubbleWidgetProvider.refreshAll(applicationContext)
     }
 
     private fun updateCompanionTask(
@@ -369,12 +381,14 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
         if (index !in companionSnapshot.tasks.indices) return
         companionSnapshot =
             companionStore.updateTask(index, text)
+        HaruBubbleWidgetProvider.refreshAll(applicationContext)
     }
 
     private fun deleteCompanionTask(index: Int) {
         if (index !in companionSnapshot.tasks.indices) return
         companionSnapshot =
             companionStore.deleteTask(index)
+        HaruBubbleWidgetProvider.refreshAll(applicationContext)
     }
 
     private fun selectCompanionMode(mode: CompanionMode) {
@@ -389,6 +403,63 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
     private fun toggleHaruChecker() {
         haruCheckerEnabled = !haruCheckerEnabled
         haruCheckerStore.setEnabled(haruCheckerEnabled)
+        HaruBubbleWidgetProvider.refreshAll(applicationContext)
+        refreshHaruHomeWidgetStatus()
+    }
+
+    private fun refreshHaruHomeWidgetStatus() {
+        if (!::haruCheckerStore.isInitialized) return
+
+        haruHomeWidgetStatus =
+            HaruHomeWidgetStatus(
+                installedCount =
+                    HaruBubbleWidgetProvider
+                        .installedCount(this),
+                enabled = haruCheckerStore.isEnabled(),
+                pinSupported =
+                    AppWidgetManager
+                        .getInstance(this)
+                        .isRequestPinAppWidgetSupported,
+            )
+    }
+
+    private fun requestHaruHomeWidget() {
+        refreshHaruHomeWidgetStatus()
+        if (haruHomeWidgetStatus.installedCount > 0) return
+
+        val manager = AppWidgetManager.getInstance(this)
+        if (!manager.isRequestPinAppWidgetSupported) return
+
+        val callback =
+            PendingIntent.getBroadcast(
+                this,
+                7105,
+                Intent(
+                    this,
+                    HaruBubbleActionReceiver::class.java,
+                ).setAction(
+                    HaruBubbleWidgetProvider.ACTION_PINNED
+                ),
+                PendingIntent.FLAG_UPDATE_CURRENT or
+                    PendingIntent.FLAG_IMMUTABLE,
+            )
+
+        val requested =
+            runCatching {
+                manager.requestPinAppWidget(
+                    ComponentName(
+                        this,
+                        HaruBubbleWidgetProvider::class.java,
+                    ),
+                    null,
+                    callback,
+                )
+            }.getOrDefault(false)
+
+        haruHomeWidgetStatus =
+            haruHomeWidgetStatus.copy(
+                requestPending = requested,
+            )
     }
 
     private fun resetConversationMemory(
@@ -1362,6 +1433,8 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
         if (::haruCheckerStore.isInitialized) {
             haruCheckerEnabled =
                 haruCheckerStore.isEnabled()
+            refreshHaruHomeWidgetStatus()
+            HaruBubbleWidgetProvider.refreshAll(applicationContext)
         }
         if (::trustedLocationManager.isInitialized) {
             trustedLocations = trustedLocationManager.load()
