@@ -1467,7 +1467,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
 
     private fun systemPromptFor(mode: CompanionMode): String =
         SYSTEM_PROMPT +
-            " Current companion mode: " +
+            " Current assistant mode: " +
             mode.label +
             ". " +
             mode.aiGuidance
