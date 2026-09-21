@@ -11,17 +11,10 @@ enum class HaruMood {
     SLEEPY
 }
 
-enum class CommandSource {
-    NONE,
-    USER,
-    COMPANION,
-}
-
 data class HaruUiState(
     val mood: HaruMood = HaruMood.IDLE,
     val message: String = "Hello. I'm HARU.",
     val command: String = "",
-    val commandSource: CommandSource = CommandSource.NONE,
     val latestUserMessage: String = "",
     val isBusy: Boolean = false
 ) {
