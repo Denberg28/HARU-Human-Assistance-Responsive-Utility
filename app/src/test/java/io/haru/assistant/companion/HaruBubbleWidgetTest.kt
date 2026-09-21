@@ -25,7 +25,7 @@ import org.robolectric.annotation.Config
 @Config(sdk = [26, 36])
 class HaruBubbleWidgetTest {
     private val context
-        get() = RuntimeEnvironment.getApplication<android.app.Application>()
+        get() = RuntimeEnvironment.getApplication()
 
     private val manager
         get() = AppWidgetManager.getInstance(context)
