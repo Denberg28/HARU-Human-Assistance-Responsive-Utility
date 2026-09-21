@@ -7,6 +7,7 @@ val haruKeystorePath = System.getenv("HARU_KEYSTORE_PATH")
 val haruStorePassword = System.getenv("HARU_STORE_PASSWORD")
 val haruKeyPassword = System.getenv("HARU_KEY_PASSWORD")
 val haruKeyAlias = System.getenv("HARU_KEY_ALIAS")
+val haruReleaseRequired = System.getenv("HARU_RELEASE_REQUIRED").equals("true", ignoreCase = true)
 
 android {
     namespace = "io.haru.assistant"
@@ -50,7 +51,11 @@ android {
             isDebuggable = false
             isMinifyEnabled = true
             isShrinkResources = true
-            signingConfig = signingConfigs.findByName("haruRelease") ?: signingConfigs.getByName("debug")
+            signingConfig = if (haruReleaseRequired) {
+                signingConfigs.getByName("haruRelease")
+            } else {
+                signingConfigs.findByName("haruRelease") ?: signingConfigs.getByName("debug")
+            }
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
             )
