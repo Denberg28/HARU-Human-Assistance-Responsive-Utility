@@ -3,6 +3,11 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
+val haruKeystorePath = System.getenv("HARU_KEYSTORE_PATH")
+val haruStorePassword = System.getenv("HARU_STORE_PASSWORD")
+val haruKeyPassword = System.getenv("HARU_KEY_PASSWORD")
+val haruKeyAlias = System.getenv("HARU_KEY_ALIAS")
+
 android {
     namespace = "io.haru.assistant"
     compileSdk = 37
@@ -19,6 +24,22 @@ android {
         }
     }
 
+    signingConfigs {
+        if (
+            !haruKeystorePath.isNullOrBlank() &&
+            !haruStorePassword.isNullOrBlank() &&
+            !haruKeyPassword.isNullOrBlank() &&
+            !haruKeyAlias.isNullOrBlank()
+        ) {
+            create("haruRelease") {
+                storeFile = file(haruKeystorePath)
+                storePassword = haruStorePassword
+                keyAlias = haruKeyAlias
+                keyPassword = haruKeyPassword
+            }
+        }
+    }
+
     buildFeatures {
         compose = true
         buildConfig = false
@@ -29,7 +50,7 @@ android {
             isDebuggable = false
             isMinifyEnabled = true
             isShrinkResources = true
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.findByName("haruRelease") ?: signingConfigs.getByName("debug")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
             )

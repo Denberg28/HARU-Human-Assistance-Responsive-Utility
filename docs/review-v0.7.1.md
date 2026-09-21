@@ -12,8 +12,8 @@ Reviewed the v0.7.1 candidate at d3debff37a03092acb52b2f627dedc9c3980059a and ap
 | Alarm identity | Java string hash collisions could replace another reminder | Unique URI identity, tagged notifications and cancellation of legacy alarm identities |
 | AI transport | Authenticated connections allowed default HTTP redirect behavior | Redirects disabled for key-bearing catalog and AI calls |
 | Update links | Download validation accepted any github.com repository | Require the exact HARU repository/version/asset path; reject credentials, alternate ports, queries and fragments |
-| Release | Build job had write access; no previous-APK certificate comparison | Read-only build job, separate publishing job, Python gate, APK signature verification and comparison against digest-pinned v0.7.0 |
-| Signing | Existing debug-format signing key was stored in Actions cache | Prefer protected secret and fail if existing identity is missing; legacy fallback retained. Owner migration remains necessary |
+| Release | Build job had write access and release signing was not durable | Read-only build job, separate publishing job, Python gate, protected stable signing bundle, pinned certificate verification and checksum verification |
+| Signing | v0.7.0 and earlier relied on an ephemeral CI debug signing identity that was not retained | Establish a new stable HARU release key for v0.7.1 onward; remove signing-key cache fallback; require protected repository secret |
 
 ## Battery behavior established from code
 
@@ -32,19 +32,20 @@ No physical battery measurements were performed. A percentage-per-hour or runtim
 - Actual due reminders intentionally retain the existing public lock-screen visibility. Device notification privacy settings control display of their content.
 - Online AI sends the user's prompt and bounded context to the selected provider. This review does not validate provider retention, quotas or live account access.
 - The exported launcher activity can accept a bounded conversation draft but never automatically sends it. Widget content exposes counts/starters rather than task contents.
-- The existing signing cache is a material production-hardening gap, not a secure vault. The same-key secret migration preserves upgrade compatibility; deleting or replacing the key without migration risks blocking upgrades. No key material was retrieved or printed in this review.
+- v0.7.0's private signing key was not retained by CI and cannot be reconstructed from the APK. Android therefore cannot perform an in-place upgrade from that signer to the new v0.7.1 signer without the old private key.
+- The v0.7.1 stable signing bundle must remain private and backed up. CI requires it as a protected repository secret and checks its public certificate fingerprint before signing.
 - This is targeted source review and automated regression validation, not an independent penetration test or dependency vulnerability audit.
 
 ## Verification and device acceptance
 
-The release workflow requires Python unit tests, Android unit/widget regressions on API 26/36, release lint, optimized release assembly, APK signature verification, comparison with the previous signer, and a checksum verification before publication. GitHub Actions is the authoritative record of final pass/fail outcomes.
+The release workflow requires Python unit tests, Android unit/widget regressions on API 26/36, release lint, optimized release assembly, verification of the protected signing bundle against the pinned certificate fingerprint, APK signature verification, and checksum verification before publication. GitHub Actions is the authoritative record of final pass/fail outcomes.
 
 New regressions cover private widget actions, map background/return/disposal, deleted/duplicate/muted reminder delivery, alarm collisions, missed reminders after reboot, and hostile update URLs. Existing tests cover memory bounds, response formatting, idle policy, content, widget placement/clicks/resizing and bounded response reads.
 
-Device checks remain: upgrade over v0.7.0 without uninstalling; place and tap the widget in the POCO launcher; test reminder delivery with notifications allowed/blocked, reboot and Doze; background/return from Map; verify voice and one AI conversation with the user's configured account. See companion-verification.md for the full launcher checklist.
+Device checks remain: clean-install v0.7.1 after removing an earlier signer-incompatible build; place and tap the widget in the POCO launcher; test reminder delivery with notifications allowed/blocked, reboot and Doze; background/return from Map; verify voice and one AI conversation with the user's configured account. See companion-verification.md for the full launcher checklist.
 
 ## References
 
 - [Android widgets](https://developer.android.com/develop/ui/views/appwidgets): platform widget scheduling and host behavior.
 - [MapLibre MapView lifecycle](https://maplibre.org/maplibre-native/android/api/-map-libre%20-native%20-android/org.maplibre.android.maps/-map-view/index.html): lifecycle forwarding requirements.
-- [GitHub dependency cache security](https://docs.github.com/en/actions/reference/workflows-and-actions/dependency-caching): sensitive cache content and access from pull requests.
+- [GitHub encrypted secrets](https://docs.github.com/en/actions/security-for-github-actions/security-guides/using-secrets-in-github-actions): protected secret handling for workflow credentials.
