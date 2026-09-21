@@ -139,9 +139,6 @@ class HaruLockScreenWallpaperService : WallpaperService() {
             var canvas: Canvas? = null
             try {
                 canvas = holder.lockCanvas() ?: return
-                canvas.drawColor(Color.TRANSPARENT)
-
-                if (!checkerStore.isEnabled()) return
 
                 val nowWall = System.currentTimeMillis()
                 val nowElapsed = SystemClock.elapsedRealtime()
@@ -149,6 +146,16 @@ class HaruLockScreenWallpaperService : WallpaperService() {
                     Calendar
                         .getInstance()
                         .get(Calendar.HOUR_OF_DAY)
+
+                canvas.drawColor(
+                    if (hour >= 22 || hour <= 5) {
+                        Color.rgb(25, 22, 31)
+                    } else {
+                        Color.rgb(252, 247, 253)
+                    }
+                )
+
+                if (!checkerStore.isEnabled()) return
                 val step = nowWall / 90_000L
                 val quiet =
                     modeStore.load() == CompanionMode.REST
