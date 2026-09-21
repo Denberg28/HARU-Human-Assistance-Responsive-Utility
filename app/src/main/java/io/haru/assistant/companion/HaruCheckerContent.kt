@@ -2,7 +2,7 @@ package io.haru.assistant.companion
 
 import io.haru.assistant.core.HaruFaces
 
-data class HaruBubbleContent(
+data class HaruCheckerContent(
     val face: String,
     val greeting: String,
     val line: String,
@@ -13,7 +13,7 @@ data class HaruAcknowledgement(
     val line: String,
 )
 
-object HaruBubbleContentFactory {
+object HaruCheckerContentFactory {
     private val checkInLines =
         listOf(
             "Had some water lately?",
@@ -42,7 +42,7 @@ object HaruBubbleContentFactory {
         snapshot: CompanionSnapshot,
         now: Long,
         quiet: Boolean = false,
-    ): HaruBubbleContent {
+    ): HaruCheckerContent {
         val greeting =
             when (hourOfDay) {
                 in 5..11 -> "Good morning"
@@ -54,7 +54,11 @@ object HaruBubbleContentFactory {
         val openTasks = snapshot.tasks.count { !it.done }
         val reminders = snapshot.reminders.size
         val overdue = snapshot.reminders.count { it.dueAt <= now }
-        val index = Math.floorMod(step * 31L + hourOfDay, checkInLines.size.toLong()).toInt()
+        val index =
+            Math.floorMod(
+                step * 31L + hourOfDay,
+                checkInLines.size.toLong(),
+            ).toInt()
         val checkIn = checkInLines[index]
 
         val line =
@@ -82,7 +86,7 @@ object HaruBubbleContentFactory {
                 else -> checkIn
             }
 
-        return HaruBubbleContent(
+        return HaruCheckerContent(
             face =
                 HaruFaces.idleRotation(
                     hourOfDay = hourOfDay,
@@ -94,5 +98,10 @@ object HaruBubbleContentFactory {
     }
 
     fun acknowledgement(step: Long): HaruAcknowledgement =
-        acknowledgements[Math.floorMod(step, acknowledgements.size.toLong()).toInt()]
+        acknowledgements[
+            Math.floorMod(
+                step,
+                acknowledgements.size.toLong(),
+            ).toInt()
+        ]
 }

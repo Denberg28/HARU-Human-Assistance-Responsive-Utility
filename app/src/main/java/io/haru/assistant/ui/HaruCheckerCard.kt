@@ -27,7 +27,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
 import io.haru.assistant.companion.CompanionSnapshot
-import io.haru.assistant.companion.HaruBubbleContentFactory
+import io.haru.assistant.companion.HaruCheckerContentFactory
 import io.haru.assistant.companion.HaruIdlePolicy
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -35,7 +35,7 @@ import java.util.Calendar
 
 /** Local caring checker only: no AI request, microphone, alarm, or chat draft. */
 @Composable
-fun HaruCompanionCard(
+fun HaruCheckerCard(
     snapshot: CompanionSnapshot,
     quiet: Boolean,
     busy: Boolean,
@@ -85,7 +85,7 @@ fun HaruCompanionCard(
         }.get(Calendar.HOUR_OF_DAY)
 
     val content =
-        HaruBubbleContentFactory.create(
+        HaruCheckerContentFactory.create(
             hourOfDay = hour,
             step = step,
             snapshot = snapshot,
@@ -93,11 +93,11 @@ fun HaruCompanionCard(
             quiet = quiet,
         )
     val acknowledgement =
-        HaruBubbleContentFactory.acknowledgement(step)
+        HaruCheckerContentFactory.acknowledgement(step)
 
     Card(modifier = Modifier.fillMaxWidth()) {
         Row(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 3.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
@@ -118,7 +118,7 @@ fun HaruCompanionCard(
                 fontSize = 26.sp,
                 modifier =
                     Modifier
-                        .sizeIn(minWidth = 52.dp, minHeight = 52.dp)
+                        .sizeIn(minWidth = 48.dp, minHeight = 42.dp)
                         .clickable(
                             enabled = !busy,
                             role = Role.Button,
@@ -126,7 +126,7 @@ fun HaruCompanionCard(
                         ) {
                             acknowledged = true
                         }
-                        .padding(vertical = 12.dp),
+                        .padding(vertical = 7.dp),
             )
         }
     }

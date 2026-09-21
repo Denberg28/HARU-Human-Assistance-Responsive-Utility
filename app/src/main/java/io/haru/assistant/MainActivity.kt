@@ -2,9 +2,7 @@ package io.haru.assistant
 
 import android.Manifest
 import android.annotation.SuppressLint
-import android.app.PendingIntent
-import android.appwidget.AppWidgetManager
-import android.content.ComponentName
+import android.app.WallpaperManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -28,13 +26,11 @@ import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.haru.assistant.companion.AndroidCompanionStore
 import io.haru.assistant.companion.CompanionSnapshot
-import io.haru.assistant.companion.HaruBubbleStatus
-import io.haru.assistant.companion.HaruBubbleActionReceiver
-import io.haru.assistant.companion.HaruBubbleStore
-import io.haru.assistant.companion.HaruBubbleWidgetProvider
+import io.haru.assistant.companion.HaruCheckerStore
 import io.haru.assistant.companion.ReminderScheduler
 import io.haru.assistant.core.CompanionMode
 import io.haru.assistant.core.CompanionModeStore
+import io.haru.assistant.lockscreen.HaruLockScreenWallpaperService
 import io.haru.assistant.location.HaruLiveLocationManager
 import io.haru.assistant.location.LiveLocationSession
 import io.haru.assistant.location.LiveMonitorSession
@@ -66,7 +62,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
     private lateinit var onlineAiManager: AndroidOnlineAiManager
     private lateinit var companionStore: AndroidCompanionStore
     private lateinit var companionModeStore: CompanionModeStore
-    private lateinit var haruBubbleStore: HaruBubbleStore
+    private lateinit var haruCheckerStore: HaruCheckerStore
     private lateinit var trustedLocationManager: TrustedLocationManager
     private lateinit var liveLocationManager: HaruLiveLocationManager
     private lateinit var appUpdateManager: AndroidAppUpdateManager
@@ -78,8 +74,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
 
     private var companionSnapshot by mutableStateOf(CompanionSnapshot())
     private var companionMode by mutableStateOf(CompanionMode.NORMAL)
-    private var haruBubbleEnabled by mutableStateOf(true)
-    private var haruBubbleStatus by mutableStateOf(HaruBubbleStatus())
+    private var haruCheckerEnabled by mutableStateOf(true)
 
     private var onlineProvider by mutableStateOf(OnlineProvider.ANTIGRAVITY)
     private var selectedGeminiModel by mutableStateOf(AndroidOnlineAiManager.FALLBACK_GEMINI_MODEL)
@@ -181,7 +176,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
         onlineAiManager = AndroidOnlineAiManager(applicationContext)
         companionStore = AndroidCompanionStore(applicationContext)
         companionModeStore = CompanionModeStore(applicationContext)
-        haruBubbleStore = HaruBubbleStore(applicationContext)
+        haruCheckerStore = HaruCheckerStore(applicationContext)
         trustedLocationManager = TrustedLocationManager(applicationContext)
         liveLocationManager = HaruLiveLocationManager()
         appUpdateManager = AndroidAppUpdateManager()
@@ -189,9 +184,8 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
 
         companionSnapshot = companionStore.load()
         companionMode = companionModeStore.load()
-        haruBubbleEnabled = haruBubbleStore.isEnabled()
+        haruCheckerEnabled = haruCheckerStore.isEnabled()
         cleanupLegacyStorageOnce()
-        refreshCompanionSurface()
         val onlineSettings = onlineAiManager.settings()
         onlineProvider = onlineSettings.provider
         selectedGeminiModel = onlineSettings.geminiModel
@@ -205,7 +199,6 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
             memoryState.antigravitySession
                 ?.takeIf { it.isFresh() }
 
-        refreshBubbleStatus()
 
         setContent {
             HaruTheme {
@@ -215,8 +208,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
                     viewModel = haruViewModel,
                     todayLines = companionSnapshot.todayLines(),
                     companionSnapshot = companionSnapshot,
-                    haruBubbleEnabled = haruBubbleEnabled,
-                    haruBubbleStatus = haruBubbleStatus,
+                    haruCheckerEnabled = haruCheckerEnabled,
                     companionQuiet = companionMode == CompanionMode.REST,
                     onlineProvider = onlineProvider,
                     selectedGeminiModel = selectedGeminiModel,
@@ -245,9 +237,8 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
                     onAddCompanionTask = ::addCompanionTask,
                     onUpdateCompanionTask = ::updateCompanionTask,
                     onDeleteCompanionTask = ::deleteCompanionTask,
-                    onRequestHaruBubble = ::requestHaruBubble,
-                    onRefreshBubbleStatus = ::refreshBubbleStatus,
-                    onToggleHaruBubble = ::toggleHaruBubble,
+                    onSetHaruLockScreen = ::openHaruLockScreenWallpaper,
+                    onToggleHaruChecker = ::toggleHaruChecker,
                     onSelectOnlineProvider = ::selectOnlineProvider,
                     onSelectGeminiModel = ::selectGeminiModel,
                     onRefreshGeminiModels = ::refreshGeminiModels,
@@ -369,16 +360,9 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
         }
     }
 
-    private fun refreshCompanionSurface() {
-        HaruBubbleWidgetProvider.refreshAll(
-            applicationContext
-        )
-    }
-
     private fun addCompanionTask(text: String) {
         if (text.isBlank()) return
         companionSnapshot = companionStore.addTask(text)
-        refreshCompanionSurface()
     }
 
     private fun updateCompanionTask(
@@ -388,57 +372,53 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
         if (index !in companionSnapshot.tasks.indices) return
         companionSnapshot =
             companionStore.updateTask(index, text)
-        refreshCompanionSurface()
     }
 
     private fun deleteCompanionTask(index: Int) {
         if (index !in companionSnapshot.tasks.indices) return
         companionSnapshot =
             companionStore.deleteTask(index)
-        refreshCompanionSurface()
     }
 
     private fun selectCompanionMode(mode: CompanionMode) {
         companionMode = mode
         companionModeStore.save(mode)
-        refreshCompanionSurface()
         activeViewModel?.completeAi(
             mode.activationMessage,
             success = true,
         )
     }
 
-    private fun toggleHaruBubble() {
-        haruBubbleEnabled = !haruBubbleEnabled
-        haruBubbleStore.setEnabled(haruBubbleEnabled)
-        refreshCompanionSurface()
-        refreshBubbleStatus()
+    private fun toggleHaruChecker() {
+        haruCheckerEnabled = !haruCheckerEnabled
+        haruCheckerStore.setEnabled(haruCheckerEnabled)
     }
 
-    private fun refreshBubbleStatus() {
-        haruBubbleStatus = HaruBubbleStatus(
-            installedCount = HaruBubbleWidgetProvider.installedCount(this),
-            enabled = haruBubbleStore.isEnabled(),
-            pinSupported = AppWidgetManager.getInstance(this).isRequestPinAppWidgetSupported,
-        )
-    }
-
-    private fun requestHaruBubble() {
-        refreshBubbleStatus()
-        val manager = AppWidgetManager.getInstance(this)
-        if (!haruBubbleStatus.pinSupported) return // Setup always displays manual launcher steps.
-        val callback = PendingIntent.getBroadcast(
-            this, 7003,
-            Intent(this, HaruBubbleActionReceiver::class.java).setAction(HaruBubbleWidgetProvider.ACTION_PINNED),
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-        )
-        // true means a request was accepted, not that a widget was installed.
-        val requested = runCatching {
-            manager.requestPinAppWidget(
-                ComponentName(this, HaruBubbleWidgetProvider::class.java), null, callback,
+    private fun openHaruLockScreenWallpaper() {
+        val component =
+            android.content.ComponentName(
+                this,
+                HaruLockScreenWallpaperService::class.java,
             )
-        }.getOrDefault(false)
-        haruBubbleStatus = haruBubbleStatus.copy(requestPending = requested)
+        val direct =
+            Intent(
+                WallpaperManager.ACTION_CHANGE_LIVE_WALLPAPER
+            ).apply {
+                putExtra(
+                    WallpaperManager.EXTRA_LIVE_WALLPAPER_COMPONENT,
+                    component,
+                )
+            }
+
+        runCatching {
+            startActivity(direct)
+        }.onFailure {
+            startActivity(
+                Intent(
+                    WallpaperManager.ACTION_LIVE_WALLPAPER_CHOOSER
+                )
+            )
+        }
     }
 
     private fun resetConversationMemory(
@@ -943,8 +923,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
                 locationShareCode = bundle.shareText
                 locationShareMapUrl = bundle.googleMapsUrl
                 liveShareActive = true
-                refreshCompanionSurface()
-                liveTrackingStatus =
+                        liveTrackingStatus =
                     "Live sharing active · updates about every 4–12 seconds."
                 startLiveLocationPublisher()
             }.onFailure {
@@ -1139,7 +1118,6 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
         }
 
         liveShareSession = null
-        refreshCompanionSurface()
         locationShareCode = ""
         locationShareMapUrl = ""
         liveTrackingStatus = "Live sharing stopped."
@@ -1151,7 +1129,6 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
         stopLiveMonitoring(clearStatus = false)
         liveMonitorSession = monitor
         liveMonitorActive = true
-        refreshCompanionSurface()
         liveTrackingStatus = "Connecting to live location…"
 
         liveMonitorJob = lifecycleScope.launch {
@@ -1217,7 +1194,6 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
         liveMonitorJob = null
         liveMonitorSession = null
         liveTrackedLocation = null
-        refreshCompanionSurface()
 
         if (clearStatus) {
             liveTrackingStatus =
@@ -1266,8 +1242,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
             }
             "clear notes", "delete all notes" -> {
                 companionSnapshot = companionStore.clearNotes()
-                refreshCompanionSurface()
-                return "All notes cleared."
+                        return "All notes cleared."
             }
             "show tasks", "list tasks", "my tasks" -> {
                 val tasks = companionSnapshot.tasks
@@ -1282,8 +1257,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
             }
             "clear tasks", "delete all tasks" -> {
                 companionSnapshot = companionStore.clearTasks()
-                refreshCompanionSurface()
-                return "All tasks cleared."
+                        return "All tasks cleared."
             }
             "show reminders", "list reminders", "my reminders" -> {
                 val reminders = companionSnapshot.reminders
@@ -1306,7 +1280,6 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
                     ReminderScheduler.cancel(this, it.id)
                 }
                 companionSnapshot = companionStore.clearReminders()
-                refreshCompanionSurface()
                 return "All reminders cleared."
             }
         }
@@ -1315,7 +1288,6 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
             .matchEntire(clean)
             ?.let { match ->
                 companionSnapshot = companionStore.addNote(match.groupValues[1])
-                refreshCompanionSurface()
                 return "Noted: " + match.groupValues[1].trim()
             }
 
@@ -1323,7 +1295,6 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
             .matchEntire(clean)
             ?.let { match ->
                 companionSnapshot = companionStore.addTask(match.groupValues[1])
-                refreshCompanionSurface()
                 return "Added task: " + match.groupValues[1].trim()
             }
 
@@ -1336,7 +1307,6 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
                 }
                 val taskText = companionSnapshot.tasks[index].text
                 companionSnapshot = companionStore.completeTask(index)
-                refreshCompanionSurface()
                 return "Completed: " + taskText
             }
 
@@ -1345,7 +1315,6 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
             companionSnapshot = companionStore.load()
             ReminderScheduler.schedule(this, reminder)
             requestNotificationPermissionIfNeeded()
-            refreshCompanionSurface()
 
             val whenText = DateFormat.getDateTimeInstance(
                 DateFormat.MEDIUM,
@@ -1420,11 +1389,9 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
             companionSnapshot = companionStore.load()
             ReminderScheduler.rescheduleAll(this)
         }
-        if (::haruBubbleStore.isInitialized) {
-            haruBubbleEnabled =
-                haruBubbleStore.isEnabled()
-            refreshBubbleStatus()
-            refreshCompanionSurface()
+        if (::haruCheckerStore.isInitialized) {
+            haruCheckerEnabled =
+                haruCheckerStore.isEnabled()
         }
         if (::trustedLocationManager.isInitialized) {
             trustedLocations = trustedLocationManager.load()
@@ -1500,7 +1467,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
 
     private fun systemPromptFor(mode: CompanionMode): String =
         SYSTEM_PROMPT +
-            " Current companion mode: " +
+            " Current assistant mode: " +
             mode.label +
             ". " +
             mode.aiGuidance

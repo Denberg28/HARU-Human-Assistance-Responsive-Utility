@@ -67,7 +67,6 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import io.haru.assistant.HaruViewModel
 import io.haru.assistant.companion.CompanionSnapshot
-import io.haru.assistant.companion.HaruBubbleStatus
 import io.haru.assistant.core.HaruMood
 import io.haru.assistant.location.TrustedLocation
 import io.haru.assistant.onlineai.GeminiModel
@@ -86,8 +85,7 @@ fun HaruScreen(
     viewModel: HaruViewModel,
     todayLines: List<String>,
     companionSnapshot: CompanionSnapshot,
-    haruBubbleEnabled: Boolean,
-    haruBubbleStatus: HaruBubbleStatus,
+    haruCheckerEnabled: Boolean,
     companionQuiet: Boolean,
     onlineProvider: OnlineProvider,
     selectedGeminiModel: GeminiModel,
@@ -114,9 +112,8 @@ fun HaruScreen(
     onAddCompanionTask: (String) -> Unit,
     onUpdateCompanionTask: (Int, String) -> Unit,
     onDeleteCompanionTask: (Int) -> Unit,
-    onRequestHaruBubble: () -> Unit,
-    onRefreshBubbleStatus: () -> Unit,
-    onToggleHaruBubble: () -> Unit,
+    onSetHaruLockScreen: () -> Unit,
+    onToggleHaruChecker: () -> Unit,
     onSelectOnlineProvider: (OnlineProvider) -> Unit,
     onSelectGeminiModel: (GeminiModel) -> Unit,
     onRefreshGeminiModels: () -> Unit,
@@ -141,7 +138,7 @@ fun HaruScreen(
     var showUpdate by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
     var showAbout by remember { mutableStateOf(false) }
-    var showBubbleSetup by remember { mutableStateOf(false) }
+    var showLockScreenSetup by remember { mutableStateOf(false) }
     val tabs = listOf("HARU", "Map")
     Surface(modifier = modifier.fillMaxSize()) {
         Column(
@@ -191,10 +188,10 @@ fun HaruScreen(
                         viewModel = viewModel,
                         todayLines = todayLines,
                         companionSnapshot = companionSnapshot,
-                        haruBubbleEnabled = haruBubbleEnabled,
+                        haruCheckerEnabled = haruCheckerEnabled,
                         companionQuiet = companionQuiet,
-                        companionVisible = selectedTab == 0 && !showSettings && !showAbout && !showOnlineAi && !showUpdate && !showBubbleSetup,
-                        onOpenBubbleSetup = { onRefreshBubbleStatus(); showBubbleSetup = true },
+                        companionVisible = selectedTab == 0 && !showSettings && !showAbout && !showOnlineAi && !showUpdate && !showLockScreenSetup,
+                        onOpenLockScreenSetup = { showLockScreenSetup = true },
                         onSubmitClick = onSubmitClick,
                         onMicClick = onMicClick,
                         onAddTask = onAddCompanionTask,
@@ -228,13 +225,12 @@ fun HaruScreen(
         }
     }
 
-    if (showBubbleSetup) {
-        HaruBubbleSetupDialog(
-            status = haruBubbleStatus,
-            onDismiss = { showBubbleSetup = false },
-            onAdd = onRequestHaruBubble,
-            onRefresh = onRefreshBubbleStatus,
-            onToggle = onToggleHaruBubble,
+    if (showLockScreenSetup) {
+        HaruLockScreenDialog(
+            enabled = haruCheckerEnabled,
+            onDismiss = { showLockScreenSetup = false },
+            onSetWallpaper = onSetHaruLockScreen,
+            onToggle = onToggleHaruChecker,
         )
     }
 
@@ -275,18 +271,16 @@ fun HaruScreen(
 
     if (showSettings) {
         SimpleSettingsDialog(
-            haruBubbleEnabled = haruBubbleEnabled,
+            haruCheckerEnabled = haruCheckerEnabled,
             onlineProvider = onlineProvider,
             memoryCount = memoryCount,
             appVersion = appVersion,
             onDismiss = { showSettings = false },
-            haruBubbleStatus = haruBubbleStatus,
-            onRequestHaruBubble = {
+            onOpenLockScreen = {
                 showSettings = false
-                onRefreshBubbleStatus()
-                showBubbleSetup = true
+                showLockScreenSetup = true
             },
-            onToggleHaruBubble = onToggleHaruBubble,
+            onToggleHaruChecker = onToggleHaruChecker,
             onOpenAi = {
                 showSettings = false
                 showOnlineAi = true
@@ -335,10 +329,10 @@ private fun SimpleHaruPane(
     viewModel: HaruViewModel,
     todayLines: List<String>,
     companionSnapshot: CompanionSnapshot,
-    haruBubbleEnabled: Boolean,
+    haruCheckerEnabled: Boolean,
     companionQuiet: Boolean,
     companionVisible: Boolean,
-    onOpenBubbleSetup: () -> Unit,
+    onOpenLockScreenSetup: () -> Unit,
     onSubmitClick: () -> Unit,
     onMicClick: () -> Unit,
     onAddTask: (String) -> Unit,
@@ -367,8 +361,8 @@ private fun SimpleHaruPane(
                 .verticalScroll(responseScrollState),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            if (haruBubbleEnabled && !state.isBusy) {
-                HaruCompanionCard(
+            if (haruCheckerEnabled && !state.isBusy) {
+                HaruCheckerCard(
                     snapshot = companionSnapshot,
                     quiet = companionQuiet,
                     busy = state.isBusy,
@@ -418,7 +412,7 @@ private fun SimpleHaruPane(
 
             Spacer(Modifier.height(4.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                TextButton(onClick = onOpenBubbleSetup) { Text("Home bubble") }
+                TextButton(onClick = onOpenLockScreenSetup) { Text("Lock screen") }
                 TextButton(onClick = onOpenSettings) { Text("Settings") }
             }
         }
@@ -715,14 +709,13 @@ private fun TaskEditDialog(
 
 @Composable
 private fun SimpleSettingsDialog(
-    haruBubbleEnabled: Boolean,
-    haruBubbleStatus: HaruBubbleStatus,
+    haruCheckerEnabled: Boolean,
     onlineProvider: OnlineProvider,
     memoryCount: Int,
     appVersion: String,
     onDismiss: () -> Unit,
-    onRequestHaruBubble: () -> Unit,
-    onToggleHaruBubble: () -> Unit,
+    onOpenLockScreen: () -> Unit,
+    onToggleHaruChecker: () -> Unit,
     onOpenAi: () -> Unit,
     onResetMemory: () -> Unit,
     onOpenUpdate: () -> Unit,
@@ -741,19 +734,19 @@ private fun SimpleSettingsDialog(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 OutlinedButton(
-                    onClick = onRequestHaruBubble,
+                    onClick = onOpenLockScreen,
                     modifier = Modifier.fillMaxWidth(),
                 ) {
-                    Text("Set up Home bubble")
+                    Text("Set up lock-screen HARU")
                 }
 
                 OutlinedButton(
-                    onClick = onToggleHaruBubble,
+                    onClick = onToggleHaruChecker,
                     modifier = Modifier.fillMaxWidth(),
                 ) {
                     Text(
                         "Check-ins · " +
-                            if (haruBubbleEnabled) {
+                            if (haruCheckerEnabled) {
                                 "On"
                             } else {
                                 "Paused"
@@ -762,7 +755,7 @@ private fun SimpleSettingsDialog(
                 }
 
                 Text(
-                    haruBubbleStatus.message,
+                    "Lock-screen animation is provided by Android live wallpaper; lock-only selection depends on the device launcher.",
                     style = MaterialTheme.typography.labelSmall,
                 )
 
