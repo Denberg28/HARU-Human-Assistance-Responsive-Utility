@@ -458,13 +458,19 @@ private fun SimpleHaruPane(
                 modifier = Modifier.fillMaxWidth(),
             )
 
-            Text(
-                "task Buy milk  •  remind me in 30 min to call",
-                style = MaterialTheme.typography.labelSmall,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 3.dp),
-            )
+            if (shouldShowCommandExamples(
+                    command = state.command,
+                    latestUserMessage = state.latestUserMessage,
+                )
+            ) {
+                Text(
+                    COMMAND_EXAMPLE_HINT,
+                    style = MaterialTheme.typography.labelSmall,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 3.dp),
+                )
+            }
 
             Spacer(Modifier.height(7.dp))
 
@@ -514,6 +520,16 @@ private fun SimpleHaruPane(
         )
     }
 }
+
+internal fun shouldShowCommandExamples(
+    command: String,
+    latestUserMessage: String,
+): Boolean =
+    command.isBlank() &&
+        latestUserMessage.isBlank()
+
+private const val COMMAND_EXAMPLE_HINT =
+    "task Buy milk  •  remind me in 30 min to call"
 
 @Composable
 private fun SimpleTodayDialog(
