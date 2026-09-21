@@ -1,55 +1,51 @@
-# HARU checker verification — v0.9.0
+# HARU companion verification — v0.9.5
 
 ## Behavior model
 
-HARU's caring presence is no longer a Home-screen AppWidget. v0.9.0 uses an Android live-wallpaper service intended for the lock screen.
+HARU uses a standard Android Home-screen AppWidget for its persistent interactive companion.
 
-The checker is local-only:
-- no automatic AI request;
-- no microphone activation;
-- no foreground service;
-- no wake lock;
-- no overlay permission;
-- no background polling.
+- No lock-screen Activity or live wallpaper.
+- No draw-over-other-apps permission.
+- No accessibility service.
+- No foreground companion service.
+- No background AI polling.
+- No automatic chat or microphone activation.
+- Launcher owns widget placement, dragging and resizing.
+- HARU widget content is local and privacy-preserving: task/reminder counts may be shown, never task/reminder text.
 
-Normal Tell HARU, Mic, reminders, Map, and online AI remain separate explicit actions.
+## Interaction
 
-## Lock-screen states
+- Tap the HARU bar: immediate local acknowledgement.
+- Acknowledgement display duration: about 650 ms.
+- No Activity launches on acknowledgement.
+- The widget then advances to the next local check-in.
+- Android controls periodic widget refresh timing; HARU requests a 30-minute refresh and also refreshes after app updates, reboot, task edits and app resume.
 
-- **Idle:** caring check-in and normal HARU face.
-- **Running:** HARU moves horizontally with alternating running frames.
-- **Resting:** calm face with the current local check-in.
-- **Sleeping:** used automatically from 22:00 through 05:59 and whenever Rest mode is active.
-- **Delighted:** tapping HARU's bubble produces a short purring/acknowledgement reaction.
+## Installation and persistence
 
-The wallpaper uses a compact bubble and a day/night background. Fast redraws are used only for running/delighted states; static states use a one-second heartbeat. All rendering callbacks stop when Android reports the wallpaper as not visible.
+Android does not allow an ordinary app to silently place a Home-screen widget. The first placement requires launcher confirmation through the standard pin-widget flow, or manual placement from the launcher's Widgets picker.
 
-## Device acceptance checks
+After placement, the widget remains on the Home screen until the user removes it. Long-press to drag, resize or remove it.
 
-1. Install v0.9.0 over v0.8.0 or any release using the stable v0.7.1+ signer.
-2. Open HARU → **Lock screen** → **Set HARU as live wallpaper**.
-3. In the Android/HyperOS wallpaper preview, choose **Lock screen only** if the phone offers it. Some OEM wallpaper pickers only offer Home or Home + Lock; this is an Android/OEM limitation and HARU does not bypass it with overlays.
-4. Lock the phone and confirm HARU appears below the typical clock region without covering the main clock.
-5. Tap HARU's bubble. Confirm a brief delighted/purring reaction, then a return to the checker state.
-6. Observe long enough to see idle, resting, and running states. Running should remain inside screen bounds.
-7. At night (22:00–05:59), or after selecting Rest mode, confirm HARU shows the sleeping state.
-8. Pause check-ins from HARU settings. Confirm the live wallpaper background remains but HARU's checker bubble is hidden. Resume and confirm it returns.
-9. Add tasks/reminders. Check-ins may show counts, but must never display task/reminder text on the lock screen.
-10. Verify Tell HARU, Mic, Today, reminders, Map, and location sharing still work independently.
-11. Check battery behavior over an equal-duration comparison. No runtime/battery percentage is claimed without physical measurement.
+## Device checks
+
+1. Open HARU → **Home companion**.
+2. Tap **Add HARU to Home screen** and confirm the launcher prompt.
+3. Verify the widget appears as a compact horizontal HARU bar.
+4. Long-press and drag it to another Home-screen position.
+5. Tap the bar repeatedly; each reaction should feel immediate and should not open HARU.
+6. Open the HARU app while the widget remains installed; verify the app is fully usable and no HARU surface overlaps it.
+7. Add/edit/delete a task and verify the widget refreshes without exposing task text.
+8. Pause check-ins in Settings and verify the widget shows a paused state.
+9. Reboot and verify reminders are rescheduled and the widget remains usable.
+10. Resize the widget and verify text/face remain legible.
 
 ## Automated gates
 
-CI requires:
-- Python runtime validation;
+CI should run:
+- Python runtime tests;
 - Android unit tests;
-- checker content/cadence/store migration tests;
-- lock-screen service manifest registration test;
+- Home-widget provider/action tests;
 - release lint;
 - optimized APK assembly;
-- stable release signing and APK signature verification;
-- SHA-256 checksum verification before publication.
-
-## Platform limitation
-
-Android live wallpaper is the supported interactive animated surface used here. The phone's wallpaper picker controls whether a live wallpaper can be assigned to Lock only, Home only, or both. HARU opens the system live-wallpaper preview and does not request overlay privileges to circumvent that choice.
+- stable signing and checksum verification.
