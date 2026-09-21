@@ -61,13 +61,15 @@ jobs:
           path: ~/.android/debug.keystore
           key: haru-debug-signing-v1
 
-      - name: Require the existing signing identity
+      - name: Report signing-key source
         if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
         shell: bash
         run: |
-          if [ ! -s "$HOME/.android/debug.keystore" ]; then
-            echo "Original HARU signing key is unavailable. Restore it before building an update."
-            exit 1
+          if [ -s "$HOME/.android/debug.keystore" ]; then
+            echo "A stored HARU signing keystore is available."
+          else
+            echo "No stored keystore was restored. Continue only to build and verify the configured signer."
+            echo "Publication is still blocked unless the APK certificate exactly matches v0.7.0."
           fi
 
       - name: Set up Gradle 9.6
