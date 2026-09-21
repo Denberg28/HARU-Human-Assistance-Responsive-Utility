@@ -9,7 +9,6 @@ import android.content.Intent
 import android.os.Bundle
 import android.view.View
 import android.widget.RemoteViews
-import io.haru.assistant.MainActivity
 import io.haru.assistant.R
 import io.haru.assistant.core.CompanionMode
 import io.haru.assistant.core.CompanionModeStore
@@ -35,10 +34,9 @@ class HaruBubbleWidgetProvider : AppWidgetProvider() {
     }
 
     companion object {
-        const val ACTION_CYCLE = "io.haru.assistant.action.HARU_BUBBLE_CYCLE"
+        const val ACTION_ACKNOWLEDGE = "io.haru.assistant.action.HARU_BUBBLE_ACKNOWLEDGE"
         const val ACTION_REFRESH = "io.haru.assistant.action.HARU_BUBBLE_REFRESH"
         const val ACTION_PINNED = "io.haru.assistant.action.HARU_BUBBLE_PINNED"
-        const val ACTION_CHAT = "io.haru.assistant.action.HARU_BUBBLE_CHAT"
         private const val AUTO_ROTATION_MS = 30L * 60L * 1000L
 
         fun installedCount(context: Context): Int =
@@ -69,31 +67,20 @@ class HaruBubbleWidgetProvider : AppWidgetProvider() {
             views.setTextViewText(R.id.haru_bubble_face, content.face)
             views.setTextViewText(R.id.haru_bubble_greeting, content.greeting)
             views.setTextViewText(R.id.haru_bubble_line, content.line)
-            views.setContentDescription(R.id.haru_bubble_face, "HARU. Tap for another expression and conversation starter")
-            views.setContentDescription(R.id.haru_bubble_line, "${content.line} Tap to chat with HARU")
+            views.setContentDescription(R.id.haru_bubble_face, "HARU. Tap to acknowledge her check-in")
+            views.setContentDescription(R.id.haru_bubble_line, content.line)
             val height = manager.getAppWidgetOptions(id).getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT, 140)
             val compact = height < 130 * context.resources.configuration.fontScale
             views.setViewVisibility(R.id.haru_bubble_greeting, if (compact) View.GONE else View.VISIBLE)
             views.setInt(R.id.haru_bubble_line, "setMaxLines", if (height < 120) 1 else 2)
 
-            // Open the activity directly: notification/broadcast trampolines are not used.
-            val openIntent = Intent(context, MainActivity::class.java).apply {
-                action = ACTION_CHAT
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
-            }
-            val open = PendingIntent.getActivity(context, id, openIntent,
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-            views.setOnClickPendingIntent(R.id.haru_bubble_root, open)
-            views.setOnClickPendingIntent(R.id.haru_bubble_line, open)
-            views.setOnClickPendingIntent(R.id.haru_bubble_paused, open)
-
             val cycleIntent = Intent(context, HaruBubbleActionReceiver::class.java).apply {
-                action = ACTION_CYCLE
+                action = ACTION_ACKNOWLEDGE
                 addFlags(Intent.FLAG_RECEIVER_FOREGROUND)
             }
-            val cycle = PendingIntent.getBroadcast(context, id, cycleIntent,
+            val acknowledge = PendingIntent.getBroadcast(context, id, cycleIntent,
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-            views.setOnClickPendingIntent(R.id.haru_bubble_face, cycle)
+            views.setOnClickPendingIntent(R.id.haru_bubble_face, acknowledge)
             manager.updateAppWidget(id, views)
         }
     }
@@ -106,7 +93,6 @@ class HaruBubbleStore(context: Context) {
     fun setEnabled(enabled: Boolean) { preferences.edit().putBoolean("enabled", enabled).apply() }
     fun step(): Long = preferences.getLong("step", 0L)
     fun advance() {
-        // A bounded counter avoids overflow and survives process recreation.
-        preferences.edit().putLong("step", Math.floorMod(step() + 1L, 12L)).apply()
+        preferences.edit().putLong("step", Math.floorMod(step() + 1L, 120L)).apply()
     }
 }

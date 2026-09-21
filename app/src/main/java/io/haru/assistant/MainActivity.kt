@@ -80,7 +80,6 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
     private var companionMode by mutableStateOf(CompanionMode.NORMAL)
     private var haruBubbleEnabled by mutableStateOf(true)
     private var haruBubbleStatus by mutableStateOf(HaruBubbleStatus())
-    private var openCompanionRequest by mutableStateOf(0)
 
     private var onlineProvider by mutableStateOf(OnlineProvider.ANTIGRAVITY)
     private var selectedGeminiModel by mutableStateOf(AndroidOnlineAiManager.FALLBACK_GEMINI_MODEL)
@@ -206,7 +205,6 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
             memoryState.antigravitySession
                 ?.takeIf { it.isFresh() }
 
-        receiveBubbleIntent(intent)
         refreshBubbleStatus()
 
         setContent {
@@ -220,7 +218,6 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
                     haruBubbleEnabled = haruBubbleEnabled,
                     haruBubbleStatus = haruBubbleStatus,
                     companionQuiet = companionMode == CompanionMode.REST,
-                    openCompanionRequest = openCompanionRequest,
                     onlineProvider = onlineProvider,
                     selectedGeminiModel = selectedGeminiModel,
                     geminiModels = geminiModels,
@@ -442,17 +439,6 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
             )
         }.getOrDefault(false)
         haruBubbleStatus = haruBubbleStatus.copy(requestPending = requested)
-    }
-
-    private fun receiveBubbleIntent(incoming: Intent?) {
-        if (incoming?.action != HaruBubbleWidgetProvider.ACTION_CHAT) return
-        openCompanionRequest += 1
-    }
-
-    override fun onNewIntent(intent: Intent) {
-        super.onNewIntent(intent)
-        setIntent(intent)
-        receiveBubbleIntent(intent)
     }
 
     private fun resetConversationMemory(
@@ -1547,7 +1533,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
         private val LOCATION_TIMEOUT_TOKEN = Any()
 
         private const val SYSTEM_PROMPT =
-            "You are HARU, a concise and practical personal companion. " +
+            "You are HARU, a concise and practical personal assistant. " +
                 "Use local device tools for notes, tasks, reminders, voice, hazards, news, and trusted locations. " +
                 "Do not claim actions you did not perform."
     }

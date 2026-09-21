@@ -35,16 +35,16 @@ fun HaruBubbleSetupDialog(
             ) {
                 Text(status.message, style = MaterialTheme.typography.titleSmall)
                 if (!status.enabled) {
-                    Button(onClick = onToggle, modifier = Modifier.fillMaxWidth()) { Text("Resume companion") }
+                    Button(onClick = onToggle, modifier = Modifier.fillMaxWidth()) { Text("Resume check-ins") }
                 }
                 if (status.installedCount == 0 && status.pinSupported) {
                     Button(onClick = onAdd, modifier = Modifier.fillMaxWidth()) { Text("Add to Home screen") }
                 }
-                Text("Confirm Add in your launcher's prompt. Turning the companion on alone does not place a widget.")
+                Text("Confirm Add in your launcher's prompt. Turning check-ins on alone does not place a widget.")
                 Text("No prompt? Long-press an empty area of your Home screen → Widgets → HARU → HARU Bubble. Drag it to the upper-right or any free space. Unlock the Home layout if your launcher prevents changes.")
                 OutlinedButton(onClick = onRefresh, modifier = Modifier.fillMaxWidth()) { Text("Check placement") }
-                Text("Tap HARU's face for a new expression and prompt. Tap the text to open a chat draft, then press Send. Long-press the widget to move, resize, or remove it.")
-                Text("Greetings and starters work offline. Home widgets refresh about every 30 minutes; Android may delay them to save battery. Inside HARU, idle prompts change every 20 seconds while the screen is active.", style = MaterialTheme.typography.bodySmall)
+                Text("HARU occasionally checks in with a small caring prompt. Tap her face to acknowledge it; she will react briefly, like petting a cat. No reply or chat is required. Long-press the widget to move, resize, or remove it.")
+                Text("Check-ins and acknowledgement reactions work offline. Home widgets refresh about every 30 minutes; Android may delay them to save battery. Inside HARU, caring check-ins rotate gently while the screen is active.", style = MaterialTheme.typography.bodySmall)
             }
         },
     )

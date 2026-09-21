@@ -6,18 +6,34 @@ data class HaruBubbleContent(
     val face: String,
     val greeting: String,
     val line: String,
-    val conversationPrompt: String = "Let's have a short chat.",
+)
+
+data class HaruAcknowledgement(
+    val face: String,
+    val line: String,
 )
 
 object HaruBubbleContentFactory {
-    private val idleLines =
+    private val checkInLines =
         listOf(
-            "What's one small win today?" to "Help me reflect on one small win today.",
-            "What shall we work on?" to "Help me choose one thing to work on today.",
-            "How is your day going?" to "Ask me how my day is going. Keep it conversational.",
-            "Time for a little breather?" to "Suggest a simple one-minute break.",
-            "One thing at a time." to "Help me break my next task into one small step.",
-            "Something on your mind?" to "Let's have a short, friendly conversation.",
+            "Had some water lately?",
+            "Need a tiny breather?",
+            "Eyes need a short screen break?",
+            "Shoulders okay? Tiny stretch?",
+            "Anything you don't want to forget?",
+            "One small win today?",
+            "All good over there?",
+            "Have you eaten something?",
+            "How's your energy?",
+            "Just checking in on you.",
+        )
+
+    private val acknowledgements =
+        listOf(
+            HaruAcknowledgement("(˶ᵔ ᵕ ᵔ˶) ♡", "Purr~ ♡"),
+            HaruAcknowledgement("ฅ(˶ᵔ ᵕ ᵔ˶)ฅ", "Hehe~ noticed ♡"),
+            HaruAcknowledgement("( ˶ˆᗜˆ˵ ) ♡", "Happy HARU noises~"),
+            HaruAcknowledgement("(˵ •̀ ᴗ •́ ˵ ) ✧", "Mhm~ I'm here ♡"),
         )
 
     fun create(
@@ -35,23 +51,26 @@ object HaruBubbleContentFactory {
                 else -> "Still here"
             }
 
-        val openTasks =
-            snapshot.tasks.count { !it.done }
-        // Keep overdue, undelivered reminders visible instead of silently hiding them.
+        val openTasks = snapshot.tasks.count { !it.done }
         val reminders = snapshot.reminders.size
         val overdue = snapshot.reminders.count { it.dueAt <= now }
-        val idle = idleLines[Math.floorMod(step, idleLines.size.toLong()).toInt()]
+        val index = Math.floorMod(step * 31L + hourOfDay, checkInLines.size.toLong()).toInt()
+        val checkIn = checkInLines[index]
 
         val line =
             when {
-                quiet -> "A quiet moment. I'm here when you need me."
-                Math.floorMod(step, 3L) != 0L -> idle.first
-                overdue > 0 -> "$overdue reminder" + (if (overdue == 1) "" else "s") + " due. Open Today."
+                quiet -> "Just checking in quietly."
+                Math.floorMod(step, 4L) != 0L -> checkIn
+                overdue > 0 ->
+                    "$overdue reminder" +
+                        (if (overdue == 1) "" else "s") +
+                        " due. Just a gentle nudge."
                 reminders > 0 && openTasks > 0 ->
                     "$openTasks task" +
                         (if (openTasks == 1) "" else "s") +
                         " · $reminders reminder" +
-                        (if (reminders == 1) "" else "s")
+                        (if (reminders == 1) "" else "s") +
+                        " waiting."
                 reminders > 0 ->
                     "$reminders reminder" +
                         (if (reminders == 1) "" else "s") +
@@ -60,7 +79,7 @@ object HaruBubbleContentFactory {
                     "$openTasks task" +
                         (if (openTasks == 1) "" else "s") +
                         " for today."
-                else -> idle.first
+                else -> checkIn
             }
 
         return HaruBubbleContent(
@@ -71,9 +90,9 @@ object HaruBubbleContentFactory {
                 ),
             greeting = greeting,
             line = line,
-            conversationPrompt = if (quiet) "Let's have a short, quiet chat."
-                else if (Math.floorMod(step, 3L) == 0L && (openTasks > 0 || reminders > 0)) "today"
-                else idle.second,
         )
     }
+
+    fun acknowledgement(step: Long): HaruAcknowledgement =
+        acknowledgements[Math.floorMod(step, acknowledgements.size.toLong()).toInt()]
 }
