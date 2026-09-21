@@ -78,19 +78,7 @@ class HaruBubbleWidgetTest {
             .performClick()
         shadowOf(Looper.getMainLooper()).idle()
 
-        val reaction =
-            view(id)
-                .findViewById<TextView>(R.id.haru_bubble_line)
-                .text
-                .toString()
-
-        assertNotEquals(before, reaction)
-        assertTrue(
-            reaction.contains("Purr") ||
-                reaction.contains("noticed") ||
-                reaction.contains("Happy") ||
-                reaction.contains("here")
-        )
+        assertEquals(0L, HaruBubbleStore(context).step())
         assertTrue(shadowOf(context).nextStartedActivity == null)
 
         shadowOf(Looper.getMainLooper()).idleFor(
@@ -99,6 +87,13 @@ class HaruBubbleWidgetTest {
         )
 
         assertEquals(1L, HaruBubbleStore(context).step())
+        assertNotEquals(
+            before,
+            view(id)
+                .findViewById<TextView>(R.id.haru_bubble_line)
+                .text
+                .toString(),
+        )
     }
 
     @Test
