@@ -86,8 +86,6 @@ class ReminderReceiver : BroadcastReceiver() {
         notificationManager.notify(reminderId, 0, notification)
 
         store.removeReminder(reminderId)
-
-        HaruBubbleWidgetProvider.refreshAll(context)
     }
 
     companion object {
