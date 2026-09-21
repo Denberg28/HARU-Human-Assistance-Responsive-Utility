@@ -2,7 +2,6 @@ package io.haru.assistant
 
 import android.Manifest
 import android.annotation.SuppressLint
-import android.app.WallpaperManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -30,7 +29,6 @@ import io.haru.assistant.companion.HaruCheckerStore
 import io.haru.assistant.companion.ReminderScheduler
 import io.haru.assistant.core.CompanionMode
 import io.haru.assistant.core.CompanionModeStore
-import io.haru.assistant.lockscreen.HaruLockScreenWallpaperService
 import io.haru.assistant.location.HaruLiveLocationManager
 import io.haru.assistant.location.LiveLocationSession
 import io.haru.assistant.location.LiveMonitorSession
@@ -237,7 +235,6 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
                     onAddCompanionTask = ::addCompanionTask,
                     onUpdateCompanionTask = ::updateCompanionTask,
                     onDeleteCompanionTask = ::deleteCompanionTask,
-                    onSetHaruLockScreen = ::openHaruLockScreenWallpaper,
                     onToggleHaruChecker = ::toggleHaruChecker,
                     onSelectOnlineProvider = ::selectOnlineProvider,
                     onSelectGeminiModel = ::selectGeminiModel,
@@ -392,33 +389,6 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
     private fun toggleHaruChecker() {
         haruCheckerEnabled = !haruCheckerEnabled
         haruCheckerStore.setEnabled(haruCheckerEnabled)
-    }
-
-    private fun openHaruLockScreenWallpaper() {
-        val component =
-            android.content.ComponentName(
-                this,
-                HaruLockScreenWallpaperService::class.java,
-            )
-        val direct =
-            Intent(
-                WallpaperManager.ACTION_CHANGE_LIVE_WALLPAPER
-            ).apply {
-                putExtra(
-                    WallpaperManager.EXTRA_LIVE_WALLPAPER_COMPONENT,
-                    component,
-                )
-            }
-
-        runCatching {
-            startActivity(direct)
-        }.onFailure {
-            startActivity(
-                Intent(
-                    WallpaperManager.ACTION_LIVE_WALLPAPER_CHOOSER
-                )
-            )
-        }
     }
 
     private fun resetConversationMemory(
