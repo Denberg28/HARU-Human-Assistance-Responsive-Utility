@@ -1389,11 +1389,10 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
             companionSnapshot = companionStore.load()
             ReminderScheduler.rescheduleAll(this)
         }
-        if (::haruBubbleStore.isInitialized) {
-            haruBubbleEnabled =
-                haruBubbleStore.isEnabled()
-            refreshBubbleStatus()
-            }
+        if (::haruCheckerStore.isInitialized) {
+            haruCheckerEnabled =
+                haruCheckerStore.isEnabled()
+        }
         if (::trustedLocationManager.isInitialized) {
             trustedLocations = trustedLocationManager.load()
         }
