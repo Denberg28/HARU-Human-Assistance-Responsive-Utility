@@ -11,7 +11,7 @@ enum class CompanionMode(
 ) {
     NORMAL(
         label = "Normal",
-        role = "Everyday companion",
+        role = "Everyday assistant",
         priority = "Tasks • reminders • notes • voice",
         aiGuidance =
             "Prioritize concise everyday assistance and local actions. " +
@@ -21,7 +21,7 @@ enum class CompanionMode(
     ),
     FLIGHT(
         label = "Flight",
-        role = "Flight companion",
+        role = "Flight assistant",
         priority = "Checklist • GPS • timers • notes",
         aiGuidance =
             "Prioritize operational awareness and concise aviation support. " +
@@ -31,7 +31,7 @@ enum class CompanionMode(
     ),
     TRAVEL(
         label = "Travel",
-        role = "Travel companion",
+        role = "Travel assistant",
         priority = "Navigation • location • hazards",
         aiGuidance =
             "Prioritize navigation, location context, travel logistics, and hazard awareness. " +
@@ -41,7 +41,7 @@ enum class CompanionMode(
     ),
     WORK(
         label = "Work",
-        role = "Work companion",
+        role = "Work assistant",
         priority = "Tasks • reminders • notes",
         aiGuidance =
             "Prioritize task clarity, reminders, concise planning, and execution support.",
@@ -50,7 +50,7 @@ enum class CompanionMode(
     ),
     SAFETY(
         label = "Safety",
-        role = "Safety companion",
+        role = "Safety assistant",
         priority = "Location • live share • hazards",
         aiGuidance =
             "Prioritize verified location, sharing status, and official hazard information. " +
@@ -60,7 +60,7 @@ enum class CompanionMode(
     ),
     REST(
         label = "Rest",
-        role = "Low-interruption companion",
+        role = "Low-interruption checker",
         priority = "Essential reminders • quiet status",
         aiGuidance =
             "Keep responses especially brief and avoid unnecessary prompts. " +
