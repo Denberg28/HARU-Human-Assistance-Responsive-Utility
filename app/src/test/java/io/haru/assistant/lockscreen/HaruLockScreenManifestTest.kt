@@ -1,13 +1,9 @@
 package io.haru.assistant.lockscreen
 
-import android.Manifest
 import android.content.ComponentName
 import android.content.pm.PackageManager
-import io.haru.assistant.companion.ReminderReceiver
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNotEquals
-import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -20,41 +16,30 @@ class HaruLockScreenManifestTest {
         get() = RuntimeEnvironment.getApplication()
 
     @Test
-    fun wallpaperServiceIsRegisteredWithSystemPermission() {
+    fun interactiveBarIsPrivateAndUsesDedicatedTheme() {
         val info =
-            context.packageManager.getServiceInfo(
+            context.packageManager.getActivityInfo(
                 ComponentName(
                     context,
-                    HaruLockScreenWallpaperService::class.java,
+                    HaruLockScreenActivity::class.java,
                 ),
                 PackageManager.GET_META_DATA,
             )
 
-        assertTrue(info.exported)
-        assertEquals(
-            Manifest.permission.BIND_WALLPAPER,
-            info.permission,
-        )
-        assertNotEquals(
-            0,
-            info.metaData.getInt(
-                "android.service.wallpaper"
-            ),
-        )
+        assertFalse(info.exported)
+        assertEquals("io.haru.assistant.pet", info.taskAffinity)
+        assertFalse(info.themeResource == 0)
     }
 
-    @Test
-    fun reminderReceiverStillExistsAfterWidgetRetirement() {
-        val info =
-            context.packageManager.getReceiverInfo(
-                ComponentName(
-                    context,
-                    ReminderReceiver::class.java,
-                ),
-                0,
-            )
-
-        assertFalse(info.exported)
+    @Test(expected = PackageManager.NameNotFoundException::class)
+    fun retiredLiveWallpaperServiceIsNotRegistered() {
+        context.packageManager.getServiceInfo(
+            ComponentName(
+                context.packageName,
+                "io.haru.assistant.lockscreen.HaruLockScreenWallpaperService",
+            ),
+            0,
+        )
     }
 
     @Test(expected = PackageManager.NameNotFoundException::class)
