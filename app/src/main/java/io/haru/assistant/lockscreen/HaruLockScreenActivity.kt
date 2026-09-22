@@ -17,7 +17,6 @@ import android.os.SystemClock
 import android.view.Gravity
 import android.view.View
 import android.view.WindowManager
-import io.haru.assistant.companion.HaruCheckerStore
 
 /**
  * Compact HARU touch bar that is visible only while the device keyguard is locked.
@@ -40,8 +39,8 @@ class HaruLockScreenActivity : Activity() {
     private val power by lazy {
         getSystemService(PowerManager::class.java)
     }
-    private val checker by lazy {
-        HaruCheckerStore(applicationContext)
+    private val lockScreenStore by lazy {
+        LockScreenPreferenceStore(applicationContext)
     }
 
     private val screenReceiver =
@@ -117,7 +116,7 @@ class HaruLockScreenActivity : Activity() {
             resumed &&
                 power.isInteractive &&
                 keyguard.isKeyguardLocked &&
-                checker.isEnabled()
+                lockScreenStore.isEnabled()
 
         if (shouldShow) {
             showBar()

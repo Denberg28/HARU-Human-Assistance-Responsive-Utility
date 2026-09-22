@@ -86,6 +86,7 @@ fun HaruScreen(
     todayLines: List<String>,
     companionSnapshot: CompanionSnapshot,
     haruCheckerEnabled: Boolean,
+    lockScreenEnabled: Boolean,
     companionQuiet: Boolean,
     onlineProvider: OnlineProvider,
     selectedGeminiModel: GeminiModel,
@@ -113,6 +114,8 @@ fun HaruScreen(
     onUpdateCompanionTask: (Int, String) -> Unit,
     onDeleteCompanionTask: (Int) -> Unit,
     onToggleHaruChecker: () -> Unit,
+    onToggleLockScreen: () -> Unit,
+    onOpenAppSettings: () -> Unit,
     onSelectOnlineProvider: (OnlineProvider) -> Unit,
     onSelectGeminiModel: (GeminiModel) -> Unit,
     onRefreshGeminiModels: () -> Unit,
@@ -227,9 +230,10 @@ fun HaruScreen(
 
     if (showLockScreenSetup) {
         HaruLockScreenDialog(
-            enabled = haruCheckerEnabled,
+            enabled = lockScreenEnabled,
             onDismiss = { showLockScreenSetup = false },
-            onToggle = onToggleHaruChecker,
+            onToggle = onToggleLockScreen,
+            onOpenAppSettings = onOpenAppSettings,
         )
     }
 
@@ -271,8 +275,8 @@ fun HaruScreen(
     if (showSettings) {
         SimpleSettingsDialog(
             haruCheckerEnabled = haruCheckerEnabled,
+            lockScreenEnabled = lockScreenEnabled,
             onlineProvider = onlineProvider,
-            memoryCount = memoryCount,
             appVersion = appVersion,
             onDismiss = { showSettings = false },
             onOpenLockScreen = {
@@ -284,7 +288,6 @@ fun HaruScreen(
                 showSettings = false
                 showOnlineAi = true
             },
-            onResetMemory = onResetMemory,
             onOpenUpdate = {
                 showSettings = false
                 showUpdate = true
@@ -715,14 +718,13 @@ private fun TaskEditDialog(
 @Composable
 private fun SimpleSettingsDialog(
     haruCheckerEnabled: Boolean,
+    lockScreenEnabled: Boolean,
     onlineProvider: OnlineProvider,
-    memoryCount: Int,
     appVersion: String,
     onDismiss: () -> Unit,
     onOpenLockScreen: () -> Unit,
     onToggleHaruChecker: () -> Unit,
     onOpenAi: () -> Unit,
-    onResetMemory: () -> Unit,
     onOpenUpdate: () -> Unit,
 ) {
     AlertDialog(
@@ -742,7 +744,7 @@ private fun SimpleSettingsDialog(
                     onClick = onOpenLockScreen,
                     modifier = Modifier.fillMaxWidth(),
                 ) {
-                    Text(if (haruCheckerEnabled) "Lock-screen HARU · ON" else "Lock-screen HARU · OFF")
+                    Text(if (lockScreenEnabled) "Lock-screen HARU · ON" else "Lock-screen HARU · OFF")
                 }
 
                 OutlinedButton(
@@ -760,8 +762,8 @@ private fun SimpleSettingsDialog(
                 }
 
                 Text(
-                    if (haruCheckerEnabled) {
-                        "HARU is armed for the lock screen only. It appears after the phone locks and closes when you unlock."
+                    if (lockScreenEnabled) {
+                        "Lock-screen HARU is armed. On Xiaomi/POCO/Redmi phones, allow HARU to show on the lock screen in the phone's app permissions."
                     } else {
                         "Lock-screen HARU is off."
                     },
@@ -776,14 +778,6 @@ private fun SimpleSettingsDialog(
                         "AI · " +
                             providerLabel(onlineProvider)
                     )
-                }
-
-                TextButton(
-                    onClick = onResetMemory,
-                    enabled = memoryCount > 0,
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text("Clear AI memory · $memoryCount/10")
                 }
 
                 TextButton(
