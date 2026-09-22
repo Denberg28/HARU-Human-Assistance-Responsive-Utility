@@ -46,7 +46,7 @@ fun HaruLockScreenDialog(
 
                 Text(
                     if (enabled) {
-                        "HARU is armed for the lock screen. On Xiaomi, POCO, or Redmi phones, HyperOS/MIUI may still block it until HARU is allowed to show on the lock screen."
+                        "HARU uses the Android lock-screen notification surface as the reliable companion on HyperOS. The richer floating bar is still attempted when the phone permits it."
                     } else {
                         "HARU will stay out of the lock screen until you enable it."
                     },
@@ -79,7 +79,7 @@ fun HaruLockScreenDialog(
                 )
 
                 Text(
-                    "The HARU bar never opens over the unlocked HARU app. Unlocking closes the bar. Outside the compact bar, the normal system lock screen remains in control.",
+                    "On the lock screen, HARU appears as a silent companion notification with its face and check-in. Tap HARU to acknowledge it. The system lock screen remains fully in control.",
                     style = MaterialTheme.typography.bodySmall,
                 )
 
