@@ -14,6 +14,5 @@ class ReminderBootReceiver : BroadcastReceiver() {
         }
 
         ReminderScheduler.rescheduleAll(context)
-        HaruBubbleWidgetProvider.refreshAll(context)
     }
 }
