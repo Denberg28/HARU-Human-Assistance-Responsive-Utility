@@ -2,6 +2,8 @@ package io.haru.assistant
 
 import android.Manifest
 import android.annotation.SuppressLint
+import android.app.ActivityOptions
+import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -130,20 +132,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
                     ::haruCheckerStore.isInitialized &&
                     haruCheckerStore.isEnabled()
                 ) {
-                    runCatching {
-                        startActivity(
-                            Intent(
-                                this@MainActivity,
-                                HaruLockScreenActivity::class.java,
-                            ).apply {
-                                addFlags(
-                                    Intent.FLAG_ACTIVITY_NEW_TASK or
-                                        Intent.FLAG_ACTIVITY_CLEAR_TOP or
-                                        Intent.FLAG_ACTIVITY_NO_ANIMATION,
-                                )
-                            }
-                        )
-                    }
+                    launchLockScreenCompanion()
                 }
             }
         }
@@ -420,6 +409,68 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
     private fun toggleHaruChecker() {
         haruCheckerEnabled = !haruCheckerEnabled
         haruCheckerStore.setEnabled(haruCheckerEnabled)
+    }
+
+    private fun launchLockScreenCompanion() {
+        val intent =
+            Intent(
+                this,
+                HaruLockScreenActivity::class.java,
+            ).apply {
+                addFlags(
+                    Intent.FLAG_ACTIVITY_NEW_TASK or
+                        Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                        Intent.FLAG_ACTIVITY_NO_ANIMATION,
+                )
+            }
+
+        runCatching {
+            if (Build.VERSION.SDK_INT >= 34) {
+                val balMode =
+                    if (Build.VERSION.SDK_INT >= 36) {
+                        ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOW_ALWAYS
+                    } else {
+                        @Suppress("DEPRECATION")
+                        ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED
+                    }
+
+                val creatorOptions =
+                    ActivityOptions.makeBasic()
+                        .setPendingIntentCreatorBackgroundActivityStartMode(
+                            balMode
+                        )
+                        .toBundle()
+
+                val pendingIntent =
+                    PendingIntent.getActivity(
+                        this,
+                        LOCK_SCREEN_PENDING_INTENT_REQUEST,
+                        intent,
+                        PendingIntent.FLAG_UPDATE_CURRENT or
+                            PendingIntent.FLAG_IMMUTABLE,
+                        creatorOptions,
+                    )
+
+                val senderOptions =
+                    ActivityOptions.makeBasic()
+                        .setPendingIntentBackgroundActivityStartMode(
+                            balMode
+                        )
+                        .toBundle()
+
+                pendingIntent.send(
+                    this,
+                    0,
+                    null,
+                    null,
+                    null,
+                    null,
+                    senderOptions,
+                )
+            } else {
+                startActivity(intent)
+            }
+        }
     }
 
     @SuppressLint("UnspecifiedRegisterReceiverFlag")
@@ -1519,6 +1570,8 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
         private const val LIVE_ACCURACY_IMPROVEMENT_M = 5f
 
         private val LOCATION_TIMEOUT_TOKEN = Any()
+
+        private const val LOCK_SCREEN_PENDING_INTENT_REQUEST = 9107
 
         private const val SYSTEM_PROMPT =
             "You are HARU, a concise and practical personal assistant. " +
