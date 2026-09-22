@@ -2,12 +2,8 @@ package io.haru.assistant
 
 import android.Manifest
 import android.annotation.SuppressLint
-import android.app.ActivityOptions
-import android.app.PendingIntent
-import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.location.Location
 import android.location.LocationListener
@@ -33,7 +29,7 @@ import io.haru.assistant.companion.HaruCheckerStore
 import io.haru.assistant.companion.ReminderScheduler
 import io.haru.assistant.core.CompanionMode
 import io.haru.assistant.core.CompanionModeStore
-import io.haru.assistant.lockscreen.HaruLockScreenActivity
+import io.haru.assistant.lockscreen.HaruLockScreenService
 import io.haru.assistant.lockscreen.LockScreenPreferenceStore
 import io.haru.assistant.location.HaruLiveLocationManager
 import io.haru.assistant.location.LiveLocationSession
@@ -126,28 +122,6 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
     private var pendingLocationPurpose = LocationRequestPurpose.NONE
     private var activeLocationListener: LocationListener? = null
     private val mainHandler = Handler(Looper.getMainLooper())
-    private var lockScreenReceiverRegistered = false
-    private val lockScreenReceiver =
-        object : BroadcastReceiver() {
-            override fun onReceive(context: Context, intent: Intent) {
-                if (
-                    ::lockScreenStore.isInitialized &&
-                    lockScreenStore.isEnabled() &&
-                    (
-                        intent.action == Intent.ACTION_SCREEN_OFF ||
-                            (
-                                intent.action == Intent.ACTION_SCREEN_ON &&
-                                    (getSystemService(Context.KEYGUARD_SERVICE) as android.app.KeyguardManager)
-                                        .isKeyguardLocked
-                                )
-                        )
-                ) {
-                    launchLockScreenCompanion()
-                }
-            }
-        }
-
-
     private val audioPermissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
             if (granted && pendingVoiceStart) {
@@ -215,7 +189,9 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
         haruCheckerEnabled = haruCheckerStore.isEnabled()
         lockScreenEnabled = lockScreenStore.isEnabled()
         cleanupLegacyStorageOnce()
-        registerLockScreenReceiver()
+        if (lockScreenEnabled) {
+            HaruLockScreenService.start(this)
+        }
         val onlineSettings = onlineAiManager.settings()
         onlineProvider = onlineSettings.provider
         selectedGeminiModel = onlineSettings.geminiModel
@@ -429,6 +405,12 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
     private fun toggleLockScreen() {
         lockScreenEnabled = !lockScreenEnabled
         lockScreenStore.setEnabled(lockScreenEnabled)
+
+        if (lockScreenEnabled) {
+            HaruLockScreenService.start(this)
+        } else {
+            HaruLockScreenService.stop(this)
+        }
     }
 
     private fun openAppSettings() {
@@ -440,88 +422,6 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
                 )
             )
         }
-    }
-
-    private fun launchLockScreenCompanion() {
-        val intent =
-            Intent(
-                this,
-                HaruLockScreenActivity::class.java,
-            ).apply {
-                addFlags(
-                    Intent.FLAG_ACTIVITY_NEW_TASK or
-                        Intent.FLAG_ACTIVITY_CLEAR_TOP or
-                        Intent.FLAG_ACTIVITY_NO_ANIMATION,
-                )
-            }
-
-        runCatching {
-            if (Build.VERSION.SDK_INT >= 34) {
-                val balMode =
-                    if (Build.VERSION.SDK_INT >= 36) {
-                        ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOW_ALWAYS
-                    } else {
-                        @Suppress("DEPRECATION")
-                        ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED
-                    }
-
-                val creatorOptions =
-                    ActivityOptions.makeBasic()
-                        .setPendingIntentCreatorBackgroundActivityStartMode(
-                            balMode
-                        )
-                        .toBundle()
-
-                val pendingIntent =
-                    PendingIntent.getActivity(
-                        this,
-                        LOCK_SCREEN_PENDING_INTENT_REQUEST,
-                        intent,
-                        PendingIntent.FLAG_UPDATE_CURRENT or
-                            PendingIntent.FLAG_IMMUTABLE,
-                        creatorOptions,
-                    )
-
-                val senderOptions =
-                    ActivityOptions.makeBasic()
-                        .setPendingIntentBackgroundActivityStartMode(
-                            balMode
-                        )
-                        .toBundle()
-
-                pendingIntent.send(
-                    this,
-                    0,
-                    null,
-                    null,
-                    null,
-                    null,
-                    senderOptions,
-                )
-            } else {
-                startActivity(intent)
-            }
-        }
-    }
-
-    @SuppressLint("UnspecifiedRegisterReceiverFlag")
-    private fun registerLockScreenReceiver() {
-        if (lockScreenReceiverRegistered) return
-        val filter =
-            IntentFilter().apply {
-                addAction(Intent.ACTION_SCREEN_OFF)
-                addAction(Intent.ACTION_SCREEN_ON)
-            }
-        if (Build.VERSION.SDK_INT >= 33) {
-            registerReceiver(
-                lockScreenReceiver,
-                filter,
-                Context.RECEIVER_NOT_EXPORTED,
-            )
-        } else {
-            registerReceiver(lockScreenReceiver, filter)
-        }
-        lockScreenReceiverRegistered = true
     }
 
     private fun resetConversationMemory(
@@ -1499,6 +1399,9 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
         if (::lockScreenStore.isInitialized) {
             lockScreenEnabled =
                 lockScreenStore.isEnabled()
+            if (lockScreenEnabled) {
+                HaruLockScreenService.start(this)
+            }
         }
         if (::trustedLocationManager.isInitialized) {
             trustedLocations = trustedLocationManager.load()
@@ -1568,10 +1471,6 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
     override fun onDestroy() {
         liveMonitorJob?.cancel()
         mainHandler.removeCallbacksAndMessages(null)
-        if (lockScreenReceiverRegistered) {
-            runCatching { unregisterReceiver(lockScreenReceiver) }
-            lockScreenReceiverRegistered = false
-        }
         voiceController.shutdown()
         super.onDestroy()
     }
@@ -1609,8 +1508,6 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
         private const val LIVE_ACCURACY_IMPROVEMENT_M = 5f
 
         private val LOCATION_TIMEOUT_TOKEN = Any()
-
-        private const val LOCK_SCREEN_PENDING_INTENT_REQUEST = 9107
 
         private const val SYSTEM_PROMPT =
             "You are HARU, a concise and practical personal assistant. " +
