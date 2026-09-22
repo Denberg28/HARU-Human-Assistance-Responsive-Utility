@@ -36,22 +36,6 @@
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
             </intent-filter>
         </receiver>
-        <receiver
-            android:name=".companion.HaruBubbleActionReceiver"
-            android:exported="false" />
-        <receiver
-            android:name=".companion.HaruBubbleWidgetProvider"
-            android:label="HARU Home companion"
-            android:exported="true">
-            <intent-filter>
-                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
-                <action android:name="android.intent.action.TIME_SET" />
-                <action android:name="android.intent.action.TIMEZONE_CHANGED" />
-            </intent-filter>
-            <meta-data
-                android:name="android.appwidget.provider"
-                android:resource="@xml/haru_bubble_widget_info" />
-        </receiver>
         <activity
             android:name=".lockscreen.HaruLockScreenActivity"
             android:exported="false"
