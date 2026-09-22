@@ -30,6 +30,23 @@ class HaruLockScreenManifestTest {
         assertFalse(info.themeResource == 0)
     }
 
+    @Test
+    fun lockScreenRuntimeServiceIsPrivateAndSpecialUse() {
+        val info =
+            context.packageManager.getServiceInfo(
+                ComponentName(
+                    context,
+                    HaruLockScreenService::class.java,
+                ),
+                PackageManager.GET_META_DATA,
+            )
+
+        assertFalse(info.exported)
+        if (android.os.Build.VERSION.SDK_INT >= 29) {
+            assertFalse(info.foregroundServiceType == 0)
+        }
+    }
+
     @Test(expected = PackageManager.NameNotFoundException::class)
     fun homeWidgetIsNotRegistered() {
         context.packageManager.getReceiverInfo(
