@@ -19,6 +19,7 @@ fun HaruLockScreenDialog(
     enabled: Boolean,
     onDismiss: () -> Unit,
     onToggle: () -> Unit,
+    onOpenAppSettings: () -> Unit,
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -45,7 +46,7 @@ fun HaruLockScreenDialog(
 
                 Text(
                     if (enabled) {
-                        "HARU is armed for the lock screen. The interactive bar is created after the phone goes to sleep and is shown only when Android confirms the keyguard is locked."
+                        "HARU is armed for the lock screen. On Xiaomi, POCO, or Redmi phones, HyperOS/MIUI may still block it until HARU is allowed to show on the lock screen."
                     } else {
                         "HARU will stay out of the lock screen until you enable it."
                     },
@@ -65,13 +66,25 @@ fun HaruLockScreenDialog(
                     )
                 }
 
+                Button(
+                    onClick = onOpenAppSettings,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text("Open phone app settings")
+                }
+
+                Text(
+                    "For HyperOS/MIUI: open Other permissions and allow Show on Lock screen. If present, also allow Display pop-up windows while running in the background.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+
                 Text(
                     "The HARU bar never opens over the unlocked HARU app. Unlocking closes the bar. Outside the compact bar, the normal system lock screen remains in control.",
                     style = MaterialTheme.typography.bodySmall,
                 )
 
                 Text(
-                    "No draw-over-other-apps, accessibility, keyguard-dismiss, wake-lock, or full-screen-intent permission is used.",
+                    "HARU does not request draw-over-other-apps, accessibility, keyguard-dismiss, wake-lock, or full-screen-intent permission.",
                     style = MaterialTheme.typography.bodySmall,
                 )
             }
