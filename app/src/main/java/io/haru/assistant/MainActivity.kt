@@ -34,6 +34,7 @@ import io.haru.assistant.companion.ReminderScheduler
 import io.haru.assistant.core.CompanionMode
 import io.haru.assistant.core.CompanionModeStore
 import io.haru.assistant.lockscreen.HaruLockScreenActivity
+import io.haru.assistant.lockscreen.LockScreenPreferenceStore
 import io.haru.assistant.location.HaruLiveLocationManager
 import io.haru.assistant.location.LiveLocationSession
 import io.haru.assistant.location.LiveMonitorSession
@@ -66,6 +67,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
     private lateinit var companionStore: AndroidCompanionStore
     private lateinit var companionModeStore: CompanionModeStore
     private lateinit var haruCheckerStore: HaruCheckerStore
+    private lateinit var lockScreenStore: LockScreenPreferenceStore
     private lateinit var trustedLocationManager: TrustedLocationManager
     private lateinit var liveLocationManager: HaruLiveLocationManager
     private lateinit var appUpdateManager: AndroidAppUpdateManager
@@ -78,6 +80,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
     private var companionSnapshot by mutableStateOf(CompanionSnapshot())
     private var companionMode by mutableStateOf(CompanionMode.NORMAL)
     private var haruCheckerEnabled by mutableStateOf(true)
+    private var lockScreenEnabled by mutableStateOf(true)
 
     private var onlineProvider by mutableStateOf(OnlineProvider.ANTIGRAVITY)
     private var selectedGeminiModel by mutableStateOf(AndroidOnlineAiManager.FALLBACK_GEMINI_MODEL)
@@ -128,9 +131,16 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
         object : BroadcastReceiver() {
             override fun onReceive(context: Context, intent: Intent) {
                 if (
-                    intent.action == Intent.ACTION_SCREEN_OFF &&
-                    ::haruCheckerStore.isInitialized &&
-                    haruCheckerStore.isEnabled()
+                    ::lockScreenStore.isInitialized &&
+                    lockScreenStore.isEnabled() &&
+                    (
+                        intent.action == Intent.ACTION_SCREEN_OFF ||
+                            (
+                                intent.action == Intent.ACTION_SCREEN_ON &&
+                                    (getSystemService(Context.KEYGUARD_SERVICE) as android.app.KeyguardManager)
+                                        .isKeyguardLocked
+                                )
+                        )
                 ) {
                     launchLockScreenCompanion()
                 }
@@ -194,6 +204,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
         companionStore = AndroidCompanionStore(applicationContext)
         companionModeStore = CompanionModeStore(applicationContext)
         haruCheckerStore = HaruCheckerStore(applicationContext)
+        lockScreenStore = LockScreenPreferenceStore(applicationContext)
         trustedLocationManager = TrustedLocationManager(applicationContext)
         liveLocationManager = HaruLiveLocationManager()
         appUpdateManager = AndroidAppUpdateManager()
@@ -202,6 +213,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
         companionSnapshot = companionStore.load()
         companionMode = companionModeStore.load()
         haruCheckerEnabled = haruCheckerStore.isEnabled()
+        lockScreenEnabled = lockScreenStore.isEnabled()
         cleanupLegacyStorageOnce()
         registerLockScreenReceiver()
         val onlineSettings = onlineAiManager.settings()
@@ -227,6 +239,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
                     todayLines = companionSnapshot.todayLines(),
                     companionSnapshot = companionSnapshot,
                     haruCheckerEnabled = haruCheckerEnabled,
+                    lockScreenEnabled = lockScreenEnabled,
                     companionQuiet = companionMode == CompanionMode.REST,
                     onlineProvider = onlineProvider,
                     selectedGeminiModel = selectedGeminiModel,
@@ -256,6 +269,8 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
                     onUpdateCompanionTask = ::updateCompanionTask,
                     onDeleteCompanionTask = ::deleteCompanionTask,
                     onToggleHaruChecker = ::toggleHaruChecker,
+                    onToggleLockScreen = ::toggleLockScreen,
+                    onOpenAppSettings = ::openAppSettings,
                     onSelectOnlineProvider = ::selectOnlineProvider,
                     onSelectGeminiModel = ::selectGeminiModel,
                     onRefreshGeminiModels = ::refreshGeminiModels,
@@ -411,6 +426,22 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
         haruCheckerStore.setEnabled(haruCheckerEnabled)
     }
 
+    private fun toggleLockScreen() {
+        lockScreenEnabled = !lockScreenEnabled
+        lockScreenStore.setEnabled(lockScreenEnabled)
+    }
+
+    private fun openAppSettings() {
+        runCatching {
+            startActivity(
+                Intent(
+                    Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                    Uri.parse("package:$packageName"),
+                )
+            )
+        }
+    }
+
     private fun launchLockScreenCompanion() {
         val intent =
             Intent(
@@ -476,7 +507,11 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
     @SuppressLint("UnspecifiedRegisterReceiverFlag")
     private fun registerLockScreenReceiver() {
         if (lockScreenReceiverRegistered) return
-        val filter = IntentFilter(Intent.ACTION_SCREEN_OFF)
+        val filter =
+            IntentFilter().apply {
+                addAction(Intent.ACTION_SCREEN_OFF)
+                addAction(Intent.ACTION_SCREEN_ON)
+            }
         if (Build.VERSION.SDK_INT >= 33) {
             registerReceiver(
                 lockScreenReceiver,
@@ -1460,6 +1495,10 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
         if (::haruCheckerStore.isInitialized) {
             haruCheckerEnabled =
                 haruCheckerStore.isEnabled()
+        }
+        if (::lockScreenStore.isInitialized) {
+            lockScreenEnabled =
+                lockScreenStore.isEnabled()
         }
         if (::trustedLocationManager.isInitialized) {
             trustedLocations = trustedLocationManager.load()
