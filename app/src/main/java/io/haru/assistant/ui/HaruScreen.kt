@@ -190,7 +190,8 @@ fun HaruScreen(
                         haruCheckerEnabled = haruCheckerEnabled,
                         companionQuiet = companionQuiet,
                         companionVisible = selectedTab == 0 && !showSettings && !showAbout && !showOnlineAi && !showUpdate && !showLockScreenSetup,
-                        onOpenLockScreenSetup = { showLockScreenSetup = true },
+                        memoryCount = memoryCount,
+                        onResetMemory = onResetMemory,
                         onSubmitClick = onSubmitClick,
                         onMicClick = onMicClick,
                         onAddTask = onAddCompanionTask,
@@ -330,7 +331,8 @@ private fun SimpleHaruPane(
     haruCheckerEnabled: Boolean,
     companionQuiet: Boolean,
     companionVisible: Boolean,
-    onOpenLockScreenSetup: () -> Unit,
+    memoryCount: Int,
+    onResetMemory: () -> Unit,
     onSubmitClick: () -> Unit,
     onMicClick: () -> Unit,
     onAddTask: (String) -> Unit,
@@ -410,8 +412,11 @@ private fun SimpleHaruPane(
 
             Spacer(Modifier.height(4.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                TextButton(onClick = onOpenLockScreenSetup) {
-                    Text(if (haruCheckerEnabled) "Lock screen · ON" else "Lock screen · OFF")
+                TextButton(
+                    onClick = onResetMemory,
+                    enabled = memoryCount > 0,
+                ) {
+                    Text("Clear memory · $memoryCount/10")
                 }
                 TextButton(onClick = onOpenSettings) { Text("Settings") }
             }
