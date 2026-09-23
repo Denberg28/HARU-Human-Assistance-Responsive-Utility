@@ -703,7 +703,7 @@ private fun SimpleTodayDialog(
                                         "≡",
                                         modifier =
                                             Modifier
-                                                .width(34.dp)
+                                                .width(42.dp)
                                                 .pointerInput(taskId) {
                                                     val fallbackHeight =
                                                         56.dp.toPx()
@@ -723,15 +723,19 @@ private fun SimpleTodayDialog(
                                                             rowSpacing +
                                                             rowHeight(second) / 2f
 
-                                                    fun finishDrag() {
+                                                    fun persistOrderIfChanged() {
                                                         if (dragOrderChanged) {
                                                             onReorderTasks(
                                                                 taskOrder.toList()
                                                             )
+                                                            dragOrderChanged = false
                                                         }
+                                                    }
+
+                                                    fun finishDrag() {
+                                                        persistOrderIfChanged()
                                                         draggingTaskId = null
                                                         dragOffsetY = 0f
-                                                        dragOrderChanged = false
                                                     }
 
                                                     detectDragGesturesAfterLongPress(
@@ -786,6 +790,7 @@ private fun SimpleTodayDialog(
                                                                     )
                                                                     dragOffsetY -= step
                                                                     dragOrderChanged = true
+                                                                    persistOrderIfChanged()
                                                                 }
                                                             }
 
@@ -815,6 +820,7 @@ private fun SimpleTodayDialog(
                                                                     )
                                                                     dragOffsetY += step
                                                                     dragOrderChanged = true
+                                                                    persistOrderIfChanged()
                                                                 }
                                                             }
                                                         },

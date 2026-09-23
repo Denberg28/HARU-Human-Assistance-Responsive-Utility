@@ -236,15 +236,21 @@ class AndroidCompanionStore(
         val raw = preferences.getString("tasks", "[]") ?: "[]"
         return runCatching {
             val array = JSONArray(raw)
-            buildList {
-                for (i in 0 until array.length()) {
-                    val item = array.optJSONObject(i) ?: continue
-                    val text = clean(item.optString("text"))
-                    if (text.isNotBlank()) {
+            var needsIdMigration = false
+            val tasks =
+                buildList {
+                    for (i in 0 until array.length()) {
+                        val item = array.optJSONObject(i) ?: continue
+                        val text = clean(item.optString("text"))
+                        if (text.isBlank()) continue
+
+                        val storedId = item.optString("id")
                         val id =
-                            item.optString("id")
-                                .takeIf { it.isNotBlank() }
-                                ?: UUID.randomUUID().toString()
+                            storedId.takeIf { it.isNotBlank() }
+                                ?: UUID.randomUUID().toString().also {
+                                    needsIdMigration = true
+                                }
+
                         add(
                             CompanionTask(
                                 text = text,
@@ -253,8 +259,13 @@ class AndroidCompanionStore(
                             )
                         )
                     }
-                }
-            }.takeLast(200)
+                }.takeLast(200)
+
+            if (needsIdMigration) {
+                saveTasks(tasks, synchronous = true)
+            }
+
+            tasks
         }.getOrDefault(emptyList())
     }
 

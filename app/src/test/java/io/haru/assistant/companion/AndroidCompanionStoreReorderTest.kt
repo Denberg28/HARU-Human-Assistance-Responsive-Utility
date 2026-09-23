@@ -9,6 +9,25 @@ import org.robolectric.RuntimeEnvironment
 @RunWith(RobolectricTestRunner::class)
 class AndroidCompanionStoreReorderTest {
     @Test
+    fun legacyTasksReceivePersistentIdsOnFirstLoad() {
+        val context = RuntimeEnvironment.getApplication()
+        context.getSharedPreferences("haru_companion", 0)
+            .edit()
+            .clear()
+            .putString(
+                "tasks",
+                """[{"text":"Legacy task","done":false}]"""
+            )
+            .commit()
+
+        val store = AndroidCompanionStore(context)
+        val firstId = store.load().tasks.single().id
+        val secondId = store.load().tasks.single().id
+
+        assertEquals(firstId, secondId)
+    }
+
+    @Test
     fun taskIdsPersistAcrossReloads() {
         val context = RuntimeEnvironment.getApplication()
         context.getSharedPreferences("haru_companion", 0)
