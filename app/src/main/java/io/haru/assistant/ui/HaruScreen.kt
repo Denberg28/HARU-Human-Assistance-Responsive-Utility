@@ -769,7 +769,7 @@ private fun SimpleTodayDialog(
                                                                     ]
                                                                 val step =
                                                                     centerDistance(
-                                                                        taskIndex,
+                                                                        taskId,
                                                                         next,
                                                                     )
                                                                 if (
@@ -798,7 +798,7 @@ private fun SimpleTodayDialog(
                                                                     ]
                                                                 val step =
                                                                     centerDistance(
-                                                                        taskIndex,
+                                                                        taskId,
                                                                         previous,
                                                                     )
                                                                 if (
