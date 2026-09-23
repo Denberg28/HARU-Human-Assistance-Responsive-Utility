@@ -121,7 +121,7 @@ fun HaruScreen(
     onAddCompanionTask: (String) -> Unit,
     onUpdateCompanionTask: (Int, String) -> Unit,
     onDeleteCompanionTask: (Int) -> Unit,
-    onReorderCompanionTasks: (List<Int>) -> Unit,
+    onReorderCompanionTasks: (List<String>) -> Unit,
     onToggleHaruChecker: () -> Unit,
     onToggleLockScreen: () -> Unit,
     onOpenAppSettings: () -> Unit,
@@ -351,7 +351,7 @@ private fun SimpleHaruPane(
     onAddTask: (String) -> Unit,
     onUpdateTask: (Int, String) -> Unit,
     onDeleteTask: (Int) -> Unit,
-    onReorderTasks: (List<Int>) -> Unit,
+    onReorderTasks: (List<String>) -> Unit,
     onOpenSettings: () -> Unit,
 ) {
     val state = viewModel.uiState
@@ -534,7 +534,7 @@ private fun SimpleTodayDialog(
     onAddTask: (String) -> Unit,
     onUpdateTask: (Int, String) -> Unit,
     onDeleteTask: (Int) -> Unit,
-    onReorderTasks: (List<Int>) -> Unit,
+    onReorderTasks: (List<String>) -> Unit,
 ) {
     var taskText by remember { mutableStateOf("") }
     var selectedTaskIndex by remember {
@@ -542,17 +542,16 @@ private fun SimpleTodayDialog(
     }
     val taskOrder =
         remember(snapshot.tasks) {
-            mutableStateListOf<Int>().apply {
+            mutableStateListOf<String>().apply {
                 addAll(
                     snapshot.tasks
-                        .withIndex()
-                        .filter { !it.value.done }
-                        .map { it.index }
+                        .filterNot { it.done }
+                        .map { it.id }
                 )
             }
         }
-    var draggingTaskIndex by remember {
-        mutableStateOf<Int?>(null)
+    var draggingTaskId by remember {
+        mutableStateOf<String?>(null)
     }
     var dragOffsetY by remember {
         mutableStateOf(0f)
@@ -562,7 +561,7 @@ private fun SimpleTodayDialog(
     }
     val taskRowHeights =
         remember(snapshot.tasks) {
-            mutableStateMapOf<Int, Int>()
+            mutableStateMapOf<String, Int>()
         }
 
     val selectedIndex = selectedTaskIndex
@@ -653,14 +652,17 @@ private fun SimpleTodayDialog(
                         "Hold and drag ≡ to reorder. Tap a task to edit or delete.",
                         style = MaterialTheme.typography.labelSmall,
                     )
-                    taskOrder.take(12).forEach { taskIndex ->
+                    taskOrder.take(12).forEach { taskId ->
                         val task =
-                            snapshot.tasks.getOrNull(taskIndex)
+                            snapshot.tasks.firstOrNull { it.id == taskId }
                                 ?: return@forEach
+                        val taskIndex =
+                            snapshot.tasks.indexOfFirst { it.id == taskId }
+                        if (taskIndex < 0) return@forEach
 
-                        key(taskIndex) {
+                        key(taskId) {
                             val isDragging =
-                                draggingTaskIndex == taskIndex
+                                draggingTaskId == taskId
 
                             Card(
                                 onClick = {
@@ -689,7 +691,7 @@ private fun SimpleTodayDialog(
                                                 }
                                         }
                                         .onGloballyPositioned { coordinates ->
-                                            taskRowHeights[taskIndex] =
+                                            taskRowHeights[taskId] =
                                                 coordinates.size.height
                                         },
                             ) {
@@ -702,20 +704,20 @@ private fun SimpleTodayDialog(
                                         modifier =
                                             Modifier
                                                 .width(34.dp)
-                                                .pointerInput(taskIndex) {
+                                                .pointerInput(taskId) {
                                                     val fallbackHeight =
                                                         56.dp.toPx()
                                                     val rowSpacing =
                                                         8.dp.toPx()
 
-                                                    fun rowHeight(index: Int): Float =
-                                                        taskRowHeights[index]
+                                                    fun rowHeight(id: String): Float =
+                                                        taskRowHeights[id]
                                                             ?.toFloat()
                                                             ?: fallbackHeight
 
                                                     fun centerDistance(
-                                                        first: Int,
-                                                        second: Int,
+                                                        first: String,
+                                                        second: String,
                                                     ): Float =
                                                         rowHeight(first) / 2f +
                                                             rowSpacing +
@@ -727,15 +729,15 @@ private fun SimpleTodayDialog(
                                                                 taskOrder.toList()
                                                             )
                                                         }
-                                                        draggingTaskIndex = null
+                                                        draggingTaskId = null
                                                         dragOffsetY = 0f
                                                         dragOrderChanged = false
                                                     }
 
                                                     detectDragGesturesAfterLongPress(
                                                         onDragStart = {
-                                                            draggingTaskIndex =
-                                                                taskIndex
+                                                            draggingTaskId =
+                                                                taskId
                                                             dragOffsetY = 0f
                                                             dragOrderChanged = false
                                                         },
@@ -754,9 +756,7 @@ private fun SimpleTodayDialog(
                                                                 dragAmount.y
 
                                                             val current =
-                                                                taskOrder.indexOf(
-                                                                    taskIndex
-                                                                )
+                                                                taskOrder.indexOf(taskId)
 
                                                             if (
                                                                 current in
@@ -790,9 +790,7 @@ private fun SimpleTodayDialog(
                                                             }
 
                                                             val updatedCurrent =
-                                                                taskOrder.indexOf(
-                                                                    taskIndex
-                                                                )
+                                                                taskOrder.indexOf(taskId)
                                                             if (updatedCurrent > 0) {
                                                                 val previous =
                                                                     taskOrder[
