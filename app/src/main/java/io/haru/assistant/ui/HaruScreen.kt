@@ -10,6 +10,7 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -47,12 +48,14 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
@@ -113,6 +116,7 @@ fun HaruScreen(
     onAddCompanionTask: (String) -> Unit,
     onUpdateCompanionTask: (Int, String) -> Unit,
     onDeleteCompanionTask: (Int) -> Unit,
+    onReorderCompanionTasks: (List<Int>) -> Unit,
     onToggleHaruChecker: () -> Unit,
     onToggleLockScreen: () -> Unit,
     onOpenAppSettings: () -> Unit,
@@ -200,6 +204,7 @@ fun HaruScreen(
                         onAddTask = onAddCompanionTask,
                         onUpdateTask = onUpdateCompanionTask,
                         onDeleteTask = onDeleteCompanionTask,
+                        onReorderTasks = onReorderCompanionTasks,
                         onOpenSettings = { showSettings = true },
                     )
                 } else {
@@ -341,6 +346,7 @@ private fun SimpleHaruPane(
     onAddTask: (String) -> Unit,
     onUpdateTask: (Int, String) -> Unit,
     onDeleteTask: (Int) -> Unit,
+    onReorderTasks: (List<Int>) -> Unit,
     onOpenSettings: () -> Unit,
 ) {
     val state = viewModel.uiState
@@ -501,6 +507,7 @@ private fun SimpleHaruPane(
             onAddTask = onAddTask,
             onUpdateTask = onUpdateTask,
             onDeleteTask = onDeleteTask,
+            onReorderTasks = onReorderTasks,
         )
     }
 }
@@ -522,11 +529,23 @@ private fun SimpleTodayDialog(
     onAddTask: (String) -> Unit,
     onUpdateTask: (Int, String) -> Unit,
     onDeleteTask: (Int) -> Unit,
+    onReorderTasks: (List<Int>) -> Unit,
 ) {
     var taskText by remember { mutableStateOf("") }
     var selectedTaskIndex by remember {
         mutableStateOf<Int?>(null)
     }
+    val taskOrder =
+        remember(snapshot.tasks) {
+            mutableStateListOf<Int>().apply {
+                addAll(
+                    snapshot.tasks
+                        .withIndex()
+                        .filter { !it.value.done }
+                        .map { it.index }
+                )
+            }
+        }
 
     val selectedIndex = selectedTaskIndex
     if (selectedIndex != null) {
@@ -606,32 +625,91 @@ private fun SimpleTodayDialog(
                     Text("Add task")
                 }
 
-                val openTasks =
-                    snapshot.tasks
-                        .withIndex()
-                        .filter { !it.value.done }
-
-                if (openTasks.isEmpty()) {
+                if (taskOrder.isEmpty()) {
                     Text(
                         "No open tasks.",
                         style = MaterialTheme.typography.bodySmall,
                     )
                 } else {
                     Text(
-                        "Tap a task to edit or delete.",
+                        "Hold and drag ≡ to reorder. Tap a task to edit or delete.",
                         style = MaterialTheme.typography.labelSmall,
                     )
-                    openTasks.take(12).forEach { indexed ->
+                    taskOrder.take(12).forEach { taskIndex ->
+                        val task =
+                            snapshot.tasks.getOrNull(taskIndex)
+                                ?: return@forEach
+                        var dragDistance by remember(taskIndex) {
+                            mutableStateOf(0f)
+                        }
+
                         Card(
                             onClick = {
-                                selectedTaskIndex = indexed.index
+                                selectedTaskIndex = taskIndex
                             },
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier =
+                                Modifier
+                                    .fillMaxWidth()
+                                    .pointerInput(taskIndex) {
+                                        val swapThreshold = 42.dp.toPx()
+                                        detectDragGesturesAfterLongPress(
+                                            onDragStart = {
+                                                dragDistance = 0f
+                                            },
+                                            onDragCancel = {
+                                                dragDistance = 0f
+                                            },
+                                            onDragEnd = {
+                                                dragDistance = 0f
+                                                onReorderTasks(
+                                                    taskOrder.toList()
+                                                )
+                                            },
+                                            onDrag = { change, dragAmount ->
+                                                change.consume()
+                                                dragDistance += dragAmount.y
+
+                                                val current =
+                                                    taskOrder.indexOf(taskIndex)
+                                                if (
+                                                    dragDistance > swapThreshold &&
+                                                    current in 0 until taskOrder.lastIndex
+                                                ) {
+                                                    val moved =
+                                                        taskOrder.removeAt(current)
+                                                    taskOrder.add(current + 1, moved)
+                                                    dragDistance = 0f
+                                                } else if (
+                                                    dragDistance < -swapThreshold &&
+                                                    current > 0
+                                                ) {
+                                                    val moved =
+                                                        taskOrder.removeAt(current)
+                                                    taskOrder.add(current - 1, moved)
+                                                    dragDistance = 0f
+                                                }
+                                            },
+                                        )
+                                    },
                         ) {
-                            Text(
-                                "○  " + indexed.value.text,
+                            Row(
                                 modifier = Modifier.padding(10.dp),
-                            )
+                                verticalAlignment = Alignment.Top,
+                            ) {
+                                Text(
+                                    "≡",
+                                    modifier = Modifier.width(26.dp),
+                                    fontWeight = FontWeight.Bold,
+                                )
+                                Text(
+                                    "○",
+                                    modifier = Modifier.width(24.dp),
+                                )
+                                Text(
+                                    task.text,
+                                    modifier = Modifier.weight(1f),
+                                )
+                            }
                         }
                     }
                 }
