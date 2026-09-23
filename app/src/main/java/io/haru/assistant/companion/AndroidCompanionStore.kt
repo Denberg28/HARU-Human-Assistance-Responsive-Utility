@@ -9,6 +9,7 @@ import java.util.concurrent.TimeUnit
 data class CompanionTask(
     val text: String,
     val done: Boolean = false,
+    val id: String = UUID.randomUUID().toString(),
 )
 
 data class CompanionReminder(
@@ -75,7 +76,10 @@ class AndroidCompanionStore(
 
     fun addTask(text: String): CompanionSnapshot {
         val snapshot = load()
-        val tasks = (snapshot.tasks + CompanionTask(clean(text))).filter { it.text.isNotBlank() }.takeLast(200)
+        val tasks =
+            (snapshot.tasks + CompanionTask(clean(text)))
+                .filter { it.text.isNotBlank() }
+                .takeLast(200)
         saveTasks(tasks)
         return load()
     }
@@ -125,25 +129,34 @@ class AndroidCompanionStore(
         return load()
     }
 
-    fun reorderOpenTasks(order: List<Int>): CompanionSnapshot {
+    fun reorderOpenTasks(order: List<String>): CompanionSnapshot {
         val snapshot = load()
-        val openIndices =
-            snapshot.tasks.indices.filter { index ->
-                !snapshot.tasks[index].done
-            }
+        val openTasks = snapshot.tasks.filterNot { it.done }
 
         if (
-            order.size != openIndices.size ||
-            order.toSet() != openIndices.toSet()
+            order.size != openTasks.size ||
+            order.toSet() != openTasks.map { it.id }.toSet()
         ) {
             return snapshot
         }
 
-        val reorderedOpenTasks = order.map { snapshot.tasks[it] }
-        val reorderedTasks = snapshot.tasks.toMutableList()
-        openIndices.forEachIndexed { position, taskIndex ->
-            reorderedTasks[taskIndex] = reorderedOpenTasks[position]
+        val byId = openTasks.associateBy { it.id }
+        val reorderedOpenTasks =
+            order.mapNotNull { id -> byId[id] }
+
+        if (reorderedOpenTasks.size != openTasks.size) {
+            return snapshot
         }
+
+        var openPosition = 0
+        val reorderedTasks =
+            snapshot.tasks.map { task ->
+                if (task.done) {
+                    task
+                } else {
+                    reorderedOpenTasks[openPosition++]
+                }
+            }
 
         saveTasks(reorderedTasks, synchronous = true)
         return load()
@@ -228,7 +241,17 @@ class AndroidCompanionStore(
                     val item = array.optJSONObject(i) ?: continue
                     val text = clean(item.optString("text"))
                     if (text.isNotBlank()) {
-                        add(CompanionTask(text, item.optBoolean("done", false)))
+                        val id =
+                            item.optString("id")
+                                .takeIf { it.isNotBlank() }
+                                ?: UUID.randomUUID().toString()
+                        add(
+                            CompanionTask(
+                                text = text,
+                                done = item.optBoolean("done", false),
+                                id = id,
+                            )
+                        )
                     }
                 }
             }.takeLast(200)
@@ -243,6 +266,7 @@ class AndroidCompanionStore(
         tasks.takeLast(200).forEach { task ->
             array.put(
                 JSONObject()
+                    .put("id", task.id)
                     .put("text", task.text)
                     .put("done", task.done)
             )
