@@ -145,7 +145,7 @@ class AndroidCompanionStore(
             reorderedTasks[taskIndex] = reorderedOpenTasks[position]
         }
 
-        saveTasks(reorderedTasks)
+        saveTasks(reorderedTasks, synchronous = true)
         return load()
     }
 
@@ -235,7 +235,10 @@ class AndroidCompanionStore(
         }.getOrDefault(emptyList())
     }
 
-    private fun saveTasks(tasks: List<CompanionTask>) {
+    private fun saveTasks(
+        tasks: List<CompanionTask>,
+        synchronous: Boolean = false,
+    ) {
         val array = JSONArray()
         tasks.takeLast(200).forEach { task ->
             array.put(
@@ -244,7 +247,16 @@ class AndroidCompanionStore(
                     .put("done", task.done)
             )
         }
-        preferences.edit().putString("tasks", array.toString()).apply()
+
+        val editor =
+            preferences.edit()
+                .putString("tasks", array.toString())
+
+        if (synchronous) {
+            editor.commit()
+        } else {
+            editor.apply()
+        }
     }
 
     private fun readReminders(): List<CompanionReminder> {
