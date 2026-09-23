@@ -125,6 +125,30 @@ class AndroidCompanionStore(
         return load()
     }
 
+    fun reorderOpenTasks(order: List<Int>): CompanionSnapshot {
+        val snapshot = load()
+        val openIndices =
+            snapshot.tasks.indices.filter { index ->
+                !snapshot.tasks[index].done
+            }
+
+        if (
+            order.size != openIndices.size ||
+            order.toSet() != openIndices.toSet()
+        ) {
+            return snapshot
+        }
+
+        val reorderedOpenTasks = order.map { snapshot.tasks[it] }
+        val reorderedTasks = snapshot.tasks.toMutableList()
+        openIndices.forEachIndexed { position, taskIndex ->
+            reorderedTasks[taskIndex] = reorderedOpenTasks[position]
+        }
+
+        saveTasks(reorderedTasks)
+        return load()
+    }
+
     fun clearTasks(): CompanionSnapshot {
         saveTasks(emptyList())
         return load()

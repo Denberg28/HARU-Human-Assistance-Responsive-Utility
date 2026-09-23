@@ -244,6 +244,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
                     onAddCompanionTask = ::addCompanionTask,
                     onUpdateCompanionTask = ::updateCompanionTask,
                     onDeleteCompanionTask = ::deleteCompanionTask,
+                    onReorderCompanionTasks = ::reorderCompanionTasks,
                     onToggleHaruChecker = ::toggleHaruChecker,
                     onToggleLockScreen = ::toggleLockScreen,
                     onOpenAppSettings = ::openAppSettings,
@@ -386,6 +387,11 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
         if (index !in companionSnapshot.tasks.indices) return
         companionSnapshot =
             companionStore.deleteTask(index)
+    }
+
+    private fun reorderCompanionTasks(order: List<Int>) {
+        companionSnapshot =
+            companionStore.reorderOpenTasks(order)
     }
 
     private fun selectCompanionMode(mode: CompanionMode) {

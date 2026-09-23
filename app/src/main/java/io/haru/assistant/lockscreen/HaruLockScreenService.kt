@@ -156,10 +156,32 @@ class HaruLockScreenService : Service() {
     }
 
     private fun buildTaskNotification(): Notification {
+        val snapshot = companionStore.load()
+        val openTasks = snapshot.tasks.filterNot { it.done }
         val taskLine =
-            HaruCheckerContentFactory.lockScreenTaskLine(
-                companionStore.load(),
-            )
+            HaruCheckerContentFactory.lockScreenTaskLine(snapshot)
+
+        val inboxStyle =
+            NotificationCompat.InboxStyle()
+                .setBigContentTitle("Today")
+
+        if (openTasks.isEmpty()) {
+            inboxStyle.addLine("✓ Tasks clear")
+        } else {
+            openTasks
+                .take(MAX_LOCK_SCREEN_TASK_ROWS)
+                .forEach { task ->
+                    inboxStyle.addLine("• " + task.text)
+                }
+
+            if (openTasks.size > MAX_LOCK_SCREEN_TASK_ROWS) {
+                inboxStyle.setSummaryText(
+                    "+" +
+                        (openTasks.size - MAX_LOCK_SCREEN_TASK_ROWS) +
+                        " more"
+                )
+            }
+        }
 
         return NotificationCompat.Builder(
             this,
@@ -168,11 +190,7 @@ class HaruLockScreenService : Service() {
             .setSmallIcon(R.drawable.haru_notification_icon)
             .setContentTitle("Today")
             .setContentText(taskLine)
-            .setStyle(
-                NotificationCompat.BigTextStyle()
-                    .bigText(taskLine)
-                    .setBigContentTitle("Today")
-            )
+            .setStyle(inboxStyle)
             .setCategory(NotificationCompat.CATEGORY_STATUS)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
@@ -367,6 +385,7 @@ class HaruLockScreenService : Service() {
         private const val KEYGUARD_SETTLE_MS = 300L
         private const val ACKNOWLEDGEMENT_MS = 8_000L
         private const val CONTENT_ROTATION_MS = 15L * 60L * 1000L
+        private const val MAX_LOCK_SCREEN_TASK_ROWS = 6
 
         private const val ACTION_PET =
             "io.haru.assistant.action.PET_LOCK_SCREEN_HARU"
