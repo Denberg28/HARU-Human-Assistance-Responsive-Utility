@@ -389,7 +389,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
             companionStore.deleteTask(index)
     }
 
-    private fun reorderCompanionTasks(order: List<Int>) {
+    private fun reorderCompanionTasks(order: List<String>) {
         companionSnapshot =
             companionStore.reorderOpenTasks(order)
     }
