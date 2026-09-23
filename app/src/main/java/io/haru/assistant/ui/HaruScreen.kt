@@ -50,6 +50,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -58,6 +59,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
@@ -555,6 +557,13 @@ private fun SimpleTodayDialog(
     var dragOffsetY by remember {
         mutableStateOf(0f)
     }
+    var dragOrderChanged by remember {
+        mutableStateOf(false)
+    }
+    val taskRowHeights =
+        remember(snapshot.tasks) {
+            mutableStateMapOf<Int, Int>()
+        }
 
     val selectedIndex = selectedTaskIndex
     if (selectedIndex != null) {
@@ -583,17 +592,9 @@ private fun SimpleTodayDialog(
     }
 
     AlertDialog(
-        onDismissRequest = {
-            onReorderTasks(taskOrder.toList())
-            onDismiss()
-        },
+        onDismissRequest = onDismiss,
         confirmButton = {
-            TextButton(
-                onClick = {
-                    onReorderTasks(taskOrder.toList())
-                    onDismiss()
-                }
-            ) {
+            TextButton(onClick = onDismiss) {
                 Text("Done")
             }
         },
@@ -686,6 +687,10 @@ private fun SimpleTodayDialog(
                                                 } else {
                                                     0f
                                                 }
+                                        }
+                                        .onGloballyPositioned { coordinates ->
+                                            taskRowHeights[taskIndex] =
+                                                coordinates.size.height
                                         },
                             ) {
                                 Row(
@@ -698,17 +703,33 @@ private fun SimpleTodayDialog(
                                             Modifier
                                                 .width(34.dp)
                                                 .pointerInput(taskIndex) {
-                                                    val swapThreshold =
-                                                        30.dp.toPx()
-                                                    val slotStep =
-                                                        60.dp.toPx()
+                                                    val fallbackHeight =
+                                                        56.dp.toPx()
+                                                    val rowSpacing =
+                                                        8.dp.toPx()
+
+                                                    fun rowHeight(index: Int): Float =
+                                                        taskRowHeights[index]
+                                                            ?.toFloat()
+                                                            ?: fallbackHeight
+
+                                                    fun centerDistance(
+                                                        first: Int,
+                                                        second: Int,
+                                                    ): Float =
+                                                        rowHeight(first) / 2f +
+                                                            rowSpacing +
+                                                            rowHeight(second) / 2f
 
                                                     fun finishDrag() {
-                                                        onReorderTasks(
-                                                            taskOrder.toList()
-                                                        )
+                                                        if (dragOrderChanged) {
+                                                            onReorderTasks(
+                                                                taskOrder.toList()
+                                                            )
+                                                        }
                                                         draggingTaskIndex = null
                                                         dragOffsetY = 0f
+                                                        dragOrderChanged = false
                                                     }
 
                                                     detectDragGesturesAfterLongPress(
@@ -716,6 +737,7 @@ private fun SimpleTodayDialog(
                                                             draggingTaskIndex =
                                                                 taskIndex
                                                             dragOffsetY = 0f
+                                                            dragOrderChanged = false
                                                         },
                                                         onDragCancel = {
                                                             finishDrag()
@@ -737,37 +759,65 @@ private fun SimpleTodayDialog(
                                                                 )
 
                                                             if (
-                                                                dragOffsetY >
-                                                                    swapThreshold &&
                                                                 current in
                                                                     0 until
                                                                         taskOrder.lastIndex
                                                             ) {
-                                                                val moved =
-                                                                    taskOrder.removeAt(
-                                                                        current
+                                                                val next =
+                                                                    taskOrder[
+                                                                        current + 1
+                                                                    ]
+                                                                val step =
+                                                                    centerDistance(
+                                                                        taskIndex,
+                                                                        next,
                                                                     )
-                                                                taskOrder.add(
-                                                                    current + 1,
-                                                                    moved,
-                                                                )
-                                                                dragOffsetY -=
-                                                                    slotStep
-                                                            } else if (
-                                                                dragOffsetY <
-                                                                    -swapThreshold &&
-                                                                current > 0
-                                                            ) {
-                                                                val moved =
-                                                                    taskOrder.removeAt(
-                                                                        current
+                                                                if (
+                                                                    dragOffsetY >
+                                                                        step * 0.55f
+                                                                ) {
+                                                                    val moved =
+                                                                        taskOrder.removeAt(
+                                                                            current
+                                                                        )
+                                                                    taskOrder.add(
+                                                                        current + 1,
+                                                                        moved,
                                                                     )
-                                                                taskOrder.add(
-                                                                    current - 1,
-                                                                    moved,
+                                                                    dragOffsetY -= step
+                                                                    dragOrderChanged = true
+                                                                }
+                                                            }
+
+                                                            val updatedCurrent =
+                                                                taskOrder.indexOf(
+                                                                    taskIndex
                                                                 )
-                                                                dragOffsetY +=
-                                                                    slotStep
+                                                            if (updatedCurrent > 0) {
+                                                                val previous =
+                                                                    taskOrder[
+                                                                        updatedCurrent - 1
+                                                                    ]
+                                                                val step =
+                                                                    centerDistance(
+                                                                        taskIndex,
+                                                                        previous,
+                                                                    )
+                                                                if (
+                                                                    dragOffsetY <
+                                                                        -step * 0.55f
+                                                                ) {
+                                                                    val moved =
+                                                                        taskOrder.removeAt(
+                                                                            updatedCurrent
+                                                                        )
+                                                                    taskOrder.add(
+                                                                        updatedCurrent - 1,
+                                                                        moved,
+                                                                    )
+                                                                    dragOffsetY += step
+                                                                    dragOrderChanged = true
+                                                                }
                                                             }
                                                         },
                                                     )
