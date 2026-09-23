@@ -104,4 +104,32 @@ object HaruCheckerContentFactory {
                 acknowledgements.size.toLong(),
             ).toInt()
         ]
+
+    fun lockScreenTaskLine(snapshot: CompanionSnapshot): String {
+        val openTasks = snapshot.tasks.filterNot { it.done }
+        if (openTasks.isEmpty()) return "✓ Tasks clear"
+
+        val shown =
+            openTasks
+                .take(2)
+                .map { task ->
+                    val text = task.text
+                    if (text.length <= TASK_PREVIEW_CHARS) {
+                        text
+                    } else {
+                        text.take(TASK_PREVIEW_CHARS - 1).trimEnd() + "…"
+                    }
+                }
+
+        val more =
+            if (openTasks.size > shown.size) {
+                " · +${openTasks.size - shown.size}"
+            } else {
+                ""
+            }
+
+        return "Tasks · " + shown.joinToString(" · ") + more
+    }
+
+    private const val TASK_PREVIEW_CHARS = 32
 }
