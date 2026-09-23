@@ -19,6 +19,7 @@ android {
         targetSdk = 36
         versionCode = 47
         versionName = "0.9.12"
+        // Release build trigger: v0.9.12
 
         ndk {
             abiFilters += "arm64-v8a"
