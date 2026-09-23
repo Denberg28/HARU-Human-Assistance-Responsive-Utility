@@ -28,9 +28,8 @@ import java.util.Calendar
  * User-enabled lock-screen runtime.
  *
  * The foreground notification is the reliable Android/HyperOS lock-screen
- * surface. It carries HARU's face/check-in and accepts a tap acknowledgement.
- * A showWhenLocked Activity is still attempted as a best-effort richer bar on
- * devices that permit background activity presentation over the keyguard.
+ * surface. HARU is deliberately simple here: one visible companion, one pet
+ * action, one cute local reaction. No app launch and no keyguard dismissal.
  */
 class HaruLockScreenService : Service() {
     private val handler = Handler(Looper.getMainLooper())
@@ -83,7 +82,6 @@ class HaruLockScreenService : Service() {
                 keyguard.isKeyguardLocked
             ) {
                 publishCompanionNotification(isLocked = true)
-                HaruLockScreenLauncher.launch(applicationContext)
             }
         }
 
@@ -250,6 +248,16 @@ class HaruLockScreenService : Service() {
                     PendingIntent.FLAG_IMMUTABLE,
             )
 
+        val petAction =
+            NotificationCompat.Action.Builder(
+                R.drawable.haru_notification_icon,
+                "♡  HARU",
+                petIntent,
+            )
+                .setAuthenticationRequired(false)
+                .setShowsUserInterface(false)
+                .build()
+
         val calendar = Calendar.getInstance()
         val hour = calendar.get(Calendar.HOUR_OF_DAY)
         val step = now / CONTENT_ROTATION_MS
@@ -294,9 +302,9 @@ class HaruLockScreenService : Service() {
                 NotificationCompat.BigTextStyle()
                     .bigText(line)
                     .setBigContentTitle(title)
-                    .setSummaryText("Tap HARU to acknowledge")
+                    .setSummaryText("Tap ♡ HARU for a little response")
             )
-            .setContentIntent(petIntent)
+            .addAction(petAction)
             .setCategory(NotificationCompat.CATEGORY_STATUS)
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
