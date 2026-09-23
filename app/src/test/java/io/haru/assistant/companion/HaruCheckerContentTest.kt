@@ -69,6 +69,29 @@ class HaruCheckerContentTest {
     }
 
     @Test
+    fun lockScreenTaskLineShowsTwoOpenTasksAndRemainingCount() {
+        val snapshot =
+            CompanionSnapshot(
+                tasks =
+                    listOf(
+                        CompanionTask("First task"),
+                        CompanionTask("Done task", done = true),
+                        CompanionTask("Second task"),
+                        CompanionTask("Third task"),
+                    ),
+            )
+
+        assertEquals(
+            "Tasks · First task · Second task · +1",
+            HaruCheckerContentFactory.lockScreenTaskLine(snapshot),
+        )
+        assertEquals(
+            "✓ Tasks clear",
+            HaruCheckerContentFactory.lockScreenTaskLine(CompanionSnapshot()),
+        )
+    }
+
+    @Test
     fun quietModeIsStable() {
         val snapshot = CompanionSnapshot()
         val first =
