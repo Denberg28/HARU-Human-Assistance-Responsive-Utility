@@ -50,6 +50,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -58,6 +59,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
@@ -119,7 +121,7 @@ fun HaruScreen(
     onAddCompanionTask: (String) -> Unit,
     onUpdateCompanionTask: (Int, String) -> Unit,
     onDeleteCompanionTask: (Int) -> Unit,
-    onReorderCompanionTasks: (List<Int>) -> Unit,
+    onReorderCompanionTasks: (List<String>) -> Unit,
     onToggleHaruChecker: () -> Unit,
     onToggleLockScreen: () -> Unit,
     onOpenAppSettings: () -> Unit,
@@ -349,7 +351,7 @@ private fun SimpleHaruPane(
     onAddTask: (String) -> Unit,
     onUpdateTask: (Int, String) -> Unit,
     onDeleteTask: (Int) -> Unit,
-    onReorderTasks: (List<Int>) -> Unit,
+    onReorderTasks: (List<String>) -> Unit,
     onOpenSettings: () -> Unit,
 ) {
     val state = viewModel.uiState
@@ -532,7 +534,7 @@ private fun SimpleTodayDialog(
     onAddTask: (String) -> Unit,
     onUpdateTask: (Int, String) -> Unit,
     onDeleteTask: (Int) -> Unit,
-    onReorderTasks: (List<Int>) -> Unit,
+    onReorderTasks: (List<String>) -> Unit,
 ) {
     var taskText by remember { mutableStateOf("") }
     var selectedTaskIndex by remember {
@@ -540,21 +542,27 @@ private fun SimpleTodayDialog(
     }
     val taskOrder =
         remember(snapshot.tasks) {
-            mutableStateListOf<Int>().apply {
+            mutableStateListOf<String>().apply {
                 addAll(
                     snapshot.tasks
-                        .withIndex()
-                        .filter { !it.value.done }
-                        .map { it.index }
+                        .filterNot { it.done }
+                        .map { it.id }
                 )
             }
         }
-    var draggingTaskIndex by remember {
-        mutableStateOf<Int?>(null)
+    var draggingTaskId by remember {
+        mutableStateOf<String?>(null)
     }
     var dragOffsetY by remember {
         mutableStateOf(0f)
     }
+    var dragOrderChanged by remember {
+        mutableStateOf(false)
+    }
+    val taskRowHeights =
+        remember(snapshot.tasks) {
+            mutableStateMapOf<String, Int>()
+        }
 
     val selectedIndex = selectedTaskIndex
     if (selectedIndex != null) {
@@ -583,17 +591,9 @@ private fun SimpleTodayDialog(
     }
 
     AlertDialog(
-        onDismissRequest = {
-            onReorderTasks(taskOrder.toList())
-            onDismiss()
-        },
+        onDismissRequest = onDismiss,
         confirmButton = {
-            TextButton(
-                onClick = {
-                    onReorderTasks(taskOrder.toList())
-                    onDismiss()
-                }
-            ) {
+            TextButton(onClick = onDismiss) {
                 Text("Done")
             }
         },
@@ -652,14 +652,17 @@ private fun SimpleTodayDialog(
                         "Hold and drag ≡ to reorder. Tap a task to edit or delete.",
                         style = MaterialTheme.typography.labelSmall,
                     )
-                    taskOrder.take(12).forEach { taskIndex ->
+                    taskOrder.take(12).forEach { taskId ->
                         val task =
-                            snapshot.tasks.getOrNull(taskIndex)
+                            snapshot.tasks.firstOrNull { it.id == taskId }
                                 ?: return@forEach
+                        val taskIndex =
+                            snapshot.tasks.indexOfFirst { it.id == taskId }
+                        if (taskIndex < 0) return@forEach
 
-                        key(taskIndex) {
+                        key(taskId) {
                             val isDragging =
-                                draggingTaskIndex == taskIndex
+                                draggingTaskId == taskId
 
                             Card(
                                 onClick = {
@@ -686,6 +689,10 @@ private fun SimpleTodayDialog(
                                                 } else {
                                                     0f
                                                 }
+                                        }
+                                        .onGloballyPositioned { coordinates ->
+                                            taskRowHeights[taskId] =
+                                                coordinates.size.height
                                         },
                             ) {
                                 Row(
@@ -697,25 +704,42 @@ private fun SimpleTodayDialog(
                                         modifier =
                                             Modifier
                                                 .width(34.dp)
-                                                .pointerInput(taskIndex) {
-                                                    val swapThreshold =
-                                                        30.dp.toPx()
-                                                    val slotStep =
-                                                        60.dp.toPx()
+                                                .pointerInput(taskId) {
+                                                    val fallbackHeight =
+                                                        56.dp.toPx()
+                                                    val rowSpacing =
+                                                        8.dp.toPx()
+
+                                                    fun rowHeight(id: String): Float =
+                                                        taskRowHeights[id]
+                                                            ?.toFloat()
+                                                            ?: fallbackHeight
+
+                                                    fun centerDistance(
+                                                        first: String,
+                                                        second: String,
+                                                    ): Float =
+                                                        rowHeight(first) / 2f +
+                                                            rowSpacing +
+                                                            rowHeight(second) / 2f
 
                                                     fun finishDrag() {
-                                                        onReorderTasks(
-                                                            taskOrder.toList()
-                                                        )
-                                                        draggingTaskIndex = null
+                                                        if (dragOrderChanged) {
+                                                            onReorderTasks(
+                                                                taskOrder.toList()
+                                                            )
+                                                        }
+                                                        draggingTaskId = null
                                                         dragOffsetY = 0f
+                                                        dragOrderChanged = false
                                                     }
 
                                                     detectDragGesturesAfterLongPress(
                                                         onDragStart = {
-                                                            draggingTaskIndex =
-                                                                taskIndex
+                                                            draggingTaskId =
+                                                                taskId
                                                             dragOffsetY = 0f
+                                                            dragOrderChanged = false
                                                         },
                                                         onDragCancel = {
                                                             finishDrag()
@@ -732,42 +756,66 @@ private fun SimpleTodayDialog(
                                                                 dragAmount.y
 
                                                             val current =
-                                                                taskOrder.indexOf(
-                                                                    taskIndex
-                                                                )
+                                                                taskOrder.indexOf(taskId)
 
                                                             if (
-                                                                dragOffsetY >
-                                                                    swapThreshold &&
                                                                 current in
                                                                     0 until
                                                                         taskOrder.lastIndex
                                                             ) {
-                                                                val moved =
-                                                                    taskOrder.removeAt(
-                                                                        current
+                                                                val next =
+                                                                    taskOrder[
+                                                                        current + 1
+                                                                    ]
+                                                                val step =
+                                                                    centerDistance(
+                                                                        taskId,
+                                                                        next,
                                                                     )
-                                                                taskOrder.add(
-                                                                    current + 1,
-                                                                    moved,
-                                                                )
-                                                                dragOffsetY -=
-                                                                    slotStep
-                                                            } else if (
-                                                                dragOffsetY <
-                                                                    -swapThreshold &&
-                                                                current > 0
-                                                            ) {
-                                                                val moved =
-                                                                    taskOrder.removeAt(
-                                                                        current
+                                                                if (
+                                                                    dragOffsetY >
+                                                                        step * 0.55f
+                                                                ) {
+                                                                    val moved =
+                                                                        taskOrder.removeAt(
+                                                                            current
+                                                                        )
+                                                                    taskOrder.add(
+                                                                        current + 1,
+                                                                        moved,
                                                                     )
-                                                                taskOrder.add(
-                                                                    current - 1,
-                                                                    moved,
-                                                                )
-                                                                dragOffsetY +=
-                                                                    slotStep
+                                                                    dragOffsetY -= step
+                                                                    dragOrderChanged = true
+                                                                }
+                                                            }
+
+                                                            val updatedCurrent =
+                                                                taskOrder.indexOf(taskId)
+                                                            if (updatedCurrent > 0) {
+                                                                val previous =
+                                                                    taskOrder[
+                                                                        updatedCurrent - 1
+                                                                    ]
+                                                                val step =
+                                                                    centerDistance(
+                                                                        taskId,
+                                                                        previous,
+                                                                    )
+                                                                if (
+                                                                    dragOffsetY <
+                                                                        -step * 0.55f
+                                                                ) {
+                                                                    val moved =
+                                                                        taskOrder.removeAt(
+                                                                            updatedCurrent
+                                                                        )
+                                                                    taskOrder.add(
+                                                                        updatedCurrent - 1,
+                                                                        moved,
+                                                                    )
+                                                                    dragOffsetY += step
+                                                                    dragOrderChanged = true
+                                                                }
                                                             }
                                                         },
                                                     )

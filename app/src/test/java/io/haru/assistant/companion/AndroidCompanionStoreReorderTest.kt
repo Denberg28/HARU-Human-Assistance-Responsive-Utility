@@ -9,6 +9,21 @@ import org.robolectric.RuntimeEnvironment
 @RunWith(RobolectricTestRunner::class)
 class AndroidCompanionStoreReorderTest {
     @Test
+    fun taskIdsPersistAcrossReloads() {
+        val context = RuntimeEnvironment.getApplication()
+        context.getSharedPreferences("haru_companion", 0)
+            .edit()
+            .clear()
+            .commit()
+
+        val store = AndroidCompanionStore(context)
+        val first = store.addTask("Stable")
+        val id = first.tasks.single().id
+
+        assertEquals(id, store.load().tasks.single().id)
+    }
+
+    @Test
     fun reorderOpenTasksPersistsRequestedOrder() {
         val context = RuntimeEnvironment.getApplication()
         context.getSharedPreferences("haru_companion", 0)
@@ -21,7 +36,15 @@ class AndroidCompanionStoreReorderTest {
         store.addTask("Second")
         store.addTask("Third")
 
-        val reordered = store.reorderOpenTasks(listOf(2, 0, 1))
+        val before = store.load()
+        val reordered =
+            store.reorderOpenTasks(
+                listOf(
+                    before.tasks[2].id,
+                    before.tasks[0].id,
+                    before.tasks[1].id,
+                )
+            )
 
         assertEquals(
             listOf("Third", "First", "Second"),
@@ -47,7 +70,14 @@ class AndroidCompanionStoreReorderTest {
         store.addTask("Third")
         store.completeTask(1)
 
-        val reordered = store.reorderOpenTasks(listOf(2, 0))
+        val before = store.load()
+        val reordered =
+            store.reorderOpenTasks(
+                listOf(
+                    before.tasks[2].id,
+                    before.tasks[0].id,
+                )
+            )
 
         assertEquals("Third", reordered.tasks[0].text)
         assertEquals("Completed", reordered.tasks[1].text)
