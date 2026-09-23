@@ -155,6 +155,34 @@ class HaruLockScreenService : Service() {
         )
     }
 
+    private fun buildTaskNotification(): Notification {
+        val taskLine =
+            HaruCheckerContentFactory.lockScreenTaskLine(
+                companionStore.load(),
+            )
+
+        return NotificationCompat.Builder(
+            this,
+            CHANNEL_ID,
+        )
+            .setSmallIcon(R.drawable.haru_notification_icon)
+            .setContentTitle("Today")
+            .setContentText(taskLine)
+            .setStyle(
+                NotificationCompat.BigTextStyle()
+                    .bigText(taskLine)
+                    .setBigContentTitle("Today")
+            )
+            .setCategory(NotificationCompat.CATEGORY_STATUS)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setOngoing(true)
+            .setAutoCancel(false)
+            .setOnlyAlertOnce(true)
+            .setSilent(true)
+            .build()
+    }
+
     private fun scheduleShowIfLocked() {
         handler.removeCallbacks(showIfLocked)
         handler.postDelayed(showIfLocked, KEYGUARD_SETTLE_MS)
@@ -230,6 +258,15 @@ class HaruLockScreenService : Service() {
             NOTIFICATION_ID,
             buildCompanionNotification(isLocked),
         )
+
+        if (isLocked) {
+            notificationManager.notify(
+                TASK_NOTIFICATION_ID,
+                buildTaskNotification(),
+            )
+        } else {
+            notificationManager.cancel(TASK_NOTIFICATION_ID)
+        }
     }
 
     private fun buildCompanionNotification(
@@ -302,7 +339,13 @@ class HaruLockScreenService : Service() {
                 NotificationCompat.BigTextStyle()
                     .bigText(line)
                     .setBigContentTitle(title)
-                    .setSummaryText("Tap ♡ HARU for a little response")
+                    .setSummaryText(
+                        if (now < acknowledgementUntil) {
+                            "HARU reacted ♡"
+                        } else {
+                            "Tap ♡ HARU"
+                        }
+                    )
             )
             .addAction(petAction)
             .setCategory(NotificationCompat.CATEGORY_STATUS)
@@ -319,9 +362,10 @@ class HaruLockScreenService : Service() {
         private const val CHANNEL_ID =
             "haru_lock_screen_companion_v2"
         private const val NOTIFICATION_ID = 9108
+        private const val TASK_NOTIFICATION_ID = 9110
         private const val PET_REQUEST_CODE = 9109
         private const val KEYGUARD_SETTLE_MS = 300L
-        private const val ACKNOWLEDGEMENT_MS = 2_500L
+        private const val ACKNOWLEDGEMENT_MS = 8_000L
         private const val CONTENT_ROTATION_MS = 15L * 60L * 1000L
 
         private const val ACTION_PET =
