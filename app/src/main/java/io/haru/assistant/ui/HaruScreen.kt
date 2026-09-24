@@ -75,6 +75,7 @@ import androidx.compose.ui.zIndex
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import io.haru.assistant.HaruViewModel
 import io.haru.assistant.companion.CompanionSnapshot
+import io.haru.assistant.companion.HaruDailyPulseFactory
 import io.haru.assistant.core.HaruMood
 import io.haru.assistant.location.TrustedLocation
 import io.haru.assistant.onlineai.GeminiModel
@@ -416,19 +417,20 @@ private fun SimpleHaruPane(
                         "Today  ›",
                         fontWeight = FontWeight.SemiBold,
                     )
-                    if (todayLines.isEmpty()) {
-                        Text(
-                            "Nothing pending.",
-                            style = MaterialTheme.typography.bodySmall,
-                        )
-                    } else {
-                        todayLines.take(3).forEach {
+                    Text(
+                        HaruDailyPulseFactory.focusLine(companionSnapshot),
+                        style = MaterialTheme.typography.bodySmall,
+                        fontWeight = FontWeight.Medium,
+                    )
+                    todayLines
+                        .filterNot { it.startsWith("Tasks:") }
+                        .take(2)
+                        .forEach {
                             Text(
                                 it,
                                 style = MaterialTheme.typography.bodySmall,
                             )
                         }
-                    }
                 }
             }
 
