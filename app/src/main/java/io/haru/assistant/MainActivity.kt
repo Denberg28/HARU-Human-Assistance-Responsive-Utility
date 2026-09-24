@@ -26,6 +26,8 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import io.haru.assistant.companion.AndroidCompanionStore
 import io.haru.assistant.companion.CompanionSnapshot
 import io.haru.assistant.companion.HaruCheckerStore
+import io.haru.assistant.companion.HaruChatActionParser
+import io.haru.assistant.companion.HaruChatActionResult
 import io.haru.assistant.companion.ReminderScheduler
 import io.haru.assistant.core.CompanionMode
 import io.haru.assistant.core.CompanionModeStore
@@ -87,7 +89,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
     private var onlineProvider by mutableStateOf(OnlineProvider.ANTIGRAVITY)
     private var selectedGeminiModel by mutableStateOf(AndroidOnlineAiManager.FALLBACK_GEMINI_MODEL)
     private var geminiModels by mutableStateOf(listOf(AndroidOnlineAiManager.FALLBACK_GEMINI_MODEL))
-    private var onlineStatus by mutableStateOf("Antigravity is the online default.")
+    private var onlineStatus by mutableStateOf("Antigravity Auto is the online default.")
     private var hasGeminiKey by mutableStateOf(false)
     private var hasGroqKey by mutableStateOf(false)
     private var updateStatus by mutableStateOf("")
@@ -388,6 +390,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
     private fun addCompanionTask(text: String) {
         if (text.isBlank()) return
         companionSnapshot = companionStore.addTask(text)
+        HaruLockScreenService.refresh(this)
     }
 
     private fun updateCompanionTask(
@@ -397,17 +400,20 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
         if (index !in companionSnapshot.tasks.indices) return
         companionSnapshot =
             companionStore.updateTask(index, text)
+        HaruLockScreenService.refresh(this)
     }
 
     private fun deleteCompanionTask(index: Int) {
         if (index !in companionSnapshot.tasks.indices) return
         companionSnapshot =
             companionStore.deleteTask(index)
+        HaruLockScreenService.refresh(this)
     }
 
     private fun reorderCompanionTasks(order: List<String>) {
         companionSnapshot =
             companionStore.reorderOpenTasks(order)
+        HaruLockScreenService.refresh(this)
     }
 
     private fun selectCompanionMode(mode: CompanionMode) {
@@ -1292,7 +1298,8 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
             }
             "clear tasks", "delete all tasks" -> {
                 companionSnapshot = companionStore.clearTasks()
-                        return "All tasks cleared."
+                HaruLockScreenService.refresh(this)
+                return "All tasks cleared."
             }
             "show reminders", "list reminders", "my reminders" -> {
                 val reminders = companionSnapshot.reminders
@@ -1315,6 +1322,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
                     ReminderScheduler.cancel(this, it.id)
                 }
                 companionSnapshot = companionStore.clearReminders()
+                HaruLockScreenService.refresh(this)
                 return "All reminders cleared."
             }
         }
@@ -1326,13 +1334,6 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
                 return "Noted: " + match.groupValues[1].trim()
             }
 
-        Regex("(?i)^(?:task|add task|todo|to-do|add to tasks)\\s+(.+)$")
-            .matchEntire(clean)
-            ?.let { match ->
-                companionSnapshot = companionStore.addTask(match.groupValues[1])
-                return "Added task: " + match.groupValues[1].trim()
-            }
-
         Regex("(?i)^(?:done|complete|finish)\\s+(?:task\\s+)?(\\d+)$")
             .matchEntire(clean)
             ?.let { match ->
@@ -1342,20 +1343,45 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
                 }
                 val taskText = companionSnapshot.tasks[index].text
                 companionSnapshot = companionStore.completeTask(index)
+                HaruLockScreenService.refresh(this)
                 return "Completed: " + taskText
             }
 
-        companionStore.parseRelativeReminder(clean)?.let { (text, dueAt) ->
-            val reminder = companionStore.addReminder(text, dueAt)
-            companionSnapshot = companionStore.load()
-            ReminderScheduler.schedule(this, reminder)
-            requestNotificationPermissionIfNeeded()
+        when (val action = HaruChatActionParser.parse(clean)) {
+            is HaruChatActionResult.AddTask -> {
+                companionSnapshot =
+                    companionStore.addTask(action.text)
+                HaruLockScreenService.refresh(this)
+                return "Added to Today: " + action.text
+            }
 
-            val whenText = DateFormat.getDateTimeInstance(
-                DateFormat.MEDIUM,
-                DateFormat.SHORT,
-            ).format(Date(dueAt))
-            return "Reminder set for " + whenText + ": " + text
+            is HaruChatActionResult.SetReminder -> {
+                val reminder =
+                    companionStore.addReminder(
+                        action.text,
+                        action.dueAt,
+                    )
+                companionSnapshot = companionStore.load()
+                ReminderScheduler.schedule(this, reminder)
+                requestNotificationPermissionIfNeeded()
+                HaruLockScreenService.refresh(this)
+
+                val whenText =
+                    DateFormat.getDateTimeInstance(
+                        DateFormat.MEDIUM,
+                        DateFormat.SHORT,
+                    ).format(Date(action.dueAt))
+
+                return "Reminder set for " +
+                    whenText +
+                    ": " +
+                    action.text
+            }
+
+            is HaruChatActionResult.Clarify ->
+                return action.message
+
+            HaruChatActionResult.None -> Unit
         }
 
         return null
@@ -1516,7 +1542,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
 
     private fun providerName(provider: OnlineProvider): String =
         when (provider) {
-            OnlineProvider.ANTIGRAVITY -> "Antigravity"
+            OnlineProvider.ANTIGRAVITY -> "Antigravity Auto"
             OnlineProvider.GEMINI -> selectedGeminiModel.label
             OnlineProvider.GROQ -> "Groq · Qwen 3.8 27B"
         }
@@ -1546,6 +1572,9 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
 
         private const val SYSTEM_PROMPT =
             "You are HARU, a concise and practical personal assistant. " +
+                "HARU's Android app handles explicit task and reminder requests locally before this AI request. " +
+                "If the user asks for a reminder but gives no usable future time, ask for the time instead of claiming it was scheduled. " +
+                "Never claim a task or reminder was created unless the app explicitly reports that action as completed. " +
                 "Use local device tools for notes, tasks, reminders, voice, hazards, news, and trusted locations. " +
                 "Do not claim actions you did not perform."
     }

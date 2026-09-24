@@ -112,6 +112,10 @@ class HaruLockScreenService : Service() {
 
         when (intent?.action) {
             ACTION_PET -> acknowledgeHaru()
+            ACTION_REFRESH ->
+                publishCompanionNotification(
+                    isLocked = keyguard.isKeyguardLocked,
+                )
             else -> scheduleShowIfLocked()
         }
 
@@ -178,10 +182,24 @@ class HaruLockScreenService : Service() {
                 inboxStyle.setSummaryText(
                     "+" +
                         (openTasks.size - MAX_LOCK_SCREEN_TASK_ROWS) +
-                        " more"
+                        " more tasks"
                 )
             }
         }
+
+        snapshot.reminders
+            .filter { it.dueAt > System.currentTimeMillis() }
+            .sortedBy { it.dueAt }
+            .take(MAX_LOCK_SCREEN_REMINDER_ROWS)
+            .forEach { reminder ->
+                val whenText =
+                    java.text.DateFormat.getTimeInstance(
+                        java.text.DateFormat.SHORT,
+                    ).format(java.util.Date(reminder.dueAt))
+                inboxStyle.addLine(
+                    "⏰ " + whenText + " · " + reminder.text
+                )
+            }
 
         return NotificationCompat.Builder(
             this,
@@ -386,9 +404,12 @@ class HaruLockScreenService : Service() {
         private const val ACKNOWLEDGEMENT_MS = 8_000L
         private const val CONTENT_ROTATION_MS = 15L * 60L * 1000L
         private const val MAX_LOCK_SCREEN_TASK_ROWS = 6
+        private const val MAX_LOCK_SCREEN_REMINDER_ROWS = 2
 
         private const val ACTION_PET =
             "io.haru.assistant.action.PET_LOCK_SCREEN_HARU"
+        private const val ACTION_REFRESH =
+            "io.haru.assistant.action.REFRESH_LOCK_SCREEN_HARU"
 
         fun start(context: Context) {
             ContextCompat.startForegroundService(
@@ -397,6 +418,18 @@ class HaruLockScreenService : Service() {
                     context,
                     HaruLockScreenService::class.java,
                 ),
+            )
+        }
+
+        fun refresh(context: Context) {
+            if (!LockScreenPreferenceStore(context).isEnabled()) return
+
+            ContextCompat.startForegroundService(
+                context,
+                Intent(
+                    context,
+                    HaruLockScreenService::class.java,
+                ).setAction(ACTION_REFRESH),
             )
         }
 

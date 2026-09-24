@@ -278,13 +278,34 @@ class AndroidOnlineAiManager(
 
         when (provider) {
             OnlineProvider.ANTIGRAVITY ->
-                askAntigravity(
-                    prompt = prompt,
-                    systemPrompt = systemPrompt,
-                    history = recentHistory,
-                    summary = cleanSummary,
-                    session = antigravitySession,
-                )
+                when (HaruAiRoutingPolicy.routeForAntigravity(prompt)) {
+                    HaruAiRoute.FAST_CHAT ->
+                        OnlineAiReply(
+                            text =
+                                askGemini(
+                                    modelId = settings().geminiModel.id,
+                                    prompt = prompt,
+                                    systemPrompt = systemPrompt,
+                                    history = recentHistory,
+                                    summary = cleanSummary,
+                                    enableSearch = false,
+                                ),
+                            antigravitySession =
+                                antigravitySession?.takeIf { it.isFresh() },
+                        )
+
+                    HaruAiRoute.ANTIGRAVITY_AGENT ->
+                        askAntigravity(
+                            prompt = prompt,
+                            systemPrompt = systemPrompt,
+                            history = recentHistory,
+                            summary = cleanSummary,
+                            session = antigravitySession,
+                            enableWebTools =
+                                HaruAiRoutingPolicy.needsWebSearch(prompt),
+                        )
+                }
+
             OnlineProvider.GEMINI ->
                 OnlineAiReply(
                     text =
@@ -294,6 +315,8 @@ class AndroidOnlineAiManager(
                             systemPrompt = systemPrompt,
                             history = recentHistory,
                             summary = cleanSummary,
+                            enableSearch =
+                                HaruAiRoutingPolicy.needsWebSearch(prompt),
                         )
                 )
             OnlineProvider.GROQ ->
@@ -322,6 +345,7 @@ class AndroidOnlineAiManager(
         history: List<ConversationExchange>,
         summary: String,
         session: AntigravitySession?,
+        enableWebTools: Boolean,
     ): OnlineAiReply {
         val key = credentials.get("gemini")
         require(key.isNotBlank()) { "Gemini API key is required." }
@@ -349,10 +373,14 @@ class AndroidOnlineAiManager(
                             .put("model", settings().geminiModel.id)
                             .put("max_total_tokens", ANTIGRAVITY_TOKEN_BUDGET)
                     )
-                    .put(
-                        "tools",
-                        antigravityTools(),
-                    )
+                    .apply {
+                        if (enableWebTools) {
+                            put(
+                                "tools",
+                                antigravityTools(),
+                            )
+                        }
+                    }
 
             try {
                 return parseAntigravityReply(
@@ -360,7 +388,7 @@ class AndroidOnlineAiManager(
                         INTERACTIONS_URL,
                         continuationPayload,
                         mapOf("x-goog-api-key" to key),
-                        timeoutMs = 180_000,
+                        timeoutMs = ANTIGRAVITY_TIMEOUT_MS,
                     )
                 )
             } catch (exc: ProviderHttpException) {
@@ -414,17 +442,21 @@ class AndroidOnlineAiManager(
                         .put("model", settings().geminiModel.id)
                         .put("max_total_tokens", ANTIGRAVITY_TOKEN_BUDGET)
                 )
-                .put(
-                    "tools",
-                    antigravityTools(),
-                )
+                .apply {
+                    if (enableWebTools) {
+                        put(
+                            "tools",
+                            antigravityTools(),
+                        )
+                    }
+                }
 
         return parseAntigravityReply(
             postJson(
                 INTERACTIONS_URL,
                 payload,
                 mapOf("x-goog-api-key" to key),
-                timeoutMs = 180_000,
+                timeoutMs = ANTIGRAVITY_TIMEOUT_MS,
             )
         )
     }
@@ -574,6 +606,7 @@ class AndroidOnlineAiManager(
         systemPrompt: String,
         history: List<ConversationExchange>,
         summary: String,
+        enableSearch: Boolean,
     ): String {
         require(SAFE_MODEL_ID.matches(modelId)) {
             "Invalid Gemini model identifier."
@@ -644,12 +677,30 @@ class AndroidOnlineAiManager(
                 )
         )
 
-        val payload = JSONObject()
-            .put("contents", contents)
-            .put(
-                "tools",
-                JSONArray().put(JSONObject().put("google_search", JSONObject()))
-            )
+        val payload =
+            JSONObject()
+                .put("contents", contents)
+                .put(
+                    "generationConfig",
+                    JSONObject()
+                        .put(
+                            "maxOutputTokens",
+                            FAST_CHAT_MAX_OUTPUT_TOKENS,
+                        )
+                )
+                .apply {
+                    if (enableSearch) {
+                        put(
+                            "tools",
+                            JSONArray().put(
+                                JSONObject().put(
+                                    "google_search",
+                                    JSONObject(),
+                                )
+                            ),
+                        )
+                    }
+                }
 
         if (systemPrompt.isNotBlank()) {
             payload.put(
@@ -798,7 +849,9 @@ class AndroidOnlineAiManager(
         private const val MAX_CATALOG_RESPONSE_CHARS = 1_000_000
         private const val MAX_AI_RESPONSE_CHARS = 1_000_000
         private const val MAX_INTERACTION_ID_CHARS = 512
-        private const val ANTIGRAVITY_TOKEN_BUDGET = 12_000
+        private const val ANTIGRAVITY_TOKEN_BUDGET = 4_000
+        private const val ANTIGRAVITY_TIMEOUT_MS = 75_000
+        private const val FAST_CHAT_MAX_OUTPUT_TOKENS = 1_200
         private const val ANTIGRAVITY_AGENT =
             "antigravity-preview-09-2026"
         private const val INTERACTIONS_URL =

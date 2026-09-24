@@ -1756,7 +1756,7 @@ private fun OnlineAiDialog(
                     Text(status, style = MaterialTheme.typography.bodySmall)
                 }
                 Text(
-                    "Antigravity remains the default. Gemini models refresh from Google's live catalog. Groq uses Qwen 3.8 27B with HARU's encrypted local memory.",
+                    "Antigravity Auto uses fast Gemini chat for normal messages and escalates to the Antigravity agent only when live search or deeper web work is needed. Groq remains available as an alternate provider.",
                     style = MaterialTheme.typography.labelSmall,
                 )
             }
@@ -2120,7 +2120,7 @@ private fun formattedInlineText(
 
 private fun providerLabel(provider: OnlineProvider): String =
     when (provider) {
-        OnlineProvider.ANTIGRAVITY -> "Antigravity"
+        OnlineProvider.ANTIGRAVITY -> "Antigravity Auto"
         OnlineProvider.GEMINI -> "Gemini"
         OnlineProvider.GROQ -> "Groq · Qwen 3.8"
     }
