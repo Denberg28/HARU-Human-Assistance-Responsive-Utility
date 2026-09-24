@@ -95,6 +95,7 @@ fun HaruScreen(
     companionSnapshot: CompanionSnapshot,
     haruCheckerEnabled: Boolean,
     lockScreenEnabled: Boolean,
+    themeColor: HaruThemeColor,
     companionQuiet: Boolean,
     onlineProvider: OnlineProvider,
     selectedGeminiModel: GeminiModel,
@@ -124,6 +125,7 @@ fun HaruScreen(
     onReorderCompanionTasks: (List<String>) -> Unit,
     onToggleHaruChecker: () -> Unit,
     onToggleLockScreen: () -> Unit,
+    onSelectThemeColor: (HaruThemeColor) -> Unit,
     onOpenAppSettings: () -> Unit,
     onSelectOnlineProvider: (OnlineProvider) -> Unit,
     onSelectGeminiModel: (GeminiModel) -> Unit,
@@ -287,6 +289,7 @@ fun HaruScreen(
             haruCheckerEnabled = haruCheckerEnabled,
             lockScreenEnabled = lockScreenEnabled,
             onlineProvider = onlineProvider,
+            themeColor = themeColor,
             appVersion = appVersion,
             onDismiss = { showSettings = false },
             onOpenLockScreen = {
@@ -294,6 +297,7 @@ fun HaruScreen(
                 showLockScreenSetup = true
             },
             onToggleHaruChecker = onToggleHaruChecker,
+            onSelectThemeColor = onSelectThemeColor,
             onOpenAi = {
                 showSettings = false
                 showOnlineAi = true
@@ -922,10 +926,12 @@ private fun SimpleSettingsDialog(
     haruCheckerEnabled: Boolean,
     lockScreenEnabled: Boolean,
     onlineProvider: OnlineProvider,
+    themeColor: HaruThemeColor,
     appVersion: String,
     onDismiss: () -> Unit,
     onOpenLockScreen: () -> Unit,
     onToggleHaruChecker: () -> Unit,
+    onSelectThemeColor: (HaruThemeColor) -> Unit,
     onOpenAi: () -> Unit,
     onOpenUpdate: () -> Unit,
 ) {
@@ -971,6 +977,43 @@ private fun SimpleSettingsDialog(
                     },
                     style = MaterialTheme.typography.labelSmall,
                 )
+
+                Text(
+                    "Theme color",
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    HaruThemeColor.entries.take(3).forEach { color ->
+                        OutlinedButton(
+                            onClick = { onSelectThemeColor(color) },
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            Text(
+                                (if (themeColor == color) "✓ " else "") +
+                                    color.label
+                            )
+                        }
+                    }
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    HaruThemeColor.entries.drop(3).forEach { color ->
+                        OutlinedButton(
+                            onClick = { onSelectThemeColor(color) },
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            Text(
+                                (if (themeColor == color) "✓ " else "") +
+                                    color.label
+                            )
+                        }
+                    }
+                }
 
                 OutlinedButton(
                     onClick = onOpenAi,
