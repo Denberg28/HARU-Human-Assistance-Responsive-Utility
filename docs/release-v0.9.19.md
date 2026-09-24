@@ -11,6 +11,8 @@ HARU now evolves around a quieter daily companion loop instead of adding more ch
 - Added a small completion reaction when all entered tasks are done.
 - Updated the Today card to show the current focus first, with reminders below it.
 - Simplified lock-screen task rows and removed redundant bullets.
+- Shortened the Lavender accent label to **Lilac** so the three-button row stays visually balanced.
+- Darkened the Sepia background to a warmer paper-like tone based on the supplied reading-theme reference.
 - Kept Daily Pulse offline: no Gemini/Groq request is made for these reactions.
 - Added unit coverage for Daily Pulse state selection, privacy, completion, and focus behavior.
 
