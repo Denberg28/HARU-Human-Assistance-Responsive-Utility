@@ -2,7 +2,6 @@ package io.haru.assistant.lockscreen
 
 import android.content.ComponentName
 import android.content.pm.PackageManager
-import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -14,20 +13,15 @@ class HaruLockScreenManifestTest {
     private val context
         get() = RuntimeEnvironment.getApplication()
 
-    @Test
-    fun lockBarIsPrivateAndUsesDedicatedTask() {
-        val info =
-            context.packageManager.getActivityInfo(
-                ComponentName(
-                    context,
-                    HaruLockScreenActivity::class.java,
-                ),
-                PackageManager.GET_META_DATA,
-            )
-
-        assertFalse(info.exported)
-        assertEquals("io.haru.assistant.pet", info.taskAffinity)
-        assertFalse(info.themeResource == 0)
+    @Test(expected = PackageManager.NameNotFoundException::class)
+    fun legacyLockBarActivityIsNotRegistered() {
+        context.packageManager.getActivityInfo(
+            ComponentName(
+                context.packageName,
+                "io.haru.assistant.lockscreen.HaruLockScreenActivity",
+            ),
+            PackageManager.GET_META_DATA,
+        )
     }
 
     @Test
