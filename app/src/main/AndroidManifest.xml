@@ -48,13 +48,6 @@
                 android:value="User-enabled HARU lock-screen companion wake listener" />
         </service>
         <activity
-            android:name=".lockscreen.HaruLockScreenActivity"
-            android:exported="false"
-            android:excludeFromRecents="true"
-            android:taskAffinity="io.haru.assistant.pet"
-            android:showWhenLocked="true"
-            android:theme="@style/Theme.Haru.LockBar" />
-        <activity
             android:name=".MainActivity"
             android:exported="true"
             android:windowSoftInputMode="adjustResize">
