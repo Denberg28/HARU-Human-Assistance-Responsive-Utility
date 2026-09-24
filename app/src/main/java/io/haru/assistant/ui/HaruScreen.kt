@@ -2,7 +2,6 @@ package io.haru.assistant.ui
 
 import android.view.Gravity
 import android.view.MotionEvent
-import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -75,6 +74,7 @@ import androidx.compose.ui.zIndex
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import io.haru.assistant.HaruViewModel
 import io.haru.assistant.companion.CompanionSnapshot
+import io.haru.assistant.companion.HaruDailyPulseFactory
 import io.haru.assistant.core.HaruMood
 import io.haru.assistant.location.TrustedLocation
 import io.haru.assistant.onlineai.GeminiModel
@@ -193,51 +193,49 @@ fun HaruScreen(
                 }
             }
 
-            Crossfade(
-                targetState = selectedTab,
-                animationSpec = tween(durationMillis = 140),
-                label = "haru-simple-tab-transition",
-            ) { tab ->
-                if (tab == 0) {
-                    SimpleHaruPane(
-                        viewModel = viewModel,
-                        todayLines = todayLines,
-                        companionSnapshot = companionSnapshot,
-                        haruCheckerEnabled = haruCheckerEnabled,
-                        companionQuiet = companionQuiet,
-                        companionVisible = selectedTab == 0 && !showSettings && !showAbout && !showOnlineAi && !showUpdate && !showLockScreenSetup,
-                        memoryCount = memoryCount,
-                        onResetMemory = onResetMemory,
-                        onSubmitClick = onSubmitClick,
-                        onMicClick = onMicClick,
-                        onAddTask = onAddCompanionTask,
-                        onUpdateTask = onUpdateCompanionTask,
-                        onDeleteTask = onDeleteCompanionTask,
-                        onReorderTasks = onReorderCompanionTasks,
-                        onOpenSettings = { showSettings = true },
-                    )
-                } else {
-                    MapPane(
-                        locations = trustedLocations,
-                        currentDeviceLocation = currentDeviceLocation,
-                        mapGpsActive = mapGpsActive,
-                        shareCode = locationShareCode,
-                        shareMapUrl = locationShareMapUrl,
-                        mapLocationStatus = mapLocationStatus,
-                        liveTrackedLocation = liveTrackedLocation,
-                        liveTrackingStatus = liveTrackingStatus,
-                        liveShareActive = liveShareActive,
-                        liveMonitorActive = liveMonitorActive,
-                        onLocateMe = onLocateMe,
-                        onCreateShare = onCreateLocationShare,
-                        onShareLocation = onShareLocation,
-                        onImportShare = onImportLocationShare,
-                        onStopLiveShare = onStopLiveShare,
-                        onStopLiveMonitor = onStopLiveMonitor,
-                        onClear = onClearTrustedLocations,
-                        onOpenUrl = onOpenUrl,
-                    )
-                }
+            // MapLibre is a heavyweight native view. Avoid crossfading the two
+            // tab bodies because that briefly renders HARU and the map together
+            // and can cause frame drops on mid-range phones. TabRow already
+            // provides the selection motion, while the content swaps once.
+            if (selectedTab == 0) {
+                SimpleHaruPane(
+                    viewModel = viewModel,
+                    todayLines = todayLines,
+                    companionSnapshot = companionSnapshot,
+                    haruCheckerEnabled = haruCheckerEnabled,
+                    companionQuiet = companionQuiet,
+                    companionVisible = !showSettings && !showAbout && !showOnlineAi && !showUpdate && !showLockScreenSetup,
+                    memoryCount = memoryCount,
+                    onResetMemory = onResetMemory,
+                    onSubmitClick = onSubmitClick,
+                    onMicClick = onMicClick,
+                    onAddTask = onAddCompanionTask,
+                    onUpdateTask = onUpdateCompanionTask,
+                    onDeleteTask = onDeleteCompanionTask,
+                    onReorderTasks = onReorderCompanionTasks,
+                    onOpenSettings = { showSettings = true },
+                )
+            } else {
+                MapPane(
+                    locations = trustedLocations,
+                    currentDeviceLocation = currentDeviceLocation,
+                    mapGpsActive = mapGpsActive,
+                    shareCode = locationShareCode,
+                    shareMapUrl = locationShareMapUrl,
+                    mapLocationStatus = mapLocationStatus,
+                    liveTrackedLocation = liveTrackedLocation,
+                    liveTrackingStatus = liveTrackingStatus,
+                    liveShareActive = liveShareActive,
+                    liveMonitorActive = liveMonitorActive,
+                    onLocateMe = onLocateMe,
+                    onCreateShare = onCreateLocationShare,
+                    onShareLocation = onShareLocation,
+                    onImportShare = onImportLocationShare,
+                    onStopLiveShare = onStopLiveShare,
+                    onStopLiveMonitor = onStopLiveMonitor,
+                    onClear = onClearTrustedLocations,
+                    onOpenUrl = onOpenUrl,
+                )
             }
         }
     }
@@ -416,19 +414,20 @@ private fun SimpleHaruPane(
                         "Today  ›",
                         fontWeight = FontWeight.SemiBold,
                     )
-                    if (todayLines.isEmpty()) {
-                        Text(
-                            "Nothing pending.",
-                            style = MaterialTheme.typography.bodySmall,
-                        )
-                    } else {
-                        todayLines.take(3).forEach {
+                    Text(
+                        HaruDailyPulseFactory.focusLine(companionSnapshot),
+                        style = MaterialTheme.typography.bodySmall,
+                        fontWeight = FontWeight.Medium,
+                    )
+                    todayLines
+                        .filterNot { it.startsWith("Tasks:") }
+                        .take(2)
+                        .forEach {
                             Text(
                                 it,
                                 style = MaterialTheme.typography.bodySmall,
                             )
                         }
-                    }
                 }
             }
 

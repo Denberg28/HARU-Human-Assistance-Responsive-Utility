@@ -5,7 +5,7 @@ import android.content.Context
 enum class HaruThemeColor(
     val label: String,
 ) {
-    LAVENDER("Lavender"),
+    LAVENDER("Lilac"),
     BLUE("Blue"),
     GREEN("Green"),
     ROSE("Rose"),
