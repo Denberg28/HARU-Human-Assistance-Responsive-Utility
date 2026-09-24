@@ -5,7 +5,7 @@
     android:viewportWidth="108"
     android:viewportHeight="108">
 
-    <!-- Soft HARU background -->
+    <!-- Soft HARU backdrop -->
     <path
         android:fillColor="#FFF9FF"
         android:pathData="M0,0h108v108h-108z" />
@@ -13,85 +13,88 @@
         android:fillColor="#F1E9FA"
         android:pathData="M54,8a46,46 0,1 0,0 92a46,46 0,1 0,0 -92" />
 
-    <!-- Idle HARU chibi cat silhouette: ₍^. .^₎⟆ -->
+    <!-- Line-HARU: simplified from the in-app ₍^. .^₎⟆ identity -->
     <path
-        android:fillColor="#FFFFFF"
+        android:fillColor="#00000000"
         android:strokeColor="#57486F"
-        android:strokeWidth="2.6"
+        android:strokeWidth="3.2"
+        android:strokeLineCap="round"
         android:strokeLineJoin="round"
-        android:pathData="M29,44 L37,30 L45,42
-                          C48,39 51,38 54,38
-                          C57,38 60,39 63,42
-                          L71,30 L79,44
-                          C83,49 85,56 84,64
-                          C82,77 70,86 54,86
-                          C38,86 26,77 24,64
-                          C23,56 25,49 29,44 Z" />
+        android:pathData="M33,51
+                          C29,55 27,60 27,65
+                          C27,75 35,82 44,85" />
 
-    <!-- tiny body -->
     <path
-        android:fillColor="#FFFFFF"
+        android:fillColor="#00000000"
         android:strokeColor="#57486F"
-        android:strokeWidth="2.4"
-        android:pathData="M39,81
-                          C37,90 41,96 54,96
-                          C67,96 71,90 69,81
-                          C64,85 59,87 54,87
-                          C49,87 44,85 39,81 Z" />
+        android:strokeWidth="3.2"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M75,51
+                          C79,55 81,60 81,65
+                          C81,75 73,82 64,85" />
 
-    <!-- tail like the idle chibi ending ⟆ -->
+    <!-- ears -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#57486F"
+        android:strokeWidth="3.2"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M35,52 L41,36 L49,50" />
+
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#57486F"
+        android:strokeWidth="3.2"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M59,50 L67,36 L73,52" />
+
+    <!-- relaxed ^ ^ eyes -->
     <path
         android:fillColor="#00000000"
         android:strokeColor="#57486F"
         android:strokeWidth="3"
         android:strokeLineCap="round"
-        android:pathData="M68,87
-                          C80,87 86,91 84,96
-                          C82,100 75,100 72,97" />
+        android:strokeLineJoin="round"
+        android:pathData="M40,61 L44,57 L48,61" />
 
-    <!-- eyes -->
-    <path
-        android:fillColor="#3E354D"
-        android:pathData="M41,58m-2.7,0a2.7,2.7 0,1 0,5.4 0a2.7,2.7 0,1 0,-5.4 0" />
-    <path
-        android:fillColor="#3E354D"
-        android:pathData="M67,58m-2.7,0a2.7,2.7 0,1 0,5.4 0a2.7,2.7 0,1 0,-5.4 0" />
-
-    <!-- eye highlights -->
-    <path
-        android:fillColor="#FFFFFF"
-        android:pathData="M40.2,57.1m-0.7,0a0.7,0.7 0,1 0,1.4 0a0.7,0.7 0,1 0,-1.4 0" />
-    <path
-        android:fillColor="#FFFFFF"
-        android:pathData="M66.2,57.1m-0.7,0a0.7,0.7 0,1 0,1.4 0a0.7,0.7 0,1 0,-1.4 0" />
-
-    <!-- cheeks -->
-    <path
-        android:fillColor="#F4C8D9"
-        android:fillAlpha="0.75"
-        android:pathData="M32,68m-4,0a4,2.2 0,1 0,8 0a4,2.2 0,1 0,-8 0" />
-    <path
-        android:fillColor="#F4C8D9"
-        android:fillAlpha="0.75"
-        android:pathData="M76,68m-4,0a4,2.2 0,1 0,8 0a4,2.2 0,1 0,-8 0" />
-
-    <!-- small neutral idle mouth -->
     <path
         android:fillColor="#00000000"
         android:strokeColor="#57486F"
-        android:strokeWidth="2.2"
+        android:strokeWidth="3"
         android:strokeLineCap="round"
-        android:pathData="M49,68
-                          C51,70 53,70 54,68
-                          C55,70 57,70 59,68" />
+        android:strokeLineJoin="round"
+        android:pathData="M60,61 L64,57 L68,61" />
 
-    <!-- HARU forehead mark -->
+    <!-- tiny cat mouth -->
     <path
         android:fillColor="#00000000"
-        android:strokeColor="#8C73B6"
-        android:strokeWidth="2"
+        android:strokeColor="#57486F"
+        android:strokeWidth="2.6"
         android:strokeLineCap="round"
-        android:pathData="M50,47 L50,52
-                          M58,47 L58,52
-                          M50,49.5 L58,49.5" />
+        android:pathData="M50,68
+                          C52,70 53,70 54,68
+                          C55,70 56,70 58,68" />
+
+    <!-- small cheek marks -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#A76B7D"
+        android:strokeWidth="2.2"
+        android:strokeLineCap="round"
+        android:pathData="M36,69 L39,69
+                          M69,69 L72,69" />
+
+    <!-- signature ⟆ tail -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#57486F"
+        android:strokeWidth="3.2"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M66,83
+                          C76,82 84,84 84,90
+                          C84,95 78,98 73,95" />
 </vector>
