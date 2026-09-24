@@ -390,6 +390,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
     private fun addCompanionTask(text: String) {
         if (text.isBlank()) return
         companionSnapshot = companionStore.addTask(text)
+        HaruLockScreenService.refresh(this)
     }
 
     private fun updateCompanionTask(
@@ -399,17 +400,20 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
         if (index !in companionSnapshot.tasks.indices) return
         companionSnapshot =
             companionStore.updateTask(index, text)
+        HaruLockScreenService.refresh(this)
     }
 
     private fun deleteCompanionTask(index: Int) {
         if (index !in companionSnapshot.tasks.indices) return
         companionSnapshot =
             companionStore.deleteTask(index)
+        HaruLockScreenService.refresh(this)
     }
 
     private fun reorderCompanionTasks(order: List<String>) {
         companionSnapshot =
             companionStore.reorderOpenTasks(order)
+        HaruLockScreenService.refresh(this)
     }
 
     private fun selectCompanionMode(mode: CompanionMode) {
@@ -1294,7 +1298,8 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
             }
             "clear tasks", "delete all tasks" -> {
                 companionSnapshot = companionStore.clearTasks()
-                        return "All tasks cleared."
+                HaruLockScreenService.refresh(this)
+                return "All tasks cleared."
             }
             "show reminders", "list reminders", "my reminders" -> {
                 val reminders = companionSnapshot.reminders
@@ -1317,6 +1322,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
                     ReminderScheduler.cancel(this, it.id)
                 }
                 companionSnapshot = companionStore.clearReminders()
+                HaruLockScreenService.refresh(this)
                 return "All reminders cleared."
             }
         }
@@ -1337,6 +1343,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
                 }
                 val taskText = companionSnapshot.tasks[index].text
                 companionSnapshot = companionStore.completeTask(index)
+                HaruLockScreenService.refresh(this)
                 return "Completed: " + taskText
             }
 
