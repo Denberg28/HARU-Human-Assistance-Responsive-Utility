@@ -48,7 +48,7 @@ class HaruCheckerContentTest {
         val content =
             HaruCheckerContentFactory.create(
                 hourOfDay = 9,
-                step = 0,
+                step = 1,
                 snapshot = snapshot,
                 now = now,
             )
@@ -69,7 +69,7 @@ class HaruCheckerContentTest {
     }
 
     @Test
-    fun lockScreenTaskLineShowsTwoOpenTasksAndRemainingCount() {
+    fun lockScreenTaskLineShowsCurrentFocusAndRemainingCount() {
         val snapshot =
             CompanionSnapshot(
                 tasks =
@@ -82,7 +82,7 @@ class HaruCheckerContentTest {
             )
 
         assertEquals(
-            "Tasks · First task · Second task · +1",
+            "Focus · First task · +2",
             HaruCheckerContentFactory.lockScreenTaskLine(snapshot),
         )
         assertEquals(
