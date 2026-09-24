@@ -7,6 +7,12 @@ v0.9.17 follows the successful task-drag fix with a cleanup and reliability pass
 - Keeps the ≡ drag handle as the single reorder affordance.
 - Preserves stable task IDs, drag persistence, wrapped-text alignment, and tap-to-edit behavior.
 
+## Theme
+- Adds a persistent theme-color option in Settings.
+- Includes Lavender, Blue, Green, Rose, and Amber.
+- Applies the selected color immediately across Material controls and keeps the choice after restart.
+- Falls back safely to Lavender if a stored preference is invalid.
+
 ## Security and surface reduction
 - Removes the obsolete show-when-locked Activity path and its background launcher.
 - Removes the unused animated lock-bar scene/motion code and its dedicated theme.
