@@ -829,10 +829,6 @@ private fun SimpleTodayDialog(
                                         fontWeight = FontWeight.Bold,
                                     )
                                     Text(
-                                        "○",
-                                        modifier = Modifier.width(24.dp),
-                                    )
-                                    Text(
                                         task.text,
                                         modifier = Modifier.weight(1f),
                                     )
