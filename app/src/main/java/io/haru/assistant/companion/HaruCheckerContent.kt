@@ -60,11 +60,15 @@ object HaruCheckerContentFactory {
                 checkInLines.size.toLong(),
             ).toInt()
         val checkIn = checkInLines[index]
+        val dailyPulse =
+            HaruDailyPulseFactory.create(
+                hourOfDay = hourOfDay,
+                snapshot = snapshot,
+            )
 
         val line =
             when {
                 quiet -> "Just checking in quietly."
-                Math.floorMod(step, 4L) != 0L -> checkIn
                 overdue > 0 ->
                     "$overdue reminder" +
                         (if (overdue == 1) "" else "s") +
@@ -105,31 +109,7 @@ object HaruCheckerContentFactory {
             ).toInt()
         ]
 
-    fun lockScreenTaskLine(snapshot: CompanionSnapshot): String {
-        val openTasks = snapshot.tasks.filterNot { it.done }
-        if (openTasks.isEmpty()) return "✓ Tasks clear"
+    fun lockScreenTaskLine(snapshot: CompanionSnapshot): String =
+        HaruDailyPulseFactory.focusLine(snapshot)
 
-        val shown =
-            openTasks
-                .take(2)
-                .map { task ->
-                    val text = task.text
-                    if (text.length <= TASK_PREVIEW_CHARS) {
-                        text
-                    } else {
-                        text.take(TASK_PREVIEW_CHARS - 1).trimEnd() + "…"
-                    }
-                }
-
-        val more =
-            if (openTasks.size > shown.size) {
-                " · +${openTasks.size - shown.size}"
-            } else {
-                ""
-            }
-
-        return "Tasks · " + shown.joinToString(" · ") + more
-    }
-
-    private const val TASK_PREVIEW_CHARS = 32
 }
