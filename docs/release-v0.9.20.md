@@ -14,6 +14,11 @@ HARU chat can now perform bounded local actions for tasks and reminders.
 - Upcoming reminders appear as compact rows in the expanded lock-screen Today notification.
 - Reminder alarms remain Android-native and lock-screen-visible when due.
 - Added parser tests covering natural task requests, relative reminders, clock-time reminders, timezone handling, ambiguous timing, past-time handling, and ordinary non-action chat.
+- Added **Antigravity Auto** routing: normal conversation uses the direct Gemini path instead of starting the remote Antigravity agent.
+- Live/current/research prompts still escalate to Antigravity when agentic web work is useful.
+- Google Search is no longer attached to ordinary Gemini chat requests.
+- Reduced the Antigravity agent token budget from 12,000 to 4,000 and shortened the agent timeout from 180 s to 75 s so stalled agent requests fail faster.
+- Fast-chat responses are capped to a practical 1,200 output tokens to reduce unnecessary response latency while preserving normal HARU conversations.
 
 ## Safety and reliability
 
