@@ -73,6 +73,7 @@ object HaruCheckerContentFactory {
                     "$overdue reminder" +
                         (if (overdue == 1) "" else "s") +
                         " due. Just a gentle nudge."
+                Math.floorMod(step, 3L) == 0L -> dailyPulse.line
                 reminders > 0 && openTasks > 0 ->
                     "$openTasks task" +
                         (if (openTasks == 1) "" else "s") +
@@ -83,10 +84,7 @@ object HaruCheckerContentFactory {
                     "$reminders reminder" +
                         (if (reminders == 1) "" else "s") +
                         " waiting."
-                openTasks > 0 ->
-                    "$openTasks task" +
-                        (if (openTasks == 1) "" else "s") +
-                        " for today."
+                openTasks > 0 -> HaruDailyPulseFactory.focusLine(snapshot)
                 else -> checkIn
             }
 
