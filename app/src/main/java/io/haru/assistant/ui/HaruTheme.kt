@@ -53,13 +53,13 @@ fun HaruTheme(
                     secondary = lightAccent,
                     tertiary = lightAccent,
                     onPrimary = Color.White,
-                    background = Color(0xFFF5EEDD),
-                    surface = Color(0xFFFFF9ED),
-                    surfaceVariant = Color(0xFFEDE1CA),
-                    onBackground = Color(0xFF342E26),
-                    onSurface = Color(0xFF342E26),
-                    onSurfaceVariant = Color(0xFF665D50),
-                    outline = Color(0xFF857665),
+                    background = Color(0xFFD9C5A3),
+                    surface = Color(0xFFE4D0AD),
+                    surfaceVariant = Color(0xFFCBB38B),
+                    onBackground = Color(0xFF2B241C),
+                    onSurface = Color(0xFF2B241C),
+                    onSurfaceVariant = Color(0xFF57493A),
+                    outline = Color(0xFF79654C),
                 )
 
             HaruBackgroundTheme.DARK ->
