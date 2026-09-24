@@ -96,6 +96,7 @@ fun HaruScreen(
     haruCheckerEnabled: Boolean,
     lockScreenEnabled: Boolean,
     themeColor: HaruThemeColor,
+    backgroundTheme: HaruBackgroundTheme,
     companionQuiet: Boolean,
     onlineProvider: OnlineProvider,
     selectedGeminiModel: GeminiModel,
@@ -126,6 +127,7 @@ fun HaruScreen(
     onToggleHaruChecker: () -> Unit,
     onToggleLockScreen: () -> Unit,
     onSelectThemeColor: (HaruThemeColor) -> Unit,
+    onSelectBackgroundTheme: (HaruBackgroundTheme) -> Unit,
     onOpenAppSettings: () -> Unit,
     onSelectOnlineProvider: (OnlineProvider) -> Unit,
     onSelectGeminiModel: (GeminiModel) -> Unit,
@@ -290,6 +292,7 @@ fun HaruScreen(
             lockScreenEnabled = lockScreenEnabled,
             onlineProvider = onlineProvider,
             themeColor = themeColor,
+            backgroundTheme = backgroundTheme,
             appVersion = appVersion,
             onDismiss = { showSettings = false },
             onOpenLockScreen = {
@@ -298,6 +301,7 @@ fun HaruScreen(
             },
             onToggleHaruChecker = onToggleHaruChecker,
             onSelectThemeColor = onSelectThemeColor,
+            onSelectBackgroundTheme = onSelectBackgroundTheme,
             onOpenAi = {
                 showSettings = false
                 showOnlineAi = true
@@ -927,11 +931,13 @@ private fun SimpleSettingsDialog(
     lockScreenEnabled: Boolean,
     onlineProvider: OnlineProvider,
     themeColor: HaruThemeColor,
+    backgroundTheme: HaruBackgroundTheme,
     appVersion: String,
     onDismiss: () -> Unit,
     onOpenLockScreen: () -> Unit,
     onToggleHaruChecker: () -> Unit,
     onSelectThemeColor: (HaruThemeColor) -> Unit,
+    onSelectBackgroundTheme: (HaruBackgroundTheme) -> Unit,
     onOpenAi: () -> Unit,
     onOpenUpdate: () -> Unit,
 ) {
@@ -979,7 +985,7 @@ private fun SimpleSettingsDialog(
                 )
 
                 Text(
-                    "Theme color",
+                    "Accent color",
                     fontWeight = FontWeight.SemiBold,
                 )
                 Row(
@@ -1010,6 +1016,27 @@ private fun SimpleSettingsDialog(
                             Text(
                                 (if (themeColor == color) "✓ " else "") +
                                     color.label
+                            )
+                        }
+                    }
+                }
+
+                Text(
+                    "Background",
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    HaruBackgroundTheme.entries.forEach { background ->
+                        OutlinedButton(
+                            onClick = { onSelectBackgroundTheme(background) },
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            Text(
+                                (if (backgroundTheme == background) "✓ " else "") +
+                                    background.label
                             )
                         }
                     }

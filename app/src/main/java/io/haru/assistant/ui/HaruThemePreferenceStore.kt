@@ -12,6 +12,14 @@ enum class HaruThemeColor(
     AMBER("Amber"),
 }
 
+enum class HaruBackgroundTheme(
+    val label: String,
+) {
+    LIGHT("Light"),
+    SEPIA("Sepia"),
+    DARK("Dark"),
+}
+
 class HaruThemePreferenceStore(
     context: Context,
 ) {
@@ -37,7 +45,24 @@ class HaruThemePreferenceStore(
             .apply()
     }
 
+    fun loadBackground(): HaruBackgroundTheme =
+        runCatching {
+            HaruBackgroundTheme.valueOf(
+                preferences.getString(
+                    KEY_BACKGROUND_THEME,
+                    HaruBackgroundTheme.LIGHT.name,
+                ) ?: HaruBackgroundTheme.LIGHT.name
+            )
+        }.getOrDefault(HaruBackgroundTheme.LIGHT)
+
+    fun saveBackground(background: HaruBackgroundTheme) {
+        preferences.edit()
+            .putString(KEY_BACKGROUND_THEME, background.name)
+            .apply()
+    }
+
     private companion object {
         const val KEY_THEME_COLOR = "theme_color"
+        const val KEY_BACKGROUND_THEME = "background_theme"
     }
 }

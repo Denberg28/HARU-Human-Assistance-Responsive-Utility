@@ -9,7 +9,7 @@ import org.robolectric.RuntimeEnvironment
 @RunWith(RobolectricTestRunner::class)
 class HaruThemePreferenceStoreTest {
     @Test
-    fun defaultsToLavenderAndPersistsSelection() {
+    fun defaultsToLavenderLightAndPersistsSelections() {
         val context = RuntimeEnvironment.getApplication()
         context.getSharedPreferences("haru_theme_preferences", 0)
             .edit()
@@ -18,23 +18,27 @@ class HaruThemePreferenceStoreTest {
 
         val store = HaruThemePreferenceStore(context)
         assertEquals(HaruThemeColor.LAVENDER, store.load())
+        assertEquals(HaruBackgroundTheme.LIGHT, store.loadBackground())
 
         store.save(HaruThemeColor.GREEN)
+        store.saveBackground(HaruBackgroundTheme.SEPIA)
 
-        assertEquals(HaruThemeColor.GREEN, HaruThemePreferenceStore(context).load())
+        val reloaded = HaruThemePreferenceStore(context)
+        assertEquals(HaruThemeColor.GREEN, reloaded.load())
+        assertEquals(HaruBackgroundTheme.SEPIA, reloaded.loadBackground())
     }
 
     @Test
-    fun invalidStoredValueFallsBackSafely() {
+    fun invalidStoredValuesFallBackSafely() {
         val context = RuntimeEnvironment.getApplication()
         context.getSharedPreferences("haru_theme_preferences", 0)
             .edit()
             .putString("theme_color", "INVALID")
+            .putString("background_theme", "INVALID")
             .commit()
 
-        assertEquals(
-            HaruThemeColor.LAVENDER,
-            HaruThemePreferenceStore(context).load(),
-        )
+        val store = HaruThemePreferenceStore(context)
+        assertEquals(HaruThemeColor.LAVENDER, store.load())
+        assertEquals(HaruBackgroundTheme.LIGHT, store.loadBackground())
     }
 }
