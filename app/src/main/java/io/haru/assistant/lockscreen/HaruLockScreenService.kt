@@ -171,7 +171,7 @@ class HaruLockScreenService : Service() {
             openTasks
                 .take(MAX_LOCK_SCREEN_TASK_ROWS)
                 .forEach { task ->
-                    inboxStyle.addLine("• " + task.text)
+                    inboxStyle.addLine(task.text)
                 }
 
             if (openTasks.size > MAX_LOCK_SCREEN_TASK_ROWS) {
