@@ -89,7 +89,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
     private var onlineProvider by mutableStateOf(OnlineProvider.ANTIGRAVITY)
     private var selectedGeminiModel by mutableStateOf(AndroidOnlineAiManager.FALLBACK_GEMINI_MODEL)
     private var geminiModels by mutableStateOf(listOf(AndroidOnlineAiManager.FALLBACK_GEMINI_MODEL))
-    private var onlineStatus by mutableStateOf("Antigravity is the online default.")
+    private var onlineStatus by mutableStateOf("Antigravity Auto is the online default.")
     private var hasGeminiKey by mutableStateOf(false)
     private var hasGroqKey by mutableStateOf(false)
     private var updateStatus by mutableStateOf("")
@@ -1542,7 +1542,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
 
     private fun providerName(provider: OnlineProvider): String =
         when (provider) {
-            OnlineProvider.ANTIGRAVITY -> "Antigravity"
+            OnlineProvider.ANTIGRAVITY -> "Antigravity Auto"
             OnlineProvider.GEMINI -> selectedGeminiModel.label
             OnlineProvider.GROQ -> "Groq · Qwen 3.8 27B"
         }
