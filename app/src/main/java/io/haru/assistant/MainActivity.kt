@@ -45,6 +45,8 @@ import io.haru.assistant.onlineai.GeminiModel
 import io.haru.assistant.onlineai.OnlineProvider
 import io.haru.assistant.ui.HaruScreen
 import io.haru.assistant.ui.HaruTheme
+import io.haru.assistant.ui.HaruThemeColor
+import io.haru.assistant.ui.HaruThemePreferenceStore
 import io.haru.assistant.update.AndroidAppUpdateManager
 import io.haru.assistant.voice.HaruVoiceController
 import kotlinx.coroutines.Job
@@ -64,6 +66,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
     private lateinit var companionModeStore: CompanionModeStore
     private lateinit var haruCheckerStore: HaruCheckerStore
     private lateinit var lockScreenStore: LockScreenPreferenceStore
+    private lateinit var themeStore: HaruThemePreferenceStore
     private lateinit var trustedLocationManager: TrustedLocationManager
     private lateinit var liveLocationManager: HaruLiveLocationManager
     private lateinit var appUpdateManager: AndroidAppUpdateManager
@@ -77,6 +80,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
     private var companionMode by mutableStateOf(CompanionMode.NORMAL)
     private var haruCheckerEnabled by mutableStateOf(true)
     private var lockScreenEnabled by mutableStateOf(true)
+    private var themeColor by mutableStateOf(HaruThemeColor.LAVENDER)
 
     private var onlineProvider by mutableStateOf(OnlineProvider.ANTIGRAVITY)
     private var selectedGeminiModel by mutableStateOf(AndroidOnlineAiManager.FALLBACK_GEMINI_MODEL)
@@ -179,6 +183,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
         companionModeStore = CompanionModeStore(applicationContext)
         haruCheckerStore = HaruCheckerStore(applicationContext)
         lockScreenStore = LockScreenPreferenceStore(applicationContext)
+        themeStore = HaruThemePreferenceStore(applicationContext)
         trustedLocationManager = TrustedLocationManager(applicationContext)
         liveLocationManager = HaruLiveLocationManager()
         appUpdateManager = AndroidAppUpdateManager()
@@ -188,6 +193,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
         companionMode = companionModeStore.load()
         haruCheckerEnabled = haruCheckerStore.isEnabled()
         lockScreenEnabled = lockScreenStore.isEnabled()
+        themeColor = themeStore.load()
         cleanupLegacyStorageOnce()
         if (lockScreenEnabled) {
             HaruLockScreenService.start(this)
@@ -207,7 +213,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
 
 
         setContent {
-            HaruTheme {
+            HaruTheme(themeColor = themeColor) {
                 val haruViewModel: HaruViewModel = viewModel()
                 activeViewModel = haruViewModel
                 HaruScreen(
@@ -216,6 +222,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
                     companionSnapshot = companionSnapshot,
                     haruCheckerEnabled = haruCheckerEnabled,
                     lockScreenEnabled = lockScreenEnabled,
+                    themeColor = themeColor,
                     companionQuiet = companionMode == CompanionMode.REST,
                     onlineProvider = onlineProvider,
                     selectedGeminiModel = selectedGeminiModel,
@@ -247,6 +254,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
                     onReorderCompanionTasks = ::reorderCompanionTasks,
                     onToggleHaruChecker = ::toggleHaruChecker,
                     onToggleLockScreen = ::toggleLockScreen,
+                    onSelectThemeColor = ::selectThemeColor,
                     onOpenAppSettings = ::openAppSettings,
                     onSelectOnlineProvider = ::selectOnlineProvider,
                     onSelectGeminiModel = ::selectGeminiModel,
@@ -417,6 +425,11 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
         } else {
             HaruLockScreenService.stop(this)
         }
+    }
+
+    private fun selectThemeColor(color: HaruThemeColor) {
+        themeColor = color
+        themeStore.save(color)
     }
 
     private fun openAppSettings() {
