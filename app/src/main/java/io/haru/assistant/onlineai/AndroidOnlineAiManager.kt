@@ -534,7 +534,6 @@ class AndroidOnlineAiManager(
         systemPrompt: String,
         history: List<ConversationExchange>,
         summary: String,
-        enableSearch: Boolean,
     ): String {
         val key = credentials.get("groq")
         require(key.isNotBlank()) { "Groq API key is required." }
@@ -607,6 +606,7 @@ class AndroidOnlineAiManager(
         systemPrompt: String,
         history: List<ConversationExchange>,
         summary: String,
+        enableSearch: Boolean,
     ): String {
         require(SAFE_MODEL_ID.matches(modelId)) {
             "Invalid Gemini model identifier."
@@ -680,6 +680,14 @@ class AndroidOnlineAiManager(
         val payload =
             JSONObject()
                 .put("contents", contents)
+                .put(
+                    "generationConfig",
+                    JSONObject()
+                        .put(
+                            "maxOutputTokens",
+                            FAST_CHAT_MAX_OUTPUT_TOKENS,
+                        )
+                )
                 .apply {
                     if (enableSearch) {
                         put(
@@ -843,6 +851,7 @@ class AndroidOnlineAiManager(
         private const val MAX_INTERACTION_ID_CHARS = 512
         private const val ANTIGRAVITY_TOKEN_BUDGET = 4_000
         private const val ANTIGRAVITY_TIMEOUT_MS = 75_000
+        private const val FAST_CHAT_MAX_OUTPUT_TOKENS = 1_200
         private const val ANTIGRAVITY_AGENT =
             "antigravity-preview-09-2026"
         private const val INTERACTIONS_URL =
