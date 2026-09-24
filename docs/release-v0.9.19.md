@@ -13,6 +13,7 @@ HARU now evolves around a quieter daily companion loop instead of adding more ch
 - Simplified lock-screen task rows and removed redundant bullets.
 - Shortened the Lavender accent label to **Lilac** so the three-button row stays visually balanced.
 - Darkened the Sepia background to a warmer paper-like tone based on the supplied reading-theme reference.
+- Smoothed HARU ↔ Map tab switching by removing overlapping crossfade rendering around the heavyweight native MapLibre view; the tab indicator remains animated while content swaps in a single pass.
 - Kept Daily Pulse offline: no Gemini/Groq request is made for these reactions.
 - Added unit coverage for Daily Pulse state selection, privacy, completion, and focus behavior.
 
