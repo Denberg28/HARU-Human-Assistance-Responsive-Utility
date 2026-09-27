@@ -76,28 +76,31 @@ class AndroidOnlineAiManager(
         val raw = preferences.getString(KEY_GEMINI_CATALOG, "").orEmpty()
         if (raw.isBlank()) return listOf(FALLBACK_GEMINI_MODEL)
 
-        return runCatching {
-            val array = JSONArray(raw)
-            buildList {
-                for (i in 0 until array.length()) {
-                    val item = array.optJSONObject(i) ?: continue
-                    val id = item.optString("id").trim()
-                    val label = item.optString("label").trim()
-                    if (
-                        SAFE_MODEL_ID.matches(id) &&
-                        label.isNotBlank() &&
-                        label.length <= MAX_MODEL_LABEL_CHARS
-                    ) {
-                        add(
-                            GeminiModel(
-                                id = id,
-                                label = label,
+        val cached =
+            runCatching {
+                val array = JSONArray(raw)
+                buildList {
+                    for (i in 0 until array.length()) {
+                        val item = array.optJSONObject(i) ?: continue
+                        val id = item.optString("id").trim()
+                        val label = item.optString("label").trim()
+                        if (
+                            SAFE_MODEL_ID.matches(id) &&
+                            label.isNotBlank() &&
+                            label.length <= MAX_MODEL_LABEL_CHARS
+                        ) {
+                            add(
+                                GeminiModel(
+                                    id = id,
+                                    label = label,
+                                )
                             )
-                        )
+                        }
                     }
                 }
-            }
-        }.getOrDefault(emptyList())
+            }.getOrDefault(emptyList())
+
+        return newestSupportedAgents(cached)
             .ifEmpty { listOf(FALLBACK_GEMINI_MODEL) }
     }
 
@@ -143,23 +146,14 @@ class AndroidOnlineAiManager(
                 }
 
                 val models = JSONObject(raw).optJSONArray("models") ?: JSONArray()
-                val refreshed = buildList {
+                val listed = buildList {
                     for (i in 0 until models.length()) {
                         val item = models.optJSONObject(i) ?: continue
                         val id = item.optString("name")
                             .removePrefix("models/")
                             .trim()
 
-                        if (!SAFE_MODEL_ID.matches(id)) continue
-                        if (
-                            id.contains("embedding", true) ||
-                            id.contains("image", true) ||
-                            id.contains("veo", true) ||
-                            id.contains("deprecated", true) ||
-                            id.contains("legacy", true)
-                        ) {
-                            continue
-                        }
+                        if (!isEligibleAgentId(id)) continue
 
                         val methods =
                             item.optJSONArray("supportedGenerationMethods") ?: JSONArray()
@@ -181,13 +175,23 @@ class AndroidOnlineAiManager(
                     }
                 }
                     .distinctBy { it.id }
-                    .sortedWith(
-                        compareByDescending<GeminiModel> { versionScore(it.id) }
-                            .thenBy { it.label }
-                    )
+
+                val candidates = newestSupportedAgents(listed)
+                require(candidates.isNotEmpty()) {
+                    "Google returned no supported current Gemini agents."
+                }
+
+                val refreshed =
+                    candidates
+                        .filter { model ->
+                            probeGeminiModel(
+                                modelId = model.id,
+                                apiKey = key,
+                            )
+                        }
 
                 require(refreshed.isNotEmpty()) {
-                    "Google returned no current Gemini text models."
+                    "No current Gemini agent passed HARU's connection check."
                 }
 
                 val array = JSONArray()
@@ -812,6 +816,118 @@ class AndroidOnlineAiManager(
         }
     }
 
+    private fun newestSupportedAgents(
+        models: List<GeminiModel>,
+    ): List<GeminiModel> {
+        val eligible =
+            models
+                .filter { isEligibleAgentId(it.id) }
+                .distinctBy { it.id }
+
+        val newestFlashLite =
+            eligible
+                .filter { isFlashLite(it.id) }
+                .maxByOrNull { versionScore(it.id) }
+
+        val newestFlash =
+            eligible
+                .filter {
+                    isFlash(it.id) &&
+                        !isFlashLite(it.id)
+                }
+                .maxByOrNull { versionScore(it.id) }
+
+        return listOfNotNull(
+            newestFlash,
+            newestFlashLite,
+        )
+    }
+
+    private fun isEligibleAgentId(id: String): Boolean {
+        if (!SAFE_MODEL_ID.matches(id)) return false
+
+        val value = id.lowercase()
+        if (!value.startsWith("gemini-")) return false
+        if (
+            value.contains("preview") ||
+            value.contains("experimental") ||
+            value.contains("-exp") ||
+            value.contains("deprecated") ||
+            value.contains("legacy") ||
+            value.contains("embedding") ||
+            value.contains("image") ||
+            value.contains("veo") ||
+            value.contains("tts") ||
+            value.contains("audio") ||
+            value.contains("robotics") ||
+            value.contains("computer-use")
+        ) {
+            return false
+        }
+
+        return isFlash(value) || isFlashLite(value)
+    }
+
+    private fun isFlashLite(id: String): Boolean =
+        id.lowercase().contains("flash-lite")
+
+    private fun isFlash(id: String): Boolean {
+        val value = id.lowercase()
+        return value.contains("flash") &&
+            !value.contains("flash-thinking") &&
+            !value.contains("flash-image")
+    }
+
+    private fun probeGeminiModel(
+        modelId: String,
+        apiKey: String,
+    ): Boolean =
+        runCatching {
+            val response =
+                postJson(
+                    "https://generativelanguage.googleapis.com/v1beta/models/" +
+                        modelId +
+                        ":generateContent",
+                    JSONObject()
+                        .put(
+                            "contents",
+                            JSONArray().put(
+                                JSONObject()
+                                    .put("role", "user")
+                                    .put(
+                                        "parts",
+                                        JSONArray().put(
+                                            JSONObject().put(
+                                                "text",
+                                                "Reply with exactly: HARU OK",
+                                            )
+                                        )
+                                    )
+                            )
+                        )
+                        .put(
+                            "generationConfig",
+                            JSONObject()
+                                .put("maxOutputTokens", 8)
+                        ),
+                    mapOf("x-goog-api-key" to apiKey),
+                    timeoutMs = MODEL_PROBE_TIMEOUT_MS,
+                )
+
+            val text =
+                response
+                    .optJSONArray("candidates")
+                    ?.optJSONObject(0)
+                    ?.optJSONObject("content")
+                    ?.optJSONArray("parts")
+                    ?.optJSONObject(0)
+                    ?.optString("text")
+                    ?.trim()
+                    .orEmpty()
+
+            text.isNotBlank()
+        }.getOrDefault(false)
+
     private fun preferred(models: List<GeminiModel>): GeminiModel =
         models.firstOrNull {
             it.id.contains("flash-lite", ignoreCase = true)
@@ -852,6 +968,7 @@ class AndroidOnlineAiManager(
         private const val ANTIGRAVITY_TOKEN_BUDGET = 4_000
         private const val ANTIGRAVITY_TIMEOUT_MS = 75_000
         private const val FAST_CHAT_MAX_OUTPUT_TOKENS = 1_200
+        private const val MODEL_PROBE_TIMEOUT_MS = 12_000
         private const val ANTIGRAVITY_AGENT =
             "antigravity-preview-09-2026"
         private const val INTERACTIONS_URL =
