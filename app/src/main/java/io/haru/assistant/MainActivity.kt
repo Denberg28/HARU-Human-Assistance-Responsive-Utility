@@ -773,7 +773,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
         val mapPreview =
             cachedLocations
                 .filter {
-                    now - it.time in 0..MAP_CACHE_PREVIEW_MAX_AGE_MS
+                    now - it.time in 0L..MAP_CACHE_PREVIEW_MAX_AGE_MS
                 }
                 .sortedWith(
                     compareByDescending<Location> { it.time }
@@ -784,7 +784,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
         val shareCached =
             cachedLocations
                 .filter {
-                    now - it.time in 0..SHARE_CACHE_MAX_AGE_MS &&
+                    now - it.time in 0L..SHARE_CACHE_MAX_AGE_MS &&
                         it.accuracy <= SHARE_MAX_ACCURACY_M
                 }
                 .sortedWith(
