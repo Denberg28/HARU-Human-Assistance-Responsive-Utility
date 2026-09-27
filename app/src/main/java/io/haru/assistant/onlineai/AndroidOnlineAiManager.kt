@@ -100,7 +100,7 @@ class AndroidOnlineAiManager(
                 }
             }.getOrDefault(emptyList())
 
-        return newestSupportedAgents(cached)
+        return GeminiAgentCatalogPolicy.newestSupportedAgents(cached)
             .ifEmpty { listOf(FALLBACK_GEMINI_MODEL) }
     }
 
@@ -153,7 +153,7 @@ class AndroidOnlineAiManager(
                             .removePrefix("models/")
                             .trim()
 
-                        if (!isEligibleAgentId(id)) continue
+                        if (!GeminiAgentCatalogPolicy.isEligibleAgentId(id)) continue
 
                         val methods =
                             item.optJSONArray("supportedGenerationMethods") ?: JSONArray()
@@ -176,7 +176,7 @@ class AndroidOnlineAiManager(
                 }
                     .distinctBy { it.id }
 
-                val candidates = newestSupportedAgents(listed)
+                val candidates = GeminiAgentCatalogPolicy.newestSupportedAgents(listed)
                 require(candidates.isNotEmpty()) {
                     "Google returned no supported current Gemini agents."
                 }
@@ -814,68 +814,6 @@ class AndroidOnlineAiManager(
         } finally {
             connection.disconnect()
         }
-    }
-
-    private fun newestSupportedAgents(
-        models: List<GeminiModel>,
-    ): List<GeminiModel> {
-        val eligible =
-            models
-                .filter { isEligibleAgentId(it.id) }
-                .distinctBy { it.id }
-
-        val newestFlashLite =
-            eligible
-                .filter { isFlashLite(it.id) }
-                .maxByOrNull { versionScore(it.id) }
-
-        val newestFlash =
-            eligible
-                .filter {
-                    isFlash(it.id) &&
-                        !isFlashLite(it.id)
-                }
-                .maxByOrNull { versionScore(it.id) }
-
-        return listOfNotNull(
-            newestFlash,
-            newestFlashLite,
-        )
-    }
-
-    private fun isEligibleAgentId(id: String): Boolean {
-        if (!SAFE_MODEL_ID.matches(id)) return false
-
-        val value = id.lowercase()
-        if (!value.startsWith("gemini-")) return false
-        if (
-            value.contains("preview") ||
-            value.contains("experimental") ||
-            value.contains("-exp") ||
-            value.contains("deprecated") ||
-            value.contains("legacy") ||
-            value.contains("embedding") ||
-            value.contains("image") ||
-            value.contains("veo") ||
-            value.contains("tts") ||
-            value.contains("audio") ||
-            value.contains("robotics") ||
-            value.contains("computer-use")
-        ) {
-            return false
-        }
-
-        return isFlash(value) || isFlashLite(value)
-    }
-
-    private fun isFlashLite(id: String): Boolean =
-        id.lowercase().contains("flash-lite")
-
-    private fun isFlash(id: String): Boolean {
-        val value = id.lowercase()
-        return value.contains("flash") &&
-            !value.contains("flash-thinking") &&
-            !value.contains("flash-image")
     }
 
     private fun probeGeminiModel(
