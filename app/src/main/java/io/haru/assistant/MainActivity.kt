@@ -262,6 +262,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
                     onAddCompanionTask = ::addCompanionTask,
                     onUpdateCompanionTask = ::updateCompanionTask,
                     onDeleteCompanionTask = ::deleteCompanionTask,
+                    onCompleteCompanionTask = ::completeCompanionTask,
                     onReorderCompanionTasks = ::reorderCompanionTasks,
                     onToggleHaruChecker = ::toggleHaruChecker,
                     onToggleLockScreen = ::toggleLockScreen,
@@ -409,6 +410,21 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
         if (index !in companionSnapshot.tasks.indices) return
         companionSnapshot =
             companionStore.deleteTask(index)
+        HaruLockScreenService.refresh(this)
+    }
+
+    private fun completeCompanionTask(taskId: String) {
+        val task =
+            companionSnapshot.tasks.firstOrNull {
+                it.id == taskId && !it.done
+            } ?: return
+
+        companionSnapshot =
+            companionStore.completeTaskById(task.id)
+        activeViewModel?.completeAi(
+            "Done · ${task.text.take(80)} ✨",
+            success = true,
+        )
         HaruLockScreenService.refresh(this)
     }
 
