@@ -755,41 +755,59 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
         activeLocationListener = null
         mainHandler.removeCallbacksAndMessages(LOCATION_TIMEOUT_TOKEN)
 
-        val lastLocation = providers
-            .mapNotNull { provider ->
-                runCatching {
-                    manager.getLastKnownLocation(provider)
-                }.getOrNull()
-            }
-            .filter {
-                it.latitude in -90.0..90.0 &&
-                    it.longitude in -180.0..180.0
-            }
-            .minWithOrNull(
-                compareBy<Location> { it.accuracy }
-                    .thenByDescending { it.time }
-            )
+        val now = System.currentTimeMillis()
+        val cachedLocations =
+            providers
+                .mapNotNull { provider ->
+                    runCatching {
+                        manager.getLastKnownLocation(provider)
+                    }.getOrNull()
+                }
+                .filter {
+                    LocationProviderPolicy.isValidCoordinate(
+                        it.latitude,
+                        it.longitude,
+                    )
+                }
+
+        val mapPreview =
+            cachedLocations
+                .filter {
+                    now - it.time in 0..MAP_CACHE_PREVIEW_MAX_AGE_MS
+                }
+                .sortedWith(
+                    compareByDescending<Location> { it.time }
+                        .thenBy { it.accuracy }
+                )
+                .firstOrNull()
+
+        val shareCached =
+            cachedLocations
+                .filter {
+                    now - it.time in 0..SHARE_CACHE_MAX_AGE_MS &&
+                        it.accuracy <= SHARE_MAX_ACCURACY_M
+                }
+                .sortedWith(
+                    compareByDescending<Location> { it.time }
+                        .thenBy { it.accuracy }
+                )
+                .firstOrNull()
 
         if (
             pendingLocationPurpose == LocationRequestPurpose.MAP &&
-            lastLocation != null &&
-            System.currentTimeMillis() - lastLocation.time <=
-                MAP_CACHE_PREVIEW_MAX_AGE_MS
+            mapPreview != null
         ) {
             updateMapLocation(
-                lastLocation,
+                mapPreview,
                 prefix = "Recent fix",
             )
         }
 
         if (
             pendingLocationPurpose == LocationRequestPurpose.SHARE &&
-            lastLocation != null &&
-            System.currentTimeMillis() - lastLocation.time <=
-                SHARE_CACHE_MAX_AGE_MS &&
-            lastLocation.accuracy <= SHARE_MAX_ACCURACY_M
+            shareCached != null
         ) {
-            handleCapturedLocation(lastLocation)
+            handleCapturedLocation(shareCached)
             return
         }
 
@@ -836,14 +854,24 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
                     }
 
                     LocationRequestPurpose.SHARE -> {
-                        runCatching {
-                            manager.removeUpdates(this)
+                        if (
+                            location.accuracy <=
+                            SHARE_MAX_ACCURACY_M
+                        ) {
+                            runCatching {
+                                manager.removeUpdates(this)
+                            }
+                            activeLocationListener = null
+                            mainHandler.removeCallbacksAndMessages(
+                                LOCATION_TIMEOUT_TOKEN
+                            )
+                            handleCapturedLocation(location)
+                        } else {
+                            onlineStatus =
+                                "Improving location accuracy… ±" +
+                                    location.accuracy.toInt() +
+                                    " m"
                         }
-                        activeLocationListener = null
-                        mainHandler.removeCallbacksAndMessages(
-                            LOCATION_TIMEOUT_TOKEN
-                        )
-                        handleCapturedLocation(location)
                     }
 
                     LocationRequestPurpose.NONE -> {
@@ -879,12 +907,12 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
                     }
 
                     LocationRequestPurpose.SHARE -> {
-                        if (lastLocation != null) {
-                            handleCapturedLocation(lastLocation)
+                        if (shareCached != null) {
+                            handleCapturedLocation(shareCached)
                             return@Runnable
                         }
                         onlineStatus =
-                            "Location request timed out. Try again."
+                            "Could not get a recent accurate location. Move near a window or outdoors and try again."
                     }
 
                     LocationRequestPurpose.NONE -> Unit
