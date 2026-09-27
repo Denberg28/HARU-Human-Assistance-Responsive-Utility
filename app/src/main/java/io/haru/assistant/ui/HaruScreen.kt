@@ -1342,14 +1342,20 @@ private fun MapPane(
                         onClick = onLocateMe,
                         modifier = Modifier.weight(1f),
                     ) {
-                        Text("📍 GPS ON")
+                        Text(
+                            if (currentDeviceLocation == null) {
+                                "📍 Locating…"
+                            } else {
+                                "📍 Location ON"
+                            }
+                        )
                     }
                 } else {
                     OutlinedButton(
                         onClick = onLocateMe,
                         modifier = Modifier.weight(1f),
                     ) {
-                        Text("📍 My GPS")
+                        Text("📍 My location")
                     }
                 }
 
