@@ -112,10 +112,6 @@ class HaruLockScreenService : Service() {
 
         when (intent?.action) {
             ACTION_PET -> acknowledgeHaru()
-            ACTION_COMPLETE_FOCUS ->
-                completeFocusTask(
-                    intent.getStringExtra(EXTRA_TASK_ID).orEmpty()
-                )
             ACTION_REFRESH ->
                 publishCompanionNotification(
                     isLocked = keyguard.isKeyguardLocked,
@@ -148,34 +144,6 @@ class HaruLockScreenService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     private fun acknowledgeHaru() {
-        acknowledgementStep += 1L
-        acknowledgementUntil =
-            System.currentTimeMillis() + ACKNOWLEDGEMENT_MS
-
-        publishCompanionNotification(
-            isLocked = keyguard.isKeyguardLocked,
-        )
-
-        handler.removeCallbacks(clearAcknowledgement)
-        handler.postDelayed(
-            clearAcknowledgement,
-            ACKNOWLEDGEMENT_MS,
-        )
-    }
-
-    private fun completeFocusTask(taskId: String) {
-        if (taskId.isBlank()) return
-
-        val snapshot = companionStore.load()
-        val focus = snapshot.tasks.firstOrNull { !it.done } ?: return
-        if (focus.id != taskId) {
-            publishCompanionNotification(
-                isLocked = keyguard.isKeyguardLocked,
-            )
-            return
-        }
-
-        companionStore.completeTaskById(taskId)
         acknowledgementStep += 1L
         acknowledgementUntil =
             System.currentTimeMillis() + ACKNOWLEDGEMENT_MS
@@ -233,51 +201,14 @@ class HaruLockScreenService : Service() {
                 )
             }
 
-        val builder =
-            NotificationCompat.Builder(
-                this,
-                CHANNEL_ID,
-            )
-                .setSmallIcon(R.drawable.haru_notification_icon)
-                .setContentTitle("Today")
-                .setContentText(taskLine)
-                .setStyle(inboxStyle)
-
-        openTasks.firstOrNull()?.let { focus ->
-            val completeIntent =
-                PendingIntent.getService(
-                    this,
-                    FOCUS_REQUEST_CODE,
-                    Intent(
-                        this,
-                        HaruLockScreenService::class.java,
-                    )
-                        .setAction(ACTION_COMPLETE_FOCUS)
-                        .putExtra(EXTRA_TASK_ID, focus.id)
-                        .setData(
-                            android.net.Uri.Builder()
-                                .scheme("haru")
-                                .authority("focus")
-                                .appendPath(focus.id)
-                                .build()
-                        ),
-                    PendingIntent.FLAG_UPDATE_CURRENT or
-                        PendingIntent.FLAG_IMMUTABLE,
-                )
-
-            builder.addAction(
-                NotificationCompat.Action.Builder(
-                    R.drawable.haru_notification_icon,
-                    "✓ Done focus",
-                    completeIntent,
-                )
-                    .setAuthenticationRequired(false)
-                    .setShowsUserInterface(false)
-                    .build()
-            )
-        }
-
-        return builder
+        return NotificationCompat.Builder(
+            this,
+            CHANNEL_ID,
+        )
+            .setSmallIcon(R.drawable.haru_notification_icon)
+            .setContentTitle("Today")
+            .setContentText(taskLine)
+            .setStyle(inboxStyle)
             .setCategory(NotificationCompat.CATEGORY_STATUS)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
@@ -469,7 +400,6 @@ class HaruLockScreenService : Service() {
         private const val NOTIFICATION_ID = 9108
         private const val TASK_NOTIFICATION_ID = 9110
         private const val PET_REQUEST_CODE = 9109
-        private const val FOCUS_REQUEST_CODE = 9111
         private const val KEYGUARD_SETTLE_MS = 300L
         private const val ACKNOWLEDGEMENT_MS = 8_000L
         private const val CONTENT_ROTATION_MS = 15L * 60L * 1000L
@@ -480,9 +410,6 @@ class HaruLockScreenService : Service() {
             "io.haru.assistant.action.PET_LOCK_SCREEN_HARU"
         private const val ACTION_REFRESH =
             "io.haru.assistant.action.REFRESH_LOCK_SCREEN_HARU"
-        private const val ACTION_COMPLETE_FOCUS =
-            "io.haru.assistant.action.COMPLETE_FOCUS_TASK"
-        private const val EXTRA_TASK_ID = "task_id"
 
         fun start(context: Context) {
             ContextCompat.startForegroundService(

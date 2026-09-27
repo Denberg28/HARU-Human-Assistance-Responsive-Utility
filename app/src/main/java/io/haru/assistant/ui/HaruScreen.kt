@@ -123,7 +123,6 @@ fun HaruScreen(
     onAddCompanionTask: (String) -> Unit,
     onUpdateCompanionTask: (Int, String) -> Unit,
     onDeleteCompanionTask: (Int) -> Unit,
-    onCompleteCompanionTask: (String) -> Unit,
     onReorderCompanionTasks: (List<String>) -> Unit,
     onToggleHaruChecker: () -> Unit,
     onToggleLockScreen: () -> Unit,
@@ -213,7 +212,6 @@ fun HaruScreen(
                     onAddTask = onAddCompanionTask,
                     onUpdateTask = onUpdateCompanionTask,
                     onDeleteTask = onDeleteCompanionTask,
-                    onCompleteTask = onCompleteCompanionTask,
                     onReorderTasks = onReorderCompanionTasks,
                     onOpenSettings = { showSettings = true },
                 )
@@ -359,7 +357,6 @@ private fun SimpleHaruPane(
     onAddTask: (String) -> Unit,
     onUpdateTask: (Int, String) -> Unit,
     onDeleteTask: (Int) -> Unit,
-    onCompleteTask: (String) -> Unit,
     onReorderTasks: (List<String>) -> Unit,
     onOpenSettings: () -> Unit,
 ) {
@@ -422,15 +419,6 @@ private fun SimpleHaruPane(
                         style = MaterialTheme.typography.bodySmall,
                         fontWeight = FontWeight.Medium,
                     )
-                    companionSnapshot.tasks
-                        .firstOrNull { !it.done }
-                        ?.let { focus ->
-                            TextButton(
-                                onClick = { onCompleteTask(focus.id) },
-                            ) {
-                                Text("✓ Done focus")
-                            }
-                        }
                     todayLines
                         .filterNot { it.startsWith("Tasks:") }
                         .take(2)
@@ -531,7 +519,6 @@ private fun SimpleHaruPane(
             onAddTask = onAddTask,
             onUpdateTask = onUpdateTask,
             onDeleteTask = onDeleteTask,
-            onCompleteTask = onCompleteTask,
             onReorderTasks = onReorderTasks,
         )
     }
@@ -554,7 +541,6 @@ private fun SimpleTodayDialog(
     onAddTask: (String) -> Unit,
     onUpdateTask: (Int, String) -> Unit,
     onDeleteTask: (Int) -> Unit,
-    onCompleteTask: (String) -> Unit,
     onReorderTasks: (List<String>) -> Unit,
 ) {
     var taskText by remember { mutableStateOf("") }
@@ -673,16 +659,6 @@ private fun SimpleTodayDialog(
                         "Hold and drag ≡ to reorder. Tap a task to edit or delete.",
                         style = MaterialTheme.typography.labelSmall,
                     )
-                    snapshot.tasks
-                        .firstOrNull { !it.done }
-                        ?.let { focus ->
-                            Button(
-                                onClick = { onCompleteTask(focus.id) },
-                                modifier = Modifier.fillMaxWidth(),
-                            ) {
-                                Text("✓ Complete focus · " + focus.text.take(36))
-                            }
-                        }
                     taskOrder.take(12).forEach { taskId ->
                         val task =
                             snapshot.tasks.firstOrNull { it.id == taskId }
