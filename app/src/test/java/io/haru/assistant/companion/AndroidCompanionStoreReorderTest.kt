@@ -103,4 +103,36 @@ class AndroidCompanionStoreReorderTest {
         assertEquals("First", reordered.tasks[2].text)
         assertEquals(true, reordered.tasks[1].done)
     }
+    @Test
+    fun completeTaskByIdSurvivesReorderAndOnlyCompletesRequestedTask() {
+        val context = RuntimeEnvironment.getApplication()
+        context.getSharedPreferences("haru_companion", 0)
+            .edit()
+            .clear()
+            .commit()
+
+        val store = AndroidCompanionStore(context)
+        store.addTask("First")
+        store.addTask("Second")
+        store.addTask("Third")
+
+        val before = store.load()
+        store.reorderOpenTasks(
+            listOf(
+                before.tasks[2].id,
+                before.tasks[0].id,
+                before.tasks[1].id,
+            )
+        )
+
+        val reordered = store.load()
+        val focusId = reordered.tasks.first { !it.done }.id
+        val completed = store.completeTaskById(focusId)
+
+        assertEquals("Third", completed.tasks.first().text)
+        assertEquals(true, completed.tasks.first().done)
+        assertEquals(false, completed.tasks[1].done)
+        assertEquals(false, completed.tasks[2].done)
+    }
+
 }
