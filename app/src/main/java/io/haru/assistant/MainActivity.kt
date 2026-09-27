@@ -168,7 +168,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
                     LocationRequestPurpose.MAP -> {
                         mapGpsActive = false
                         mapLocationStatus =
-                            "Location permission is needed to show your GPS position."
+                            "Location permission is needed to show your position."
                     }
                     LocationRequestPurpose.NONE -> Unit
                 }
@@ -202,6 +202,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
         backgroundTheme = themeStore.loadBackground()
         cleanupLegacyStorageOnce()
         if (lockScreenEnabled) {
+            requestNotificationPermissionIfNeeded()
             HaruLockScreenService.start(this)
         }
         val onlineSettings = onlineAiManager.settings()
