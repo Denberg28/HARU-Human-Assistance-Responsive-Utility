@@ -34,6 +34,7 @@ import io.haru.assistant.core.CompanionModeStore
 import io.haru.assistant.lockscreen.HaruLockScreenService
 import io.haru.assistant.lockscreen.LockScreenPreferenceStore
 import io.haru.assistant.location.HaruLiveLocationManager
+import io.haru.assistant.location.LocationProviderPolicy
 import io.haru.assistant.location.LiveLocationSession
 import io.haru.assistant.location.LiveMonitorSession
 import io.haru.assistant.location.TrustedLocation
@@ -435,6 +436,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
         lockScreenStore.setEnabled(lockScreenEnabled)
 
         if (lockScreenEnabled) {
+            requestNotificationPermissionIfNeeded()
             HaruLockScreenService.start(this)
         } else {
             HaruLockScreenService.stop(this)
@@ -687,15 +689,37 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
         }
     }
 
-    private fun hasLocationPermission(): Boolean =
+    private fun hasFineLocationPermission(): Boolean =
         ContextCompat.checkSelfPermission(
             this,
             Manifest.permission.ACCESS_FINE_LOCATION,
-        ) == PackageManager.PERMISSION_GRANTED ||
+        ) == PackageManager.PERMISSION_GRANTED
+
+    private fun hasLocationPermission(): Boolean =
+        hasFineLocationPermission() ||
             ContextCompat.checkSelfPermission(
                 this,
                 Manifest.permission.ACCESS_COARSE_LOCATION,
             ) == PackageManager.PERMISSION_GRANTED
+
+    private fun enabledLocationProviders(
+        manager: LocationManager,
+    ): List<String> =
+        LocationProviderPolicy.providers(
+            gpsEnabled =
+                runCatching {
+                    manager.isProviderEnabled(
+                        LocationManager.GPS_PROVIDER
+                    )
+                }.getOrDefault(false),
+            networkEnabled =
+                runCatching {
+                    manager.isProviderEnabled(
+                        LocationManager.NETWORK_PROVIDER
+                    )
+                }.getOrDefault(false),
+            hasFineLocation = hasFineLocationPermission(),
+        )
 
     @SuppressLint("MissingPermission")
     private fun captureRequestedLocation() {
@@ -704,14 +728,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
         val manager =
             getSystemService(Context.LOCATION_SERVICE) as LocationManager
 
-        val providers = listOf(
-            LocationManager.GPS_PROVIDER,
-            LocationManager.NETWORK_PROVIDER,
-        ).filter { provider ->
-            runCatching {
-                manager.isProviderEnabled(provider)
-            }.getOrDefault(false)
-        }
+        val providers = enabledLocationProviders(manager)
 
         if (providers.isEmpty()) {
             if (pendingLocationPurpose == LocationRequestPurpose.MAP) {
@@ -778,8 +795,10 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
         val listener = object : LocationListener {
             override fun onLocationChanged(location: Location) {
                 if (
-                    location.latitude !in -90.0..90.0 ||
-                    location.longitude !in -180.0..180.0
+                    !LocationProviderPolicy.isValidCoordinate(
+                        location.latitude,
+                        location.longitude,
+                    )
                 ) {
                     return
                 }
@@ -788,7 +807,15 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
                     LocationRequestPurpose.MAP -> {
                         updateMapLocation(
                             location,
-                            prefix = "GPS",
+                            prefix =
+                                if (
+                                    location.provider ==
+                                    LocationManager.GPS_PROVIDER
+                                ) {
+                                    "GPS"
+                                } else {
+                                    "Approximate"
+                                },
                         )
 
                         if (
@@ -867,22 +894,29 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
             }
         }
 
-        runCatching {
-            manager.requestLocationUpdates(
-                providers.first(),
-                LOCATION_MIN_TIME_MS,
-                0f,
-                listener,
-                Looper.getMainLooper(),
-            )
+        var providerStarted = false
+        providers.forEach { provider ->
+            runCatching {
+                manager.requestLocationUpdates(
+                    provider,
+                    LOCATION_MIN_TIME_MS,
+                    0f,
+                    listener,
+                    Looper.getMainLooper(),
+                )
+            }.onSuccess {
+                providerStarted = true
+            }
+        }
 
+        if (providerStarted) {
             mainHandler.postAtTime(
                 timeout,
                 LOCATION_TIMEOUT_TOKEN,
                 System.currentTimeMillis() +
                     LOCATION_TIMEOUT_MS,
             )
-        }.onFailure {
+        } else {
             runCatching {
                 manager.removeUpdates(listener)
             }
@@ -894,7 +928,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
             if (pendingLocationPurpose == LocationRequestPurpose.MAP) {
                 mapGpsActive = false
                 mapLocationStatus =
-                    "HARU could not start GPS."
+                    "HARU could not start phone location."
             } else {
                 onlineStatus =
                     "HARU could not obtain a phone location."
@@ -1032,17 +1066,14 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
             runCatching { manager.removeUpdates(it) }
         }
 
-        val provider =
-            if (runCatching {
-                    manager.isProviderEnabled(
-                        LocationManager.GPS_PROVIDER
-                    )
-                }.getOrDefault(false)
-            ) {
-                LocationManager.GPS_PROVIDER
-            } else {
-                LocationManager.NETWORK_PROVIDER
-            }
+        val providers = enabledLocationProviders(manager)
+        if (providers.isEmpty()) {
+            liveShareLocationListener = null
+            liveShareActive = false
+            liveTrackingStatus =
+                "Live share paused · no usable location provider."
+            return
+        }
 
         val listener = object : LocationListener {
             override fun onLocationChanged(location: Location) {
@@ -1122,15 +1153,25 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
 
         liveShareLocationListener = listener
 
-        runCatching {
-            manager.requestLocationUpdates(
-                provider,
-                LIVE_LOCATION_SAMPLE_MS,
-                LIVE_MIN_MOVE_M,
-                listener,
-                Looper.getMainLooper(),
-            )
-        }.onFailure {
+        var providerStarted = false
+        providers.forEach { provider ->
+            runCatching {
+                manager.requestLocationUpdates(
+                    provider,
+                    LIVE_LOCATION_SAMPLE_MS,
+                    LIVE_MIN_MOVE_M,
+                    listener,
+                    Looper.getMainLooper(),
+                )
+            }.onSuccess {
+                providerStarted = true
+            }
+        }
+
+        if (!providerStarted) {
+            runCatching {
+                manager.removeUpdates(listener)
+            }
             liveShareLocationListener = null
             liveShareActive = false
             liveTrackingStatus =
