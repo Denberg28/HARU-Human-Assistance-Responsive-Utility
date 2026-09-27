@@ -94,6 +94,27 @@ class AndroidCompanionStore(
         return load()
     }
 
+    fun completeTaskById(taskId: String): CompanionSnapshot {
+        if (taskId.isBlank()) return load()
+
+        val snapshot = load()
+        if (snapshot.tasks.none { it.id == taskId && !it.done }) {
+            return snapshot
+        }
+
+        saveTasks(
+            snapshot.tasks.map { task ->
+                if (task.id == taskId) {
+                    task.copy(done = true)
+                } else {
+                    task
+                }
+            },
+            synchronous = true,
+        )
+        return load()
+    }
+
     fun updateTask(
         index: Int,
         text: String,
