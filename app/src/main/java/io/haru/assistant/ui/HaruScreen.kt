@@ -1684,19 +1684,31 @@ private fun OnlineAiDialog(
                                 },
                             )
                         }
+
+                        HorizontalDivider()
+
+                        DropdownMenuItem(
+                            text = {
+                                Text(
+                                    if (hasGeminiKey) {
+                                        "↻ Update agents"
+                                    } else {
+                                        "↻ Update agents · save key first"
+                                    }
+                                )
+                            },
+                            enabled = hasGeminiKey,
+                            onClick = {
+                                modelMenuExpanded = false
+                                onRefreshGeminiModels()
+                            },
+                        )
                     }
                 }
 
-                Spacer(Modifier.height(6.dp))
-                OutlinedButton(
-                    onClick = onRefreshGeminiModels,
-                    enabled = hasGeminiKey,
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text("Refresh Gemini models")
-                }
+                Spacer(Modifier.height(4.dp))
                 Text(
-                    "Refresh discovers newly released models and removes models no longer returned by Google.",
+                    "Only the newest stable Flash and Flash-Lite agents that pass HARU's connection check are kept.",
                     style = MaterialTheme.typography.labelSmall,
                 )
 
