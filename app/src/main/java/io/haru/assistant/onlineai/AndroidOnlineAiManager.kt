@@ -181,18 +181,7 @@ class AndroidOnlineAiManager(
                     "Google returned no supported current Gemini agents."
                 }
 
-                val refreshed =
-                    candidates
-                        .filter { model ->
-                            probeGeminiModel(
-                                modelId = model.id,
-                                apiKey = key,
-                            )
-                        }
-
-                require(refreshed.isNotEmpty()) {
-                    "No current Gemini agent passed HARU's connection check."
-                }
+                val refreshed = candidates
 
                 val array = JSONArray()
                 refreshed.forEach { model ->
@@ -799,7 +788,12 @@ class AndroidOnlineAiManager(
                     message =
                         when (code) {
                             401, 403 -> "Authentication was rejected."
-                            429 -> "Provider quota or rate limit reached."
+                            429 ->
+                                detail
+                                    .take(MAX_PROVIDER_ERROR_CHARS)
+                                    .ifBlank {
+                                        "Provider quota or rate limit reached."
+                                    }
                             in 500..599 ->
                                 "AI provider is temporarily unavailable."
                             else ->
@@ -815,56 +809,6 @@ class AndroidOnlineAiManager(
             connection.disconnect()
         }
     }
-
-    private fun probeGeminiModel(
-        modelId: String,
-        apiKey: String,
-    ): Boolean =
-        runCatching {
-            val response =
-                postJson(
-                    "https://generativelanguage.googleapis.com/v1beta/models/" +
-                        modelId +
-                        ":generateContent",
-                    JSONObject()
-                        .put(
-                            "contents",
-                            JSONArray().put(
-                                JSONObject()
-                                    .put("role", "user")
-                                    .put(
-                                        "parts",
-                                        JSONArray().put(
-                                            JSONObject().put(
-                                                "text",
-                                                "Reply with exactly: HARU OK",
-                                            )
-                                        )
-                                    )
-                            )
-                        )
-                        .put(
-                            "generationConfig",
-                            JSONObject()
-                                .put("maxOutputTokens", 8)
-                        ),
-                    mapOf("x-goog-api-key" to apiKey),
-                    timeoutMs = MODEL_PROBE_TIMEOUT_MS,
-                )
-
-            val text =
-                response
-                    .optJSONArray("candidates")
-                    ?.optJSONObject(0)
-                    ?.optJSONObject("content")
-                    ?.optJSONArray("parts")
-                    ?.optJSONObject(0)
-                    ?.optString("text")
-                    ?.trim()
-                    .orEmpty()
-
-            text.isNotBlank()
-        }.getOrDefault(false)
 
     private fun preferred(models: List<GeminiModel>): GeminiModel =
         models.firstOrNull {
@@ -906,7 +850,7 @@ class AndroidOnlineAiManager(
         private const val ANTIGRAVITY_TOKEN_BUDGET = 4_000
         private const val ANTIGRAVITY_TIMEOUT_MS = 75_000
         private const val FAST_CHAT_MAX_OUTPUT_TOKENS = 1_200
-        private const val MODEL_PROBE_TIMEOUT_MS = 12_000
+        private const val MAX_PROVIDER_ERROR_CHARS = 320
         private const val ANTIGRAVITY_AGENT =
             "antigravity-preview-09-2026"
         private const val INTERACTIONS_URL =
