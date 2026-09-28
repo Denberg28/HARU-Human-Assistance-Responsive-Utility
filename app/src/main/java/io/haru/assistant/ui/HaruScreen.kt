@@ -1708,7 +1708,7 @@ private fun OnlineAiDialog(
 
                 Spacer(Modifier.height(4.dp))
                 Text(
-                    "Only the newest stable Flash and Flash-Lite agents that pass HARU's connection check are kept.",
+                    "Only the newest stable Flash and Flash-Lite agents returned by Google's live catalog are kept. Updating agents uses one catalog request and does not consume a generation request.",
                     style = MaterialTheme.typography.labelSmall,
                 )
 
