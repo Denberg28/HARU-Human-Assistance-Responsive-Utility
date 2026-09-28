@@ -516,18 +516,18 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
     }
 
     private fun refreshGeminiModels() {
-        onlineStatus = "Refreshing Gemini models…"
+        onlineStatus = "Updating Gemini agents…"
         lifecycleScope.launch {
             try {
                 geminiModels = onlineAiManager.refreshGeminiModels()
                 selectedGeminiModel = onlineAiManager.settings().geminiModel
                 onlineStatus =
-                    "Gemini models refreshed · " +
+                    "Gemini agents updated · " +
                         geminiModels.size +
-                        " available."
+                        " working."
             } catch (exc: Exception) {
                 onlineStatus =
-                    exc.message ?: "Could not refresh Gemini models."
+                    exc.message ?: "Could not update Gemini agents."
             }
         }
     }
