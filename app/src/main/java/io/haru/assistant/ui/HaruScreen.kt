@@ -135,6 +135,8 @@ fun HaruScreen(
     onSaveGeminiKey: (String) -> Unit,
     onSaveGroqKey: (String) -> Unit,
     onTestOnlineAi: () -> Unit,
+    onTestFastGemini: () -> Unit,
+    onTestAntigravityAgent: () -> Unit,
     onResetMemory: () -> Unit,
     onCheckUpdate: () -> Unit,
     onOpenUpdate: (String) -> Unit,
@@ -337,6 +339,8 @@ fun HaruScreen(
             onSaveGeminiKey = onSaveGeminiKey,
             onSaveGroqKey = onSaveGroqKey,
             onTest = onTestOnlineAi,
+            onTestFastGemini = onTestFastGemini,
+            onTestAntigravityAgent = onTestAntigravityAgent,
         )
     }
 
@@ -1626,6 +1630,8 @@ private fun OnlineAiDialog(
     onSaveGeminiKey: (String) -> Unit,
     onSaveGroqKey: (String) -> Unit,
     onTest: () -> Unit,
+    onTestFastGemini: () -> Unit,
+    onTestAntigravityAgent: () -> Unit,
 ) {
     var geminiKey by remember { mutableStateOf("") }
     var groqKey by remember { mutableStateOf("") }
@@ -1763,18 +1769,33 @@ private fun OnlineAiDialog(
                 )
 
                 Spacer(Modifier.height(10.dp))
-                Button(
-                    onClick = onTest,
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text("Test selected AI")
+                if (provider == OnlineProvider.ANTIGRAVITY) {
+                    Button(
+                        onClick = onTestFastGemini,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text("Test Fast Gemini")
+                    }
+                    OutlinedButton(
+                        onClick = onTestAntigravityAgent,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text("Test Antigravity agent")
+                    }
+                } else {
+                    Button(
+                        onClick = onTest,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text("Test selected AI")
+                    }
                 }
 
                 if (status.isNotBlank()) {
                     Text(status, style = MaterialTheme.typography.bodySmall)
                 }
                 Text(
-                    "Antigravity Auto uses fast Gemini chat for normal messages and escalates to the Antigravity agent only when live search or deeper web work is needed. Groq remains available as an alternate provider.",
+                    "Antigravity Auto uses Fast Gemini for normal messages and the Antigravity agent for live search or deeper web work. The two diagnostic buttons test those paths independently. On transient Gemini server errors only, HARU retries once with Flash-Lite. Groq remains available as an alternate provider.",
                     style = MaterialTheme.typography.labelSmall,
                 )
             }
