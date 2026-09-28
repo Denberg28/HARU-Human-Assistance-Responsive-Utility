@@ -275,6 +275,8 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
                     onSaveGeminiKey = ::saveGeminiKey,
                     onSaveGroqKey = ::saveGroqKey,
                     onTestOnlineAi = ::testOnlineAi,
+                    onTestFastGemini = ::testFastGemini,
+                    onTestAntigravityAgent = ::testAntigravityAgent,
                     onResetMemory = { resetConversationMemory(haruViewModel) },
                     onCheckUpdate = ::checkForUpdate,
                     onOpenUpdate = ::openUrl,
@@ -549,6 +551,35 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
                 providerName(onlineProvider) + " connected · " + result.take(80)
             } catch (exc: Exception) {
                 exc.message ?: "Connection test failed."
+            }
+        }
+    }
+
+    private fun testFastGemini() {
+        onlineStatus = "Testing Fast Gemini · " + selectedGeminiModel.label + "…"
+        lifecycleScope.launch {
+            onlineStatus = try {
+                val result = onlineAiManager.testFastGemini()
+                "Fast Gemini connected · " +
+                    selectedGeminiModel.label +
+                    " · " +
+                    result.take(80)
+            } catch (exc: Exception) {
+                "Fast Gemini failed · " +
+                    (exc.message ?: "Connection test failed.")
+            }
+        }
+    }
+
+    private fun testAntigravityAgent() {
+        onlineStatus = "Testing Antigravity agent…"
+        lifecycleScope.launch {
+            onlineStatus = try {
+                val result = onlineAiManager.testAntigravityAgent()
+                "Antigravity agent connected · " + result.take(80)
+            } catch (exc: Exception) {
+                "Antigravity agent failed · " +
+                    (exc.message ?: "Connection test failed.")
             }
         }
     }
