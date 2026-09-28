@@ -100,6 +100,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
     private var antigravitySession: AntigravitySession? = null
     private var conversationEpoch = 0L
     private var activeAiJob: Job? = null
+    private var geminiRefreshJob: Job? = null
 
     private var trustedLocations by mutableStateOf(emptyList<TrustedLocation>())
     private var currentDeviceLocation by mutableStateOf<TrustedLocation?>(null)
@@ -516,20 +517,28 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
     }
 
     private fun refreshGeminiModels() {
-        onlineStatus = "Updating Gemini agents…"
-        lifecycleScope.launch {
-            try {
-                geminiModels = onlineAiManager.refreshGeminiModels()
-                selectedGeminiModel = onlineAiManager.settings().geminiModel
-                onlineStatus =
-                    "Gemini agents updated · " +
-                        geminiModels.size +
-                        " working."
-            } catch (exc: Exception) {
-                onlineStatus =
-                    exc.message ?: "Could not update Gemini agents."
-            }
+        if (geminiRefreshJob?.isActive == true) {
+            onlineStatus = "Gemini agent update already running."
+            return
         }
+
+        onlineStatus = "Updating Gemini agents…"
+        geminiRefreshJob =
+            lifecycleScope.launch {
+                try {
+                    geminiModels = onlineAiManager.refreshGeminiModels()
+                    selectedGeminiModel = onlineAiManager.settings().geminiModel
+                    onlineStatus =
+                        "Gemini agents updated · " +
+                            geminiModels.size +
+                            " available · 1 catalog request."
+                } catch (exc: Exception) {
+                    onlineStatus =
+                        exc.message ?: "Could not update Gemini agents."
+                } finally {
+                    geminiRefreshJob = null
+                }
+            }
     }
 
     private fun testOnlineAi() {
@@ -1598,6 +1607,8 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
 
     override fun onDestroy() {
         liveMonitorJob?.cancel()
+        geminiRefreshJob?.cancel()
+        geminiRefreshJob = null
         mainHandler.removeCallbacksAndMessages(null)
         voiceController.shutdown()
         super.onDestroy()
