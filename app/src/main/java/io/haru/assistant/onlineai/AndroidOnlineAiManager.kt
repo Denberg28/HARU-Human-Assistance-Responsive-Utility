@@ -275,7 +275,7 @@ class AndroidOnlineAiManager(
                     HaruAiRoute.FAST_CHAT ->
                         OnlineAiReply(
                             text =
-                                askGemini(
+                                askGeminiWithTransientFallback(
                                     modelId = settings().geminiModel.id,
                                     prompt = prompt,
                                     systemPrompt = systemPrompt,
@@ -302,7 +302,7 @@ class AndroidOnlineAiManager(
             OnlineProvider.GEMINI ->
                 OnlineAiReply(
                     text =
-                        askGemini(
+                        askGeminiWithTransientFallback(
                             modelId = settings().geminiModel.id,
                             prompt = prompt,
                             systemPrompt = systemPrompt,
@@ -326,11 +326,40 @@ class AndroidOnlineAiManager(
     }
 
     suspend fun test(provider: OnlineProvider): String =
-        ask(
-            provider = provider,
-            prompt = "Reply with exactly: HARU OK",
-            systemPrompt = "You are HARU's connection test. Reply very briefly.",
-        ).text
+        when (provider) {
+            OnlineProvider.ANTIGRAVITY -> testFastGemini()
+            OnlineProvider.GEMINI -> testFastGemini()
+            OnlineProvider.GROQ ->
+                ask(
+                    provider = provider,
+                    prompt = TEST_PROMPT,
+                    systemPrompt = TEST_SYSTEM_PROMPT,
+                ).text
+        }
+
+    suspend fun testFastGemini(): String =
+        withContext(Dispatchers.IO) {
+            askGeminiWithTransientFallback(
+                modelId = settings().geminiModel.id,
+                prompt = TEST_PROMPT,
+                systemPrompt = TEST_SYSTEM_PROMPT,
+                history = emptyList(),
+                summary = "",
+                enableSearch = false,
+            )
+        }
+
+    suspend fun testAntigravityAgent(): String =
+        withContext(Dispatchers.IO) {
+            askAntigravity(
+                prompt = TEST_PROMPT,
+                systemPrompt = TEST_SYSTEM_PROMPT,
+                history = emptyList(),
+                summary = "",
+                session = null,
+                enableWebTools = false,
+            ).text
+        }
 
     private fun askAntigravity(
         prompt: String,
@@ -593,6 +622,46 @@ class AndroidOnlineAiManager(
         return text
     }
 
+    private fun askGeminiWithTransientFallback(
+        modelId: String,
+        prompt: String,
+        systemPrompt: String,
+        history: List<ConversationExchange>,
+        summary: String,
+        enableSearch: Boolean,
+    ): String {
+        try {
+            return askGemini(
+                modelId = modelId,
+                prompt = prompt,
+                systemPrompt = systemPrompt,
+                history = history,
+                summary = summary,
+                enableSearch = enableSearch,
+            )
+        } catch (exc: ProviderHttpException) {
+            val fallbackId = FALLBACK_GEMINI_MODEL.id
+            if (
+                !GeminiResiliencePolicy.shouldFallback(
+                    statusCode = exc.statusCode,
+                    primaryModelId = modelId,
+                    fallbackModelId = fallbackId,
+                )
+            ) {
+                throw exc
+            }
+
+            return askGemini(
+                modelId = fallbackId,
+                prompt = prompt,
+                systemPrompt = systemPrompt,
+                history = history,
+                summary = summary,
+                enableSearch = enableSearch,
+            )
+        }
+    }
+
     private fun askGemini(
         modelId: String,
         prompt: String,
@@ -795,7 +864,14 @@ class AndroidOnlineAiManager(
                                         "Provider quota or rate limit reached."
                                     }
                             in 500..599 ->
-                                "AI provider is temporarily unavailable."
+                                "Provider HTTP " +
+                                    code +
+                                    " · " +
+                                    detail
+                                        .take(MAX_PROVIDER_ERROR_CHARS)
+                                        .ifBlank {
+                                            "AI provider is temporarily unavailable."
+                                        }
                             else ->
                                 detail.ifBlank {
                                     "Provider request failed (HTTP $code)."
@@ -851,6 +927,9 @@ class AndroidOnlineAiManager(
         private const val ANTIGRAVITY_TIMEOUT_MS = 75_000
         private const val FAST_CHAT_MAX_OUTPUT_TOKENS = 1_200
         private const val MAX_PROVIDER_ERROR_CHARS = 320
+        private const val TEST_PROMPT = "Reply with exactly: HARU OK"
+        private const val TEST_SYSTEM_PROMPT =
+            "You are HARU's connection test. Reply very briefly."
         private const val ANTIGRAVITY_AGENT =
             "antigravity-preview-09-2026"
         private const val INTERACTIONS_URL =
