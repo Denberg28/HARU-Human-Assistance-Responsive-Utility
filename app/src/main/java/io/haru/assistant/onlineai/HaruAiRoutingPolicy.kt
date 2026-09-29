@@ -22,7 +22,7 @@ object HaruAiRoutingPolicy {
     private fun needsAgent(prompt: String): Boolean {
         val value = normalize(prompt)
 
-        if (needsWebSearch(value)) return true
+        if (EXPLICIT_WEB_PATTERNS.any { it.containsMatchIn(value) }) return true
 
         return AGENT_PATTERNS.any { it.containsMatchIn(value) }
     }
@@ -38,6 +38,12 @@ object HaruAiRoutingPolicy {
             Regex("""\b(latest|current|currently|today|tonight|breaking|news|recent|recently)\b"""),
             Regex("""\b(search|browse|google|look up|lookup|find online|check online|on the web|internet)\b"""),
             Regex("""\b(price|prices|stock|availability|weather|forecast|score|scores|schedule)\b"""),
+        )
+
+    private val EXPLICIT_WEB_PATTERNS =
+        listOf(
+            Regex("""\\b(search|browse|google|look up|lookup|find online|check online)\\b"""),
+            Regex("""\\b(open|visit|read|inspect)\\s+(?:this\\s+)?(?:url|website|web page|webpage|link)\\b"""),
         )
 
     private val AGENT_PATTERNS =
