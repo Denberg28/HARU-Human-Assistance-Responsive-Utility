@@ -132,7 +132,7 @@ class AndroidOnlineAiManager(
                             .header("Accept", "application/json")
                             .header("Cache-Control", "no-cache")
                             .header("x-goog-api-key", key)
-                            .header("User-Agent", "HARU-Android/0.3")
+                            .header("User-Agent", "HARU-Android/0.9.30")
                             .build(),
                     timeoutMs = 20_000,
                     maxChars = MAX_CATALOG_RESPONSE_CHARS,
@@ -826,7 +826,7 @@ class AndroidOnlineAiManager(
                 .post(body)
                 .header("Content-Type", "application/json")
                 .header("Accept", "application/json")
-                .header("User-Agent", "HARU-Android/0.3")
+                .header("User-Agent", "HARU-Android/0.9.30")
 
         headers.forEach { (name, value) ->
             builder.header(name, value)
