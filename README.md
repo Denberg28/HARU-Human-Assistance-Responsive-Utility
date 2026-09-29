@@ -2,7 +2,11 @@
 
 HARU is a lightweight, free-first personal assistant and companion. The Android app has two primary tabs: **HARU** and **Map**. Creator: MD.
 
-## Android v0.7.1
+## Android v0.9.30
+
+The current Android release adds AI quota safeguards: one request or connection test at a time, lighter routing for ordinary current-information questions, and a smaller Antigravity agent token budget. See [release notes](docs/release-v0.9.30.md).
+
+## Earlier companion features (v0.7.1)
 
 - A local companion with time-of-day greetings, rotating expressions, and conversation starters. Inside HARU it updates every 20 seconds while idle and visible; typing, dialogs, voice/AI work, Rest mode, and backgrounding pause automatic changes.
 - A native **HARU Bubble** Home-screen widget. Open **Home bubble → Add to Home screen**, then confirm the launcher's Add prompt. If pinning is unsupported or no prompt appears, long-press Home → Widgets → HARU → HARU Bubble. Drag it to the upper-right or any free space.
