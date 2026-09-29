@@ -42,8 +42,7 @@ object HaruAiRoutingPolicy {
 
     private val EXPLICIT_WEB_PATTERNS =
         listOf(
-            Regex("""\\b(search|browse|google|look up|lookup|find online|check online)\\b"""),
-            Regex("""\\b(open|visit|read|inspect)\\s+(?:this\\s+)?(?:url|website|web page|webpage|link)\\b"""),
+            Regex("""\b(search|browse|google|look up|lookup|find online|check online)\b"""),
         )
 
     private val AGENT_PATTERNS =
