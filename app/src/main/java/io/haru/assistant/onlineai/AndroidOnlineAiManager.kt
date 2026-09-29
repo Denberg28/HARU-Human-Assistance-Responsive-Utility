@@ -280,7 +280,7 @@ class AndroidOnlineAiManager(
                                     systemPrompt = systemPrompt,
                                     history = recentHistory,
                                     summary = cleanSummary,
-                                    enableSearch = false,
+                                    enableSearch = HaruAiRoutingPolicy.needsWebSearch(prompt),
                                 ),
                             antigravitySession =
                                 antigravitySession?.takeIf { it.isFresh() },
@@ -483,9 +483,7 @@ class AndroidOnlineAiManager(
     }
 
     private fun antigravityTools(): JSONArray =
-        JSONArray()
-            .put(JSONObject().put("type", "google_search"))
-            .put(JSONObject().put("type", "url_context"))
+        JSONArray().put(JSONObject().put("type", "google_search"))
 
     private fun parseAntigravityReply(
         response: JSONObject,
@@ -968,7 +966,7 @@ class AndroidOnlineAiManager(
         private const val MAX_CATALOG_RESPONSE_CHARS = 1_000_000
         private const val MAX_AI_RESPONSE_CHARS = 1_000_000
         private const val MAX_INTERACTION_ID_CHARS = 512
-        private const val ANTIGRAVITY_TOKEN_BUDGET = 4_000
+        private const val ANTIGRAVITY_TOKEN_BUDGET = 1_500
         private const val ANTIGRAVITY_TIMEOUT_MS = 75_000
         private const val FAST_CHAT_MAX_OUTPUT_TOKENS = 1_200
         private const val MAX_PROVIDER_ERROR_CHARS = 320

@@ -17,9 +17,9 @@ class HaruAiRoutingPolicyTest {
     }
 
     @Test
-    fun currentInformationEscalatesToAgent() {
+    fun currentInformationUsesFastChatWithSearch() {
         assertEquals(
-            HaruAiRoute.ANTIGRAVITY_AGENT,
+            HaruAiRoute.FAST_CHAT,
             HaruAiRoutingPolicy.routeForAntigravity(
                 "What is the latest news about this project?"
             ),

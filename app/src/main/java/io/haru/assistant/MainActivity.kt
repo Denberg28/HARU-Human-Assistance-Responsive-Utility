@@ -101,6 +101,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
     private var conversationEpoch = 0L
     private var activeAiJob: Job? = null
     private var geminiRefreshJob: Job? = null
+    private var activeAiTestJob: Job? = null
 
     private var trustedLocations by mutableStateOf(emptyList<TrustedLocation>())
     private var currentDeviceLocation by mutableStateOf<TrustedLocation?>(null)
@@ -298,6 +299,10 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
         speakResult: Boolean,
     ) {
         if (!viewModel.uiState.canSubmit) return
+        if (activeAiJob?.isActive == true || activeAiTestJob?.isActive == true) {
+            viewModel.completeAi("An AI request is already running. Wait for it to finish.", success = false)
+            return
+        }
         val command = viewModel.uiState.command.trim()
         viewModel.recordLatestUser(command)
 
@@ -321,7 +326,6 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
         val requestAntigravitySession =
             antigravitySession?.takeIf { it.isFresh() }
 
-        activeAiJob?.cancel()
         activeAiJob = lifecycleScope.launch {
             try {
                 val reply = onlineAiManager.ask(
@@ -543,44 +547,44 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
             }
     }
 
-    private fun testOnlineAi() {
-        onlineStatus = "Testing " + providerName(onlineProvider) + "…"
-        lifecycleScope.launch {
-            onlineStatus = try {
-                val result = onlineAiManager.test(onlineProvider)
-                providerName(onlineProvider) + " connected · " + result.take(80)
+    private fun runAiConnectionTest(label: String, request: suspend () -> String) {
+        if (activeAiTestJob?.isActive == true || activeAiJob?.isActive == true) {
+            onlineStatus = "An AI request is already running. Wait for it to finish."
+            return
+        }
+
+        onlineStatus = "Testing $label…"
+        activeAiTestJob = lifecycleScope.launch {
+            try {
+                val result = request()
+                onlineStatus = "$label connected · " + result.take(80)
             } catch (exc: Exception) {
-                exc.message ?: "Connection test failed."
+                if (isActive) {
+                    onlineStatus = "$label failed · " +
+                        (exc.message ?: "Connection test failed.")
+                }
+            } finally {
+                activeAiTestJob = null
             }
+        }
+    }
+
+    private fun testOnlineAi() {
+        val provider = onlineProvider
+        runAiConnectionTest(providerName(provider)) {
+            onlineAiManager.test(provider)
         }
     }
 
     private fun testFastGemini() {
-        onlineStatus = "Testing Fast Gemini · " + selectedGeminiModel.label + "…"
-        lifecycleScope.launch {
-            onlineStatus = try {
-                val result = onlineAiManager.testFastGemini()
-                "Fast Gemini connected · " +
-                    selectedGeminiModel.label +
-                    " · " +
-                    result.take(80)
-            } catch (exc: Exception) {
-                "Fast Gemini failed · " +
-                    (exc.message ?: "Connection test failed.")
-            }
+        runAiConnectionTest("Fast Gemini · " + selectedGeminiModel.label) {
+            onlineAiManager.testFastGemini()
         }
     }
 
     private fun testAntigravityAgent() {
-        onlineStatus = "Testing Antigravity agent…"
-        lifecycleScope.launch {
-            onlineStatus = try {
-                val result = onlineAiManager.testAntigravityAgent()
-                "Antigravity agent connected · " + result.take(80)
-            } catch (exc: Exception) {
-                "Antigravity agent failed · " +
-                    (exc.message ?: "Connection test failed.")
-            }
+        runAiConnectionTest("Antigravity agent") {
+            onlineAiManager.testAntigravityAgent()
         }
     }
 
@@ -1640,6 +1644,8 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
         liveMonitorJob?.cancel()
         geminiRefreshJob?.cancel()
         geminiRefreshJob = null
+        activeAiTestJob?.cancel()
+        activeAiTestJob = null
         mainHandler.removeCallbacksAndMessages(null)
         voiceController.shutdown()
         super.onDestroy()
