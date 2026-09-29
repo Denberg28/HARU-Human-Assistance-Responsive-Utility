@@ -2,6 +2,8 @@ package io.haru.assistant.onlineai
 
 import io.haru.assistant.util.readBoundedText
 import android.content.Context
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import io.haru.assistant.memory.AntigravitySession
 import io.haru.assistant.memory.ConversationExchange
 import io.haru.assistant.memory.ConversationMemoryPolicy
@@ -9,8 +11,12 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
-import java.net.HttpURLConnection
-import java.net.URL
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
+import java.net.UnknownHostException
+import java.util.concurrent.TimeUnit
 
 enum class OnlineProvider {
     ANTIGRAVITY,
@@ -41,9 +47,15 @@ private class ProviderHttpException(
 class AndroidOnlineAiManager(
     context: Context,
 ) {
+    private val appContext = context.applicationContext
     private val preferences =
-        context.getSharedPreferences("haru_online_ai", Context.MODE_PRIVATE)
-    private val credentials = SecureCredentialStore(context)
+        appContext.getSharedPreferences("haru_online_ai", Context.MODE_PRIVATE)
+    private val credentials = SecureCredentialStore(appContext)
+    private val httpClient =
+        OkHttpClient.Builder()
+            .dns(HaruResilientDns.create())
+            .retryOnConnectionFailure(true)
+            .build()
 
     init {
         credentials.delete("openrouter")
@@ -111,41 +123,31 @@ class AndroidOnlineAiManager(
                 "Save a Gemini API key before refreshing models."
             }
 
-            val connection = URL(MODELS_URL).openConnection() as HttpURLConnection
-            connection.requestMethod = "GET"
-            connection.instanceFollowRedirects = false
-            connection.connectTimeout = 15_000
-            connection.readTimeout = 20_000
-            connection.useCaches = false
-            connection.setRequestProperty("Accept", "application/json")
-            connection.setRequestProperty("Cache-Control", "no-cache")
-            connection.setRequestProperty("x-goog-api-key", key)
-            connection.setRequestProperty("User-Agent", "HARU-Android/0.3")
+            val (code, raw) =
+                executeHttp(
+                    request =
+                        Request.Builder()
+                            .url(MODELS_URL)
+                            .get()
+                            .header("Accept", "application/json")
+                            .header("Cache-Control", "no-cache")
+                            .header("x-goog-api-key", key)
+                            .header("User-Agent", "HARU-Android/0.3")
+                            .build(),
+                    timeoutMs = 20_000,
+                    maxChars = MAX_CATALOG_RESPONSE_CHARS,
+                )
 
-            try {
-                val code = connection.responseCode
-                val raw = (if (code in 200..299) {
-                    connection.inputStream
-                } else {
-                    connection.errorStream
-                })?.bufferedReader(Charsets.UTF_8)
-                    ?.use { it.readBoundedText(MAX_CATALOG_RESPONSE_CHARS) }
-                    .orEmpty()
+            if (code !in 200..299) {
+                val detail = providerErrorDetail(raw)
+                error(
+                    detail.ifBlank {
+                        "Gemini model refresh failed (HTTP $code)."
+                    }
+                )
+            }
 
-                if (code !in 200..299) {
-                    val detail = runCatching {
-                        JSONObject(raw)
-                            .optJSONObject("error")
-                            ?.optString("message")
-                    }.getOrNull().orEmpty()
-                    error(
-                        detail.ifBlank {
-                            "Gemini model refresh failed (HTTP $code)."
-                        }
-                    )
-                }
-
-                val models = JSONObject(raw).optJSONArray("models") ?: JSONArray()
+            val models = JSONObject(raw).optJSONArray("models") ?: JSONArray()
                 val listed = buildList {
                     for (i in 0 until models.length()) {
                         val item = models.optJSONObject(i) ?: continue
@@ -204,10 +206,7 @@ class AndroidOnlineAiManager(
                         .apply()
                 }
 
-                refreshed
-            } finally {
-                connection.disconnect()
-            }
+            refreshed
         }
 
     fun saveProvider(provider: OnlineProvider) {
@@ -818,73 +817,119 @@ class AndroidOnlineAiManager(
         headers: Map<String, String>,
         timeoutMs: Int,
     ): JSONObject {
-        val connection = URL(url).openConnection() as HttpURLConnection
-        connection.requestMethod = "POST"
-        connection.instanceFollowRedirects = false
-        connection.connectTimeout = timeoutMs
-        connection.readTimeout = timeoutMs
-        connection.doOutput = true
-        connection.setRequestProperty("Content-Type", "application/json")
-        connection.setRequestProperty("Accept", "application/json")
-        connection.setRequestProperty("User-Agent", "HARU-Android/0.3")
+        val body =
+            payload
+                .toString()
+                .toRequestBody(JSON_MEDIA_TYPE)
+
+        val builder =
+            Request.Builder()
+                .url(url)
+                .post(body)
+                .header("Content-Type", "application/json")
+                .header("Accept", "application/json")
+                .header("User-Agent", "HARU-Android/0.3")
+
         headers.forEach { (name, value) ->
-            connection.setRequestProperty(name, value)
+            builder.header(name, value)
         }
 
-        try {
-            connection.outputStream.bufferedWriter(Charsets.UTF_8).use {
-                it.write(payload.toString())
-            }
+        val (code, raw) =
+            executeHttp(
+                request = builder.build(),
+                timeoutMs = timeoutMs,
+                maxChars = MAX_AI_RESPONSE_CHARS,
+            )
 
-            val code = connection.responseCode
-            val raw = (if (code in 200..299) {
-                connection.inputStream
-            } else {
-                connection.errorStream
-            })?.bufferedReader(Charsets.UTF_8)
-                ?.use { it.readBoundedText(MAX_AI_RESPONSE_CHARS) }
-                .orEmpty()
+        if (code !in 200..299) {
+            val detail = providerErrorDetail(raw)
 
-            if (code !in 200..299) {
-                val detail = runCatching {
-                    JSONObject(raw)
-                        .optJSONObject("error")
-                        ?.optString("message")
-                }.getOrNull().orEmpty()
-
-                throw ProviderHttpException(
-                    statusCode = code,
-                    message =
-                        when (code) {
-                            401, 403 -> "Authentication was rejected."
-                            429 ->
+            throw ProviderHttpException(
+                statusCode = code,
+                message =
+                    when (code) {
+                        401, 403 -> "Authentication was rejected."
+                        429 ->
+                            detail
+                                .take(MAX_PROVIDER_ERROR_CHARS)
+                                .ifBlank {
+                                    "Provider quota or rate limit reached."
+                                }
+                        in 500..599 ->
+                            "Provider HTTP " +
+                                code +
+                                " · " +
                                 detail
                                     .take(MAX_PROVIDER_ERROR_CHARS)
                                     .ifBlank {
-                                        "Provider quota or rate limit reached."
+                                        "AI provider is temporarily unavailable."
                                     }
-                            in 500..599 ->
-                                "Provider HTTP " +
-                                    code +
-                                    " · " +
-                                    detail
-                                        .take(MAX_PROVIDER_ERROR_CHARS)
-                                        .ifBlank {
-                                            "AI provider is temporarily unavailable."
-                                        }
-                            else ->
-                                detail.ifBlank {
-                                    "Provider request failed (HTTP $code)."
-                                }
-                        },
-                )
-            }
+                        else ->
+                            detail.ifBlank {
+                                "Provider request failed (HTTP $code)."
+                            }
+                    },
+            )
+        }
 
-            return if (raw.isBlank()) JSONObject() else JSONObject(raw)
-        } finally {
-            connection.disconnect()
+        return if (raw.isBlank()) JSONObject() else JSONObject(raw)
+    }
+
+    private fun executeHttp(
+        request: Request,
+        timeoutMs: Int,
+        maxChars: Int,
+    ): Pair<Int, String> {
+        val client =
+            httpClient
+                .newBuilder()
+                .connectTimeout(timeoutMs.toLong(), TimeUnit.MILLISECONDS)
+                .readTimeout(timeoutMs.toLong(), TimeUnit.MILLISECONDS)
+                .writeTimeout(timeoutMs.toLong(), TimeUnit.MILLISECONDS)
+                .callTimeout(timeoutMs.toLong(), TimeUnit.MILLISECONDS)
+                .build()
+
+        try {
+            client.newCall(request).execute().use { response ->
+                val raw =
+                    response.body
+                        ?.charStream()
+                        ?.use { it.readBoundedText(maxChars) }
+                        .orEmpty()
+
+                return response.code to raw
+            }
+        } catch (exc: UnknownHostException) {
+            throw IllegalStateException(networkFailureMessage(), exc)
         }
     }
+
+    private fun networkFailureMessage(): String {
+        val manager =
+            appContext.getSystemService(Context.CONNECTIVITY_SERVICE)
+                as ConnectivityManager
+        val active = manager.activeNetwork
+        val capabilities =
+            active?.let(manager::getNetworkCapabilities)
+
+        val validated =
+            capabilities?.hasCapability(
+                NetworkCapabilities.NET_CAPABILITY_VALIDATED
+            ) == true
+
+        return if (!validated) {
+            "No validated internet connection. HARU could not reach the AI provider."
+        } else {
+            "DNS lookup failed. HARU tried Android DNS twice and secure DNS fallback, but the provider hostname still could not be resolved."
+        }
+    }
+
+    private fun providerErrorDetail(raw: String): String =
+        runCatching {
+            JSONObject(raw)
+                .optJSONObject("error")
+                ?.optString("message")
+        }.getOrNull().orEmpty()
 
     private fun preferred(models: List<GeminiModel>): GeminiModel =
         models.firstOrNull {
@@ -927,6 +972,8 @@ class AndroidOnlineAiManager(
         private const val ANTIGRAVITY_TIMEOUT_MS = 75_000
         private const val FAST_CHAT_MAX_OUTPUT_TOKENS = 1_200
         private const val MAX_PROVIDER_ERROR_CHARS = 320
+        private val JSON_MEDIA_TYPE =
+            "application/json; charset=utf-8".toMediaType()
         private const val TEST_PROMPT = "Reply with exactly: HARU OK"
         private const val TEST_SYSTEM_PROMPT =
             "You are HARU's connection test. Reply very briefly."
