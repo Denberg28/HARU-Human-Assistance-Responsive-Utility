@@ -299,6 +299,10 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
         speakResult: Boolean,
     ) {
         if (!viewModel.uiState.canSubmit) return
+        if (activeAiJob?.isActive == true || activeAiTestJob?.isActive == true) {
+            viewModel.completeAi("An AI request is already running. Wait for it to finish.", success = false)
+            return
+        }
         val command = viewModel.uiState.command.trim()
         viewModel.recordLatestUser(command)
 
@@ -322,10 +326,6 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
         val requestAntigravitySession =
             antigravitySession?.takeIf { it.isFresh() }
 
-        if (activeAiJob?.isActive == true || activeAiTestJob?.isActive == true) {
-            viewModel.completeAi("An AI request is already running. Wait for it to finish.", success = false)
-            return
-        }
         activeAiJob = lifecycleScope.launch {
             try {
                 val reply = onlineAiManager.ask(
