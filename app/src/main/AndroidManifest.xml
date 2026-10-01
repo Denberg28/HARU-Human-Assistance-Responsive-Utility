@@ -21,8 +21,8 @@
 
     <application
         android:allowBackup="false"
-        android:icon="@drawable/haru_launcher_icon"
-        android:roundIcon="@drawable/haru_launcher_icon"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
         android:label="HARU"
         android:supportsRtl="true"
         android:usesCleartextTraffic="false"
