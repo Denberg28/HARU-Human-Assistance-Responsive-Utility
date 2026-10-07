@@ -1216,6 +1216,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
 
                 liveUploadBusy = true
                 lastLiveUploadAt = now
+                val uploadEpoch = locationShareEpoch
                 liveUploadJob = lifecycleScope.launch {
                     try {
                         cancellableResult {
@@ -1248,8 +1249,10 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
                                     (it.message ?: "network unavailable")
                         }
                     } finally {
-                        liveUploadBusy = false
-                        liveUploadJob = null
+                        if (uploadEpoch == locationShareEpoch) {
+                            liveUploadBusy = false
+                            liveUploadJob = null
+                        }
                     }
                 }
             }
