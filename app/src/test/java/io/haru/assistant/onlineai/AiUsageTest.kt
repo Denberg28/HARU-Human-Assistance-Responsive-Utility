@@ -156,6 +156,16 @@ class AiUsageTest {
         }
     }
 
+    @Test fun malformedProviderJsonCannotEchoKeyOrPromptInError() = runBlocking {
+        val manager = manager { _, _, _ -> AiHttpResponse(200, "synthetic-test-key private prompt") }
+        try { manager.testFastGemini(); fail("Expected invalid JSON error") }
+        catch (e: IllegalStateException) {
+            assertTrue(e.message!!.contains("unreadable JSON"))
+            assertFalse(e.message!!.contains("synthetic-test-key"))
+            assertFalse(e.message!!.contains("private prompt"))
+        }
+    }
+
     @Test fun dailyQuotaUsesPacificResetAndRetryMetadataIsBounded() {
         val now = Instant.parse("2026-10-07T23:00:00Z").toEpochMilli()
         val raw = """{"error":{"details":[{"@type":"type.googleapis.com/google.rpc.QuotaFailure","violations":[{"quotaId":"GenerateRequestsPerDayPerProjectPerModel-FreeTier"}]}]}}"""

@@ -169,7 +169,7 @@ class AndroidOnlineAiManager internal constructor(
 
             val raw = checkedBody(response)
 
-            val models = JSONObject(raw).optJSONArray("models") ?: JSONArray()
+            val models = parseProviderJson(raw).optJSONArray("models") ?: JSONArray()
                 val listed = buildList {
                     for (i in 0 until models.length()) {
                         val item = models.optJSONObject(i) ?: continue
@@ -410,14 +410,14 @@ class AndroidOnlineAiManager internal constructor(
                     .url("$INTERACTIONS_URL/$id?include_input=false")
                     .header("x-goog-api-key", key).header("Accept", "application/json")
                     .get().build(), 20_000, MAX_AI_RESPONSE_CHARS)
-                JSONObject(checkedBody(result))
+                parseProviderJson(checkedBody(result))
             },
             cancel = { id -> postJson("$INTERACTIONS_URL/$id/cancel", JSONObject(), headers, timeoutMs = 5_000); Unit },
         ).run()
         stats.recordUsage(response)
         if (response.optString("status") == "failed") {
-            val errorCode = response.optJSONObject("error")?.optString("code").orEmpty()
-            if (errorCode in setOf("429", "RESOURCE_EXHAUSTED", "rate_limit_exceeded", "quota_exceeded")) {
+            val errorCode = response.optJSONObject("error")?.let { it.optString("code", it.optString("status")) }.orEmpty().uppercase()
+            if (errorCode in setOf("8", "429", "RESOURCE_EXHAUSTED", "RATE_LIMIT_EXCEEDED", "QUOTA_EXCEEDED")) {
                 checkedBody(AiHttpResponse(429, response.toString()))
             }
         }
@@ -744,8 +744,12 @@ class AndroidOnlineAiManager internal constructor(
 
         val response = executeHttp(builder.build(), timeoutMs, MAX_AI_RESPONSE_CHARS)
         val raw = checkedBody(response)
-        return if (raw.isBlank()) JSONObject() else JSONObject(raw)
+        return if (raw.isBlank()) JSONObject() else parseProviderJson(raw)
     }
+
+    private fun parseProviderJson(raw: String): JSONObject =
+        try { JSONObject(raw) }
+        catch (_: org.json.JSONException) { error("Provider returned an unreadable JSON response.") }
 
     private fun checkedBody(response: AiHttpResponse): String {
         val code = response.code

@@ -23,7 +23,7 @@ object HaruAiRoutingPolicy {
         prompt.lowercase().replace(Regex("""\s+"""), " ").trim()
 
     private val WEB_PATTERNS = listOf(
-        Regex("""\b(latest|breaking|news|weather|forecast)\b"""),
+        Regex("""\b(latest|breaking|news|weather|forecast|price|prices|availability|exchange rate)\b"""),
         Regex("""\b(search (?:the web|online|for)|browse|google|look up|lookup|find online|check online|on the web|internet)\b"""),
         Regex("""\b(current|currently|today|tonight|recent|recently|live)\b.{0,50}\b(price|prices|stock|availability|score|scores|schedule|events|updates)\b"""),
         Regex("""\b(price|prices|stock|availability|score|scores|schedule|events|updates)\b.{0,50}\b(current|currently|today|tonight|recent|recently|live)\b"""),

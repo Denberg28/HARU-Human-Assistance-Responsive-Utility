@@ -389,7 +389,7 @@ def _ask_ai(
                     raise AiRuntimeError("Agent reached HARU's token budget. Narrow the task; no automatic continuation was sent.")
                 if status != "completed":
                     error = data.get("error", {})
-                    if isinstance(error, dict) and str(error.get("code", "")) in {"429", "RESOURCE_EXHAUSTED", "rate_limit_exceeded", "quota_exceeded"}:
+                    if isinstance(error, dict) and str(error.get("code", error.get("status", ""))).upper() in {"8", "429", "RESOURCE_EXHAUSTED", "RATE_LIMIT_EXCEEDED", "QUOTA_EXCEEDED"}:
                         raise AiRuntimeError("Agent quota reached.", status_code=429, kind="quota", cooldown_s=cooldown_seconds(error))
                     raise AiRuntimeError("Agent did not complete. Check quota and agent access in Google AI Studio.")
                 text = _interaction_output_text(data)
