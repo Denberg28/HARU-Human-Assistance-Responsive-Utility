@@ -46,7 +46,13 @@ data class LiveLocationShareBundle(
     val shareText: String,
 )
 
-class HaruLiveLocationManager {
+class LiveLocationException(val statusCode: Int, message: String) : IllegalStateException(message) {
+    val terminal: Boolean get() = statusCode in listOf(401, 403, 404, 410)
+}
+
+class HaruLiveLocationManager internal constructor(
+    private val testTransport: ((JSONObject) -> JSONObject)? = null,
+) {
     suspend fun create(
         name: String,
         latitude: Double,
@@ -168,6 +174,14 @@ class HaruLiveLocationManager {
         val longitude = payload.getDouble("lon")
         validateCoordinates(latitude, longitude)
 
+        val capturedAt = payload.getLong("captured_at")
+        if (expiresAt <= System.currentTimeMillis()) {
+            throw LiveLocationException(410, "Live share has expired.")
+        }
+        require(LocationSharePolicy.isValidLiveSnapshot(capturedAt, expiresAt, seq, System.currentTimeMillis())) {
+            "Invalid live location timestamp or sequence."
+        }
+
         LiveLocationSnapshot(
             sessionId = monitor.sessionId,
             name = cleanName(payload.optString("name", "Live location")),
@@ -179,7 +193,7 @@ class HaruLiveLocationManager {
                 payload.optDouble("acc")
                     .takeIf { it in 0.0..100_000.0 }
             },
-            capturedAt = payload.getLong("captured_at"),
+            capturedAt = capturedAt,
             expiresAt = expiresAt,
             seq = seq,
         )
@@ -188,19 +202,22 @@ class HaruLiveLocationManager {
     suspend fun stop(
         session: LiveLocationSession,
     ) = withContext(Dispatchers.IO) {
-        runCatching {
-            post(
-                JSONObject()
-                    .put("action", "stop")
-                    .put("session_id", session.sessionId)
-                    .put("write_token", session.writeToken)
-            )
-        }
+        post(
+            JSONObject()
+                .put("action", "stop")
+                .put("session_id", session.sessionId)
+                .put("write_token", session.writeToken)
+        )
         Unit
     }
 
     fun parseLiveCode(value: String): LiveMonitorSession? {
-        val match = LIVE_CODE_PATTERN.find(value.trim()) ?: return null
+        require(value.length <= 8_000) { "Location share is too large." }
+        val match = LIVE_CODE_PATTERN.find(value.trim())
+        require(!value.contains("HARU-LIVE:", ignoreCase = true) || match != null) {
+            "Invalid HARU live code."
+        }
+        if (match == null) return null
         val sessionId = match.groupValues[1]
         val token = match.groupValues[2]
         return LiveMonitorSession(
@@ -237,7 +254,7 @@ class HaruLiveLocationManager {
             .put("name", cleanName(name))
             .put("lat", latitude)
             .put("lon", longitude)
-            .put("acc", accuracyM)
+            .put("acc", LocationSharePolicy.validAccuracy(accuracyM))
             .put("captured_at", capturedAt)
             .toString()
             .toByteArray(Charsets.UTF_8)
@@ -323,6 +340,7 @@ class HaruLiveLocationManager {
     }
 
     private fun post(payload: JSONObject): JSONObject {
+        testTransport?.let { return it(payload) }
         val connection =
             URL(ENDPOINT).openConnection() as HttpURLConnection
 
@@ -331,6 +349,7 @@ class HaruLiveLocationManager {
         connection.readTimeout = 12_000
         connection.useCaches = false
         connection.doOutput = true
+        connection.instanceFollowRedirects = false
         connection.setRequestProperty("Content-Type", "application/json")
         connection.setRequestProperty("Accept", "application/json")
         connection.setRequestProperty("Cache-Control", "no-store")
@@ -360,8 +379,10 @@ class HaruLiveLocationManager {
                     JSONObject(raw).optString("error")
                 }.getOrNull().orEmpty()
 
-                throw IllegalStateException(
+                throw LiveLocationException(
+                    code,
                     when (code) {
+                        401 -> "Live location service authentication failed."
                         403 -> "Live share token was rejected."
                         404 -> "Live share was not found."
                         410 -> "Live share has expired."
@@ -418,8 +439,8 @@ class HaruLiveLocationManager {
         private val LIVE_CODE_PATTERN =
             Regex(
                 "HARU-LIVE:v1:" +
-                    "([0-9a-fA-F-]{36}):" +
-                    "([A-Za-z0-9_-]{32,96})"
+                    "([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}):" +
+                    "([A-Za-z0-9_-]{32,96})(?![A-Za-z0-9_:-])"
             )
 
         private val secureRandom = SecureRandom()

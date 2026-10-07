@@ -85,6 +85,8 @@ import org.maplibre.android.geometry.LatLng
 import org.maplibre.android.maps.MapView
 import java.text.DateFormat
 import java.util.Date
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 
 @Composable
 fun HaruScreen(
@@ -115,6 +117,7 @@ fun HaruScreen(
     liveTrackedLocation: TrustedLocation?,
     liveTrackingStatus: String,
     liveShareActive: Boolean,
+    locationShareBusy: Boolean,
     liveMonitorActive: Boolean,
     onSubmitClick: () -> Unit,
     onMicClick: () -> Unit,
@@ -226,6 +229,7 @@ fun HaruScreen(
                     liveTrackedLocation = liveTrackedLocation,
                     liveTrackingStatus = liveTrackingStatus,
                     liveShareActive = liveShareActive,
+                    locationShareBusy = locationShareBusy,
                     liveMonitorActive = liveMonitorActive,
                     onLocateMe = onLocateMe,
                     onCreateShare = onCreateLocationShare,
@@ -1035,6 +1039,7 @@ private fun MapPane(
     liveTrackedLocation: TrustedLocation?,
     liveTrackingStatus: String,
     liveShareActive: Boolean,
+    locationShareBusy: Boolean,
     liveMonitorActive: Boolean,
     onLocateMe: () -> Unit,
     onCreateShare: (String, Int) -> Unit,
@@ -1047,6 +1052,17 @@ private fun MapPane(
 ) {
     var shareName by remember { mutableStateOf("") }
     var incomingCode by remember { mutableStateOf("") }
+    var shareMinutes by remember { mutableIntStateOf(60) }
+    var now by remember { mutableStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(locations, liveTrackedLocation) {
+        now = System.currentTimeMillis()
+        while (isActive) {
+            delay(30_000L)
+            now = System.currentTimeMillis()
+        }
+    }
+    val visibleLocations = locations.filter { it.expiresAt > now }
+    val visibleLiveLocation = liveTrackedLocation?.takeIf { it.expiresAt > now }
 
     Column(
         modifier = Modifier
@@ -1062,7 +1078,7 @@ private fun MapPane(
     ) {
         Text("Shared Locations", style = MaterialTheme.typography.titleMedium)
         Text(
-            "Native MapLibre map using OpenStreetMap data. Share codes protect integrity, but sender identity is not independently verified.",
+            "Share only with people you trust. Anyone with a live code can view that location until sharing stops or expires.",
             style = MaterialTheme.typography.labelSmall,
         )
 
@@ -1076,9 +1092,9 @@ private fun MapPane(
 
         Spacer(Modifier.height(6.dp))
         TrustedLocationsMap(
-            locations = locations,
+            locations = visibleLocations,
             currentDeviceLocation = currentDeviceLocation,
-            liveTrackedLocation = liveTrackedLocation,
+            liveTrackedLocation = visibleLiveLocation,
         )
         Text(
             "Map data © OpenStreetMap contributors · tiles/style by OpenFreeMap",
@@ -1094,16 +1110,30 @@ private fun MapPane(
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
         )
+        Spacer(Modifier.height(8.dp))
+        HaruOptionDropdown(
+            label = "Share duration",
+            selectedText = "$shareMinutes minutes",
+            options = listOf(15, 30, 60, 120),
+            optionLabel = { "$it minutes" },
+            isSelected = { it == shareMinutes },
+            onSelect = { shareMinutes = it },
+        )
         Button(
             onClick = {
                 onCreateShare(
                     shareName.ifBlank { "Loved one" },
-                    60,
+                    shareMinutes,
                 )
             },
+            enabled = !liveShareActive && !locationShareBusy,
             modifier = Modifier.fillMaxWidth(),
         ) {
-            Text(if (liveShareActive) "Live sharing active" else "Start 1-hour live share")
+            Text(when {
+                locationShareBusy -> "Preparing share…"
+                liveShareActive -> "Live sharing active"
+                else -> "Start live share"
+            })
         }
 
         if (shareCode.isNotBlank()) {
@@ -1112,6 +1142,8 @@ private fun MapPane(
                 onValueChange = {},
                 readOnly = true,
                 label = { Text("Share package") },
+                minLines = 2,
+                maxLines = 4,
                 modifier = Modifier.fillMaxWidth(),
             )
 
@@ -1168,17 +1200,17 @@ private fun MapPane(
             )
         }
 
-        if (liveShareActive || liveMonitorActive) {
+        if (liveShareActive || locationShareBusy || liveMonitorActive) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                if (liveShareActive) {
+                if (liveShareActive || locationShareBusy) {
                     OutlinedButton(
                         onClick = onStopLiveShare,
                         modifier = Modifier.weight(1f),
                     ) {
-                        Text("Stop sharing")
+                        Text(if (locationShareBusy) "Cancel share" else "Stop sharing")
                     }
                 }
 
@@ -1193,7 +1225,7 @@ private fun MapPane(
             }
         }
 
-        if (liveTrackedLocation != null) {
+        if (visibleLiveLocation != null) {
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -1207,12 +1239,12 @@ private fun MapPane(
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            "● " + liveTrackedLocation.name,
+                            "● " + visibleLiveLocation.name,
                             fontWeight = FontWeight.SemiBold,
                         )
                         Text(
-                            "Live marker · " +
-                                (liveTrackedLocation.accuracyM?.let {
+                            "Shared marker · " +
+                                (visibleLiveLocation.accuracyM?.let {
                                     "±" + it.toInt() + " m"
                                 } ?: "accuracy unavailable"),
                             style = MaterialTheme.typography.labelSmall,
@@ -1222,8 +1254,8 @@ private fun MapPane(
                         onClick = {
                             onOpenUrl(
                                 "https://www.google.com/maps/search/?api=1&query=" +
-                                    liveTrackedLocation.latitude + "," +
-                                    liveTrackedLocation.longitude
+                                    visibleLiveLocation.latitude + "," +
+                                    visibleLiveLocation.longitude
                             )
                         }
                     ) {
@@ -1233,14 +1265,14 @@ private fun MapPane(
             }
         }
 
-        if (locations.isNotEmpty()) {
+        if (visibleLocations.isNotEmpty()) {
             TextButton(onClick = onClear) {
                 Text("Clear locations")
             }
         }
 
         Spacer(Modifier.height(8.dp))
-        locations.forEach { item ->
+        visibleLocations.forEach { item ->
             val expires = DateFormat.getTimeInstance(DateFormat.SHORT)
                 .format(Date(item.expiresAt))
 
@@ -1302,6 +1334,7 @@ private fun MapPane(
                 if (mapGpsActive) {
                     Button(
                         onClick = onLocateMe,
+                        enabled = !locationShareBusy,
                         modifier = Modifier.weight(1f),
                     ) {
                         Text(
@@ -1315,6 +1348,7 @@ private fun MapPane(
                 } else {
                     OutlinedButton(
                         onClick = onLocateMe,
+                        enabled = !locationShareBusy,
                         modifier = Modifier.weight(1f),
                     ) {
                         Text("📍 My location")
@@ -1353,9 +1387,12 @@ private fun TrustedLocationsMap(
         addAll(locations)
     }
     val renderKey = allLocations.joinToString("|") {
-        it.id + ":" + it.latitude + ":" + it.longitude
+        it.id + ":" + it.latitude + ":" + it.longitude + ":" + it.name + ":" + it.accuracyM
     }
 
+    var lastFocusId by remember { mutableStateOf<String?>(null) }
+    var mapDisposed by remember { mutableStateOf(false) }
+    var mapLoadFailed by remember { mutableStateOf(false) }
     var mapController by remember {
         mutableStateOf<org.maplibre.android.maps.MapLibreMap?>(null)
     }
@@ -1377,7 +1414,9 @@ private fun TrustedLocationsMap(
                 false
             }
 
+            addOnDidFailLoadingMapListener { if (!mapDisposed) mapLoadFailed = true }
             getMapAsync { map ->
+                if (mapDisposed) return@getMapAsync
                 map.uiSettings.apply {
                     setZoomGesturesEnabled(true)
                     setDoubleTapGesturesEnabled(true)
@@ -1406,6 +1445,8 @@ private fun TrustedLocationsMap(
                 map.setMaxZoomPreference(20.0)
 
                 map.setStyle(OPENFREE_MAP_STYLE) {
+                    if (mapDisposed) return@setStyle
+                    mapLoadFailed = false
                     mapController = map
                     tag = null
                 }
@@ -1421,6 +1462,7 @@ private fun TrustedLocationsMap(
             mapView::onPause, mapView::onStop, mapView::onDestroy,
         )
         onDispose {
+            mapDisposed = true
             mapController = null
             mapView.setOnTouchListener(null)
             binding.close()
@@ -1446,7 +1488,7 @@ private fun TrustedLocationsMap(
                         map.clear()
 
                         @Suppress("DEPRECATION")
-                        allLocations.takeLast(21).forEach { item ->
+                        allLocations.take(22).forEach { item ->
                             map.addMarker(
                                 MarkerOptions()
                                     .position(
@@ -1482,7 +1524,8 @@ private fun TrustedLocationsMap(
                                 liveTrackedLocation ?:
                                 locations.lastOrNull()
 
-                        if (focus != null) {
+                        if (focus != null && focus.id != lastFocusId) {
+                            lastFocusId = focus.id
                             map.easeCamera(
                                 CameraUpdateFactory.newLatLngZoom(
                                     LatLng(
@@ -1495,7 +1538,7 @@ private fun TrustedLocationsMap(
                                 ),
                                 220,
                             )
-                        } else if (map.cameraPosition.zoom < 3.5) {
+                        } else if (focus == null && map.cameraPosition.zoom < 3.5) {
                             map.moveCamera(
                                 CameraUpdateFactory.newLatLngZoom(
                                     PHILIPPINES_CENTER,
@@ -1512,6 +1555,10 @@ private fun TrustedLocationsMap(
         }
     }
 
+    if (mapLoadFailed) {
+        Text("Map tiles unavailable. Check your connection; coordinates and sharing controls remain available.",
+            style = MaterialTheme.typography.bodySmall)
+    }
     Text(
         "Pinch/quick zoom enabled · rotate with two fingers · tap the native compass to return north.",
         style = MaterialTheme.typography.labelSmall,

@@ -113,7 +113,7 @@ class TrustedLocationManager(
             .put("name", cleanName(name))
             .put("lat", latitude)
             .put("lon", longitude)
-            .put("acc", accuracyM)
+            .put("acc", LocationSharePolicy.validAccuracy(accuracyM))
             .put("iat", now)
             .put("exp", now + duration * 60_000L)
             .put("nonce", UUID.randomUUID().toString())
@@ -141,6 +141,9 @@ class TrustedLocationManager(
         }
 
         val signedCode = extractSignedCode(input)
+        require(!input.contains("HARU-CODE:", ignoreCase = true) || signedCode != null) {
+            "Invalid HARU location code."
+        }
         return if (signedCode != null) {
             importSignedCode(signedCode)
         } else {
@@ -266,12 +269,8 @@ class TrustedLocationManager(
         }
 
         val issued = payload.optLong("iat", 0L)
-        require(
-            issued > 0L &&
-                expires - issued <=
-                    24L * 60L * 60L * 1000L + 60_000L
-        ) {
-            "Location share duration is invalid."
+        require(LocationSharePolicy.isValidLifetime(issued, expires, System.currentTimeMillis())) {
+            "Location share time or duration is invalid."
         }
 
         val accuracy = if (payload.isNull("acc")) {
@@ -377,6 +376,7 @@ class TrustedLocationManager(
 
         save(
             (load() + item)
+                .asReversed()
                 .distinctBy {
                     String.format(
                         Locale.US,
@@ -385,6 +385,7 @@ class TrustedLocationManager(
                         it.longitude,
                     )
                 }
+                .asReversed()
                 .takeLast(20)
         )
         return item

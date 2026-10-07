@@ -1,0 +1,3 @@
+[functions.haru-live-location]
+# Existing app uses separate per-session read and write capabilities.
+verify_jwt = false
