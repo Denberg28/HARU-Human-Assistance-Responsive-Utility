@@ -330,6 +330,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
             return
         }
 
+        val requestProvider = onlineProvider
         val requestEpoch = conversationEpoch
         val requestHistory = conversationHistory
         val requestSummary = conversationSummary
@@ -340,13 +341,13 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
         activeAiJob = lifecycleScope.launch {
             try {
                 val reply = onlineAiManager.ask(
-                    provider = onlineProvider,
+                    provider = requestProvider,
                     prompt = prompt,
                     systemPrompt = systemPromptFor(requestCompanionMode),
                     history = requestHistory,
                     summary = requestSummary,
                     antigravitySession =
-                        if (onlineProvider == OnlineProvider.ANTIGRAVITY) {
+                        if (requestProvider == OnlineProvider.ANTIGRAVITY) {
                             requestAntigravitySession
                         } else {
                             null
@@ -357,7 +358,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
                     return@launch
                 }
 
-                if (onlineProvider == OnlineProvider.ANTIGRAVITY) {
+                if (requestProvider == OnlineProvider.ANTIGRAVITY) {
                     antigravitySession =
                         reply.antigravitySession
                 }
@@ -367,7 +368,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
                         user = prompt,
                         assistant = reply.text,
                         antigravitySession =
-                            if (onlineProvider == OnlineProvider.ANTIGRAVITY) {
+                            if (requestProvider == OnlineProvider.ANTIGRAVITY) {
                                 antigravitySession
                             } else {
                                 null
@@ -378,7 +379,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
                 conversationSummary = memoryState.summary
 
                 onlineStatus =
-                    providerName(onlineProvider) +
+                    providerName(requestProvider) +
                         " connected · memory " +
                         conversationHistory.size +
                         "/" +
@@ -388,6 +389,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
                         } else {
                             ""
                         }
+                onlineStatus += "\n" + onlineAiManager.usageDiagnostics()
                 viewModel.completeAi(reply.text, success = true)
                 if (speakResult) voiceController.speak(reply.text)
             } catch (cancelled: CancellationException) {
@@ -399,6 +401,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
 
                 val message =
                     exc.message ?: "HARU could not complete that request."
+                onlineStatus = message + "\n" + onlineAiManager.usageDiagnostics()
                 viewModel.completeAi(message, success = false)
                 if (speakResult) voiceController.speak(message)
             } finally {
@@ -551,6 +554,8 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
                         "Gemini agents updated · " +
                             geminiModels.size +
                             " available · 1 catalog request."
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
                 } catch (exc: Exception) {
                     onlineStatus =
                         exc.message ?: "Could not update Gemini agents."
@@ -570,11 +575,13 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
         activeAiTestJob = lifecycleScope.launch {
             try {
                 val result = request()
-                onlineStatus = "$label connected · " + result.take(80)
+                onlineStatus = "$label connected · " + result.take(80) + "\n" + onlineAiManager.usageDiagnostics()
+            } catch (cancelled: CancellationException) {
+                throw cancelled
             } catch (exc: Exception) {
                 if (isActive) {
                     onlineStatus = "$label failed · " +
-                        (exc.message ?: "Connection test failed.")
+                        (exc.message ?: "Connection test failed.") + "\n" + onlineAiManager.usageDiagnostics()
                 }
             } finally {
                 activeAiTestJob = null

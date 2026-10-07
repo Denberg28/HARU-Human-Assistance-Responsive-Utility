@@ -53,4 +53,18 @@ class HaruAiRoutingPolicyTest {
             )
         )
     }
+    @Test fun basicWebLookupsDoNotStartAnAgent() {
+        assertEquals(HaruAiRoute.FAST_CHAT, HaruAiRoutingPolicy.routeForAntigravity("Search the web for today's news"))
+        assertTrue(HaruAiRoutingPolicy.needsWebSearch("Search the web for today's news"))
+    }
+
+    @Test fun ordinaryTechnicalAndTaskLanguageDoesNotTriggerSearch() {
+        assertFalse(HaruAiRoutingPolicy.needsWebSearch("Explain binary search and electric current"))
+        assertFalse(HaruAiRoutingPolicy.needsWebSearch("Help plan my tasks today"))
+    }
+
+    @Test fun deepResearchHasWebTools() {
+        assertEquals(HaruAiRoute.ANTIGRAVITY_AGENT, HaruAiRoutingPolicy.routeForAntigravity("Deep research this topic"))
+        assertTrue(HaruAiRoutingPolicy.needsWebSearch("Deep research this topic"))
+    }
 }

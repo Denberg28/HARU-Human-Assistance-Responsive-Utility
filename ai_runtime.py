@@ -2,11 +2,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import json
+import re
+import time
+from ai_usage import cooldown_seconds, gemini_request, needs_agent
 
 MAX_JSON_RESPONSE_BYTES = 4_000_000
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote
-from urllib.request import Request, urlopen
+from urllib.request import Request, urlopen, build_opener, HTTPRedirectHandler
 
 
 @dataclass
@@ -27,11 +30,18 @@ class AiRuntimeError(RuntimeError):
         status_code: int | None = None,
         kind: str = "provider_error",
         retryable: bool = False,
+        cooldown_s: float = 60.0,
     ):
         super().__init__(message)
         self.status_code = status_code
         self.kind = kind
         self.retryable = retryable
+        self.cooldown_s = cooldown_s
+
+
+class _NoGeminiRedirect(HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        raise AiRuntimeError("AI provider redirected the request; credentials were not forwarded.")
 
 
 def _json_request(url: str, *, payload=None, headers=None, timeout=25, method=None):
@@ -41,7 +51,8 @@ def _json_request(url: str, *, payload=None, headers=None, timeout=25, method=No
     request = Request(url, data=body, headers=request_headers, method=method or ("POST" if body is not None else "GET"))
 
     try:
-        with urlopen(request, timeout=timeout) as response:
+        opener = build_opener(_NoGeminiRedirect()).open if url.startswith("https://generativelanguage.googleapis.com/") else urlopen
+        with opener(request, timeout=timeout) as response:
             raw_bytes = response.read(MAX_JSON_RESPONSE_BYTES + 1)
             if len(raw_bytes) > MAX_JSON_RESPONSE_BYTES:
                 raise AiRuntimeError(
@@ -65,10 +76,11 @@ def _json_request(url: str, *, payload=None, headers=None, timeout=25, method=No
 
         if exc.code == 429:
             raise AiRuntimeError(
-                "Provider quota or rate limit reached. Try again later, change model, or switch provider.",
+                "Provider quota or rate limit reached. HARU will pause requests; check project limits in Google AI Studio.",
                 status_code=429,
                 kind="quota",
-                retryable=True,
+                retryable=False,
+                cooldown_s=cooldown_seconds(parsed.get("error", {}) if isinstance(parsed, dict) and isinstance(parsed.get("error"), dict) else {}, exc.headers.get("Retry-After") if exc.headers else None),
             ) from None
         if exc.code in {401, 403}:
             raise AiRuntimeError(
@@ -90,7 +102,7 @@ def _json_request(url: str, *, payload=None, headers=None, timeout=25, method=No
                 retryable=True,
             ) from None
 
-        message = provider_message or f"Provider request failed with HTTP {exc.code}."
+        message = f"Provider request failed with HTTP {exc.code}. Check the model and request configuration."
         if len(message) > 220:
             message = message[:217] + "..."
         raise AiRuntimeError(
@@ -100,7 +112,7 @@ def _json_request(url: str, *, payload=None, headers=None, timeout=25, method=No
         ) from None
     except URLError as exc:
         raise AiRuntimeError(
-            f"Could not reach provider: {exc.reason}",
+            "Could not reach provider. Check your internet connection.",
             kind="network",
             retryable=True,
         ) from None
@@ -202,7 +214,7 @@ def _interaction_output_text(data: dict) -> str:
         return direct
 
     parts = []
-    for step in data.get("steps", []):
+    for step in reversed(data.get("steps", [])):
         if not isinstance(step, dict) or step.get("type") != "model_output":
             continue
         for item in step.get("content", []):
@@ -212,10 +224,12 @@ def _interaction_output_text(data: dict) -> str:
                 and item.get("text")
             ):
                 parts.append(str(item["text"]))
+        if parts:
+            break
     return "\n".join(parts).strip()
 
 
-def ask_ai(
+def _ask_ai(
     config: AiConfig,
     prompt: str,
     system_prompt: str = "",
@@ -223,6 +237,10 @@ def ask_ai(
 ) -> str:
     provider = config.provider
     model = config.model.strip()
+    if len(prompt) > 16_000 or len(system_prompt) > 4_000:
+        raise AiRuntimeError("Prompt or instructions are too large.")
+    if provider == "Google Gemini API" and model == "antigravity-preview-09-2026" and prompt.strip() != "Reply with exactly: HARU OK" and not needs_agent(prompt):
+        model = "gemini-3.5-flash-lite"
 
     if config.mode == "Off" or provider == "Disabled":
         raise AiRuntimeError("AI runtime is disabled.")
@@ -317,20 +335,23 @@ def ask_ai(
         # Antigravity is a managed agent and must use the Interactions API,
         # not the standard generateContent model endpoint.
         if model == "antigravity-preview-09-2026":
+            if len(prompt) > 6_000:
+                raise AiRuntimeError("Agent task is too large. Shorten it or select Gemini.")
             interaction_input = (
                 prompt
                 if not system_prompt
                 else f"{system_prompt}\n\nUser: {prompt}"
             )
             token_budget = (
-                2500
+                512
                 if prompt.strip() == "Reply with exactly: HARU OK"
-                else 12000
+                else 4096
             )
             payload = {
                 "agent": model,
                 "input": interaction_input,
                 "environment": "remote",
+                "background": True,
                 "agent_config": {
                     "type": "antigravity",
                     "model": "gemini-3.5-flash-lite",
@@ -346,24 +367,52 @@ def ask_ai(
                 else []
             )
 
-            data = _json_request(
-                "https://generativelanguage.googleapis.com/v1beta/interactions",
-                payload=payload,
-                headers={"x-goog-api-key": config.api_key},
-                timeout=max(config.timeout_s, 180),
-            )
-            text = _interaction_output_text(data)
-            if not text:
-                status = str(data.get("status") or "").strip()
-                if status:
-                    raise AiRuntimeError(
-                        f"Antigravity returned no final text (status: {status})."
-                    )
-                raise AiRuntimeError("Antigravity returned no final text.")
-            return text
+            base = "https://generativelanguage.googleapis.com/v1beta/interactions"
+            headers = {"x-goog-api-key": config.api_key}
+            interaction_id = None
+            terminal = False
+            deadline = time.monotonic() + 120
+            try:
+                data = _json_request(base, payload=payload, headers=headers, timeout=20)
+                candidate_id = str(data.get("id", ""))
+                if re.fullmatch(r"[A-Za-z0-9_-]{1,512}", candidate_id):
+                    interaction_id = candidate_id
+                poll_delay = 2
+                polls = 0
+                while data.get("status") == "in_progress":
+                    if not interaction_id or polls >= 15 or time.monotonic() + poll_delay >= deadline:
+                        raise AiRuntimeError("Agent time or polling limit reached. HARU requested cancellation.")
+                    time.sleep(poll_delay)
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        raise AiRuntimeError("Agent time limit reached. HARU requested cancellation.")
+                    data = _json_request(f"{base}/{interaction_id}?include_input=false", headers=headers, timeout=min(20, remaining))
+                    polls += 1
+                    poll_delay = min(10, poll_delay * 2)
+                status = str(data.get("status", ""))
+                terminal = status in {"completed", "failed", "cancelled", "incomplete"}
+                if status == "incomplete":
+                    raise AiRuntimeError("Agent reached HARU's token budget. Narrow the task; no automatic continuation was sent.")
+                if status != "completed":
+                    error = data.get("error", {})
+                    if isinstance(error, dict) and str(error.get("code", "")) in {"429", "RESOURCE_EXHAUSTED", "rate_limit_exceeded", "quota_exceeded"}:
+                        raise AiRuntimeError("Agent quota reached.", status_code=429, kind="quota", cooldown_s=cooldown_seconds(error))
+                    raise AiRuntimeError("Agent did not complete. Check quota and agent access in Google AI Studio.")
+                text = _interaction_output_text(data)
+                if not text:
+                    raise AiRuntimeError("Antigravity returned no final text.")
+                return text
+            finally:
+                if interaction_id and not terminal:
+                    try:
+                        _json_request(f"{base}/{interaction_id}/cancel", payload={}, headers=headers, timeout=5)
+                    except Exception:
+                        pass  # Best effort; never recreate or automatically continue the task.
+
 
         model_path = model if model.startswith("models/") else f"models/{model}"
-        payload = {"contents": [{"parts": [{"text": prompt}]}]}
+        payload = {"contents": [{"parts": [{"text": prompt}]}],
+                   "generationConfig": {"maxOutputTokens": 32 if prompt.strip() == "Reply with exactly: HARU OK" else 1200}}
         if system_prompt:
             payload["systemInstruction"] = {"parts": [{"text": system_prompt}]}
 
@@ -381,7 +430,7 @@ def ask_ai(
         )
         try:
             parts = data["candidates"][0]["content"]["parts"]
-            text = "\n".join(part.get("text", "") for part in parts).strip()
+            text = "\n".join(part.get("text", "") for part in parts if not part.get("thought", False)).strip()
         except (KeyError, IndexError, TypeError):
             text = ""
 
@@ -457,6 +506,23 @@ def ask_ai(
         )
 
     raise AiRuntimeError(f"Unsupported provider: {provider}")
+
+
+def ask_ai(
+    config: AiConfig,
+    prompt: str,
+    system_prompt: str = "",
+    enable_native_tools: bool = False,
+) -> str:
+    if config.provider == "Google Gemini API" and config.mode != "Off" and config.api_key:
+        try:
+            with gemini_request(config.api_key):
+                return _ask_ai(config, prompt, system_prompt, enable_native_tools)
+        except AiRuntimeError:
+            raise
+        except RuntimeError as exc:
+            raise AiRuntimeError(str(exc), kind="request_gate") from None
+    return _ask_ai(config, prompt, system_prompt, enable_native_tools)
 
 
 def test_ai(config: AiConfig) -> str:
