@@ -32,6 +32,8 @@ class HaruViewModel(
         uiState = uiState.copy(
             mood = HaruMood.LISTENING,
             message = "Listening…",
+            webSources = emptyList(),
+            searchSuggestionsHtml = "",
             isBusy = true
         )
     }
@@ -40,7 +42,8 @@ class HaruViewModel(
         uiState = uiState.copy(
             mood = HaruMood.IDLE,
             message = message,
-            isBusy = false
+            webSources = emptyList(),
+            searchSuggestionsHtml = "",
         )
     }
 
@@ -54,6 +57,8 @@ class HaruViewModel(
         uiState = uiState.copy(
             mood = if (result.success) HaruMood.HAPPY else HaruMood.CONFUSED,
             message = result.message,
+            webSources = emptyList(),
+            searchSuggestionsHtml = "",
             command = "",
             isBusy = false
         )
