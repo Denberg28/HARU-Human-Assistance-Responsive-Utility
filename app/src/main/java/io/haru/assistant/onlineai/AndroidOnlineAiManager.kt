@@ -377,16 +377,16 @@ class AndroidOnlineAiManager internal constructor(
     ): OnlineAiReply {
         val key = credential("gemini")
         require(key.isNotBlank()) { "Gemini API key is required." }
-        require(prompt.length <= 6_000) {
+        require(prompt.length <= 6_000 && prompt.length + systemPrompt.length <= 6_500) {
             "Agent task is too large. Shorten it to 6,000 characters or select Gemini for a direct answer."
         }
         // Bounded local memory replaces unbounded previous_interaction_id context.
         val input = buildString {
             append(systemPrompt)
             append("\nKeep the task focused and produce a concise final answer within the token budget.\n")
-            if (summary.isNotBlank()) append("Earlier conversation memory: $summary\n")
+            if (summary.isNotBlank()) append("Earlier conversation memory: " + summary.takeLast(500) + "\n")
             history.takeLast(1).forEach {
-                append("User: ${it.user}\nHARU: ${it.assistant}\n")
+                append("User: " + it.user.take(500) + "\nHARU: " + it.assistant.take(500) + "\n")
             }
             append("User: $prompt")
         }

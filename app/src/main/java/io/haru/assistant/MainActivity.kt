@@ -331,6 +331,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
         }
 
         val requestProvider = onlineProvider
+        val requestProviderName = providerName(requestProvider)
         val requestEpoch = conversationEpoch
         val requestHistory = conversationHistory
         val requestSummary = conversationSummary
@@ -379,7 +380,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
                 conversationSummary = memoryState.summary
 
                 onlineStatus =
-                    providerName(requestProvider) +
+                    requestProviderName +
                         " connected · memory " +
                         conversationHistory.size +
                         "/" +

@@ -68,12 +68,6 @@ def _json_request(url: str, *, payload=None, headers=None, timeout=25, method=No
         except Exception:
             parsed = {}
 
-        provider_message = ""
-        if isinstance(parsed, dict):
-            error = parsed.get("error") or {}
-            if isinstance(error, dict):
-                provider_message = str(error.get("message") or "").strip()
-
         if exc.code == 429:
             raise AiRuntimeError(
                 "Provider quota or rate limit reached. HARU will pause requests; check project limits in Google AI Studio.",
@@ -335,7 +329,7 @@ def _ask_ai(
         # Antigravity is a managed agent and must use the Interactions API,
         # not the standard generateContent model endpoint.
         if model == "antigravity-preview-09-2026":
-            if len(prompt) > 6_000:
+            if len(prompt) > 6_000 or len(prompt) + len(system_prompt) > 6_500:
                 raise AiRuntimeError("Agent task is too large. Shorten it or select Gemini.")
             interaction_input = (
                 prompt

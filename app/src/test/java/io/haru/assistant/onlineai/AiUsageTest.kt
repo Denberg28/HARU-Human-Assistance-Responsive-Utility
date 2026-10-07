@@ -121,6 +121,41 @@ class AiUsageTest {
         manager.testFastGemini()
     }
 
+    @Test fun agentBudgetFailureDoesNotCreateAnotherTask() = runBlocking {
+        var creates = 0
+        val manager = manager { request, _, _ ->
+            creates++
+            assertTrue(request.url.encodedPath.endsWith("/interactions"))
+            val body = payload(request)
+            assertTrue(body.getBoolean("background"))
+            assertFalse(body.has("previous_interaction_id"))
+            assertEquals(4096, body.getJSONObject("agent_config").getInt("max_total_tokens"))
+            assertEquals(2, body.getJSONArray("tools").length())
+            AiHttpResponse(200, """{"id":"v1_test","status":"incomplete","output_text":"Partial"}""")
+        }
+        try { manager.ask(OnlineProvider.ANTIGRAVITY, "Deep research this topic", "HARU"); fail("Expected budget failure") }
+        catch (e: IllegalStateException) { assertTrue(e.message!!.contains("token budget")) }
+        assertEquals(1, creates)
+    }
+
+    @Test fun rapidSequentialTestTapsAreBlocked() = runBlocking {
+        var calls = 0
+        val manager = manager { _, _, _ -> calls++; success() }
+        manager.testFastGemini()
+        try { manager.testFastGemini(); fail("Expected spacing gate") }
+        catch (e: IllegalStateException) { assertTrue(e.message!!.contains("3 seconds")) }
+        assertEquals(1, calls)
+    }
+
+    @Test fun emptyOutputAtTokenLimitIsNotReportedAsQuota() = runBlocking {
+        val manager = manager { _, _, _ -> AiHttpResponse(200, """{"candidates":[{"finishReason":"MAX_TOKENS","content":{"parts":[]}}]}""") }
+        try { manager.testFastGemini(); fail("Expected response budget failure") }
+        catch (e: IllegalStateException) {
+            assertTrue(e.message!!.contains("response budget"))
+            assertFalse(e.message!!.contains("quota"))
+        }
+    }
+
     @Test fun dailyQuotaUsesPacificResetAndRetryMetadataIsBounded() {
         val now = Instant.parse("2026-10-07T23:00:00Z").toEpochMilli()
         val raw = """{"error":{"details":[{"@type":"type.googleapis.com/google.rpc.QuotaFailure","violations":[{"quotaId":"GenerateRequestsPerDayPerProjectPerModel-FreeTier"}]}]}}"""
