@@ -45,6 +45,9 @@ data class OnlineAiSettings(
 data class OnlineAiReply(
     val text: String,
     val antigravitySession: AntigravitySession? = null,
+    val webSources: List<WebSource> = emptyList(),
+    val searchSuggestionsHtml: String = "",
+    val usedGeminiSearch: Boolean = false,
 )
 
 private class ProviderHttpException(
@@ -75,12 +78,16 @@ class AndroidOnlineAiManager internal constructor(
     private val requestGate = AiRequestGate(elapsedMs)
     private val stats = AiRequestStats()
     private var activeScope = "gemini"
+    private var webSources: List<WebSource> = emptyList()
+    private var searchSuggestionsHtml = ""
 
     fun usageDiagnostics(): String = stats.description()
 
     private suspend fun <T> guarded(scope: String, block: suspend () -> T): T =
         requestGate.run(scope) {
             activeScope = scope
+            webSources = emptyList()
+            searchSuggestionsHtml = ""
             val remaining = preferences.getLong("quota_until_$scope", 0L) - System.currentTimeMillis()
             check(remaining <= 0L) { AiRequestPolicy.waitMessage(scope, remaining) }
             block()
@@ -161,7 +168,7 @@ class AndroidOnlineAiManager internal constructor(
                             .header("Accept", "application/json")
                             .header("Cache-Control", "no-cache")
                             .header("x-goog-api-key", key)
-                            .header("User-Agent", "HARU-Android/0.9.37")
+                            .header("User-Agent", "HARU-Android/0.9.38")
                             .build(),
                     timeoutMs = 20_000,
                     maxChars = MAX_CATALOG_RESPONSE_CHARS,
@@ -263,7 +270,10 @@ class AndroidOnlineAiManager internal constructor(
         history: List<ConversationExchange> = emptyList(),
         summary: String = "",
         antigravitySession: AntigravitySession? = null,
-    ): OnlineAiReply = withContext(Dispatchers.IO) { guarded(if (provider == OnlineProvider.GROQ) "groq" else "gemini") {
+    ): OnlineAiReply = withContext(Dispatchers.IO) {
+        val enableSearch = HaruAiRoutingPolicy.needsWebSearch(prompt, history.map { it.user })
+        val effectiveProvider = if (provider == OnlineProvider.GROQ && enableSearch) OnlineProvider.GEMINI else provider
+        guarded(if (effectiveProvider == OnlineProvider.GROQ) "groq" else "gemini") {
         require(prompt.isNotBlank()) { "Prompt is empty." }
         require(prompt.length <= MAX_PROMPT_CHARS) {
             "Prompt is too large."
@@ -275,7 +285,12 @@ class AndroidOnlineAiManager internal constructor(
         val recentHistory = AiRequestPolicy.boundedHistory(history)
         val cleanSummary = ConversationMemoryPolicy.sanitizeSummary(summary).takeLast(AiRequestPolicy.SUMMARY_CHARS)
 
-        when (provider) {
+        if (provider == OnlineProvider.GROQ && enableSearch) {
+            require(credential("gemini").isNotBlank()) {
+                "Groq chat is connected without a live-search tool. Save a Gemini key in Settings to enable live news search, or select Gemini/Antigravity."
+            }
+        }
+        when (effectiveProvider) {
             OnlineProvider.ANTIGRAVITY ->
                 when (HaruAiRoutingPolicy.routeForAntigravity(prompt)) {
                     HaruAiRoute.FAST_CHAT ->
@@ -287,7 +302,7 @@ class AndroidOnlineAiManager internal constructor(
                                     systemPrompt = systemPrompt,
                                     history = recentHistory,
                                     summary = cleanSummary,
-                                    enableSearch = HaruAiRoutingPolicy.needsWebSearch(prompt),
+                                    enableSearch = enableSearch,
                                 ),
                             antigravitySession =
                                 null,
@@ -301,7 +316,7 @@ class AndroidOnlineAiManager internal constructor(
                             summary = cleanSummary,
                             session = antigravitySession,
                             enableWebTools =
-                                HaruAiRoutingPolicy.needsWebSearch(prompt),
+                                enableSearch,
                         )
                 }
 
@@ -315,7 +330,7 @@ class AndroidOnlineAiManager internal constructor(
                             history = recentHistory,
                             summary = cleanSummary,
                             enableSearch =
-                                HaruAiRoutingPolicy.needsWebSearch(prompt),
+                                enableSearch,
                         )
                 )
             OnlineProvider.GROQ ->
@@ -328,7 +343,8 @@ class AndroidOnlineAiManager internal constructor(
                             summary = cleanSummary,
                         )
                 )
-        }
+        }.copy(webSources = webSources, searchSuggestionsHtml = searchSuggestionsHtml,
+            usedGeminiSearch = enableSearch && effectiveProvider == OnlineProvider.GEMINI)
     } }
 
     suspend fun test(provider: OnlineProvider): String =
@@ -383,6 +399,7 @@ class AndroidOnlineAiManager internal constructor(
         // Bounded local memory replaces unbounded previous_interaction_id context.
         val input = buildString {
             append(systemPrompt)
+            if (enableWebTools) append("\n" + LiveSearchPolicy.instruction())
             append("\nKeep the task focused and produce a concise final answer within the token budget.\n")
             if (summary.isNotBlank()) append("Earlier conversation memory: " + summary.takeLast(500) + "\n")
             history.takeLast(1).forEach {
@@ -421,7 +438,14 @@ class AndroidOnlineAiManager internal constructor(
                 checkedBody(AiHttpResponse(429, response.toString()))
             }
         }
-        return parseAntigravityReply(response)
+        val reply = parseAntigravityReply(response)
+        if (enableWebTools) {
+            val grounding = LiveSearchPolicy.interactionGrounding(response)
+            webSources = LiveSearchPolicy.sources(grounding)
+            check(webSources.isNotEmpty()) { LiveSearchPolicy.NO_SOURCES }
+            searchSuggestionsHtml = LiveSearchPolicy.suggestions(grounding)
+        }
+        return reply
     }
 
     private fun parseAntigravityReply(
@@ -660,7 +684,7 @@ class AndroidOnlineAiManager internal constructor(
             payload.getJSONObject("generationConfig").put("thinkingConfig", JSONObject().put("thinkingLevel", level))
         }
 
-        val instruction = listOf(systemPrompt, if (summary.isNotBlank()) "Earlier conversation memory:\n$summary" else "")
+        val instruction = listOf(systemPrompt, if (enableSearch) LiveSearchPolicy.instruction() else "", if (summary.isNotBlank()) "Earlier conversation memory:\n$summary" else "")
             .filter { it.isNotBlank() }.joinToString("\n\n")
         if (instruction.isNotBlank()) {
             payload.put(
@@ -714,6 +738,11 @@ class AndroidOnlineAiManager internal constructor(
             }
             error("Gemini returned no final text. Check model access and provider restrictions.")
         }
+        if (enableSearch) {
+            webSources = LiveSearchPolicy.sources(candidate)
+            check(webSources.isNotEmpty()) { LiveSearchPolicy.NO_SOURCES }
+            searchSuggestionsHtml = LiveSearchPolicy.suggestions(candidate)
+        }
         return if (candidate.optString("finishReason") == "MAX_TOKENS") {
             "$text\n\nAnswer stopped at HARU's response budget."
         } else text
@@ -736,7 +765,7 @@ class AndroidOnlineAiManager internal constructor(
                 .post(body)
                 .header("Content-Type", "application/json")
                 .header("Accept", "application/json")
-                .header("User-Agent", "HARU-Android/0.9.37")
+                .header("User-Agent", "HARU-Android/0.9.38")
 
         headers.forEach { (name, value) ->
             builder.header(name, value)
@@ -810,7 +839,7 @@ class AndroidOnlineAiManager internal constructor(
         } catch (_: java.net.SocketTimeoutException) {
             throw IllegalStateException("AI request timed out. No automatic network retry was sent.")
         } catch (_: IOException) {
-            throw IllegalStateException("AI connection failed. Check your internet connection before trying again.")
+            throw IllegalStateException("HARU could not establish a connection to the AI provider. The provider or network path may be unavailable; this does not prove your phone is offline.")
         }
     }
 
@@ -828,7 +857,7 @@ class AndroidOnlineAiManager internal constructor(
             ) == true
 
         return if (!validated) {
-            "No validated internet connection. HARU could not reach the AI provider."
+            "The AI provider hostname could not be resolved. Android has not validated this network; internet access may still work in other apps. Check DNS, VPN or captive-portal settings."
         } else {
             "DNS lookup failed. HARU tried Android DNS twice and secure DNS fallback, but the provider hostname still could not be resolved."
         }

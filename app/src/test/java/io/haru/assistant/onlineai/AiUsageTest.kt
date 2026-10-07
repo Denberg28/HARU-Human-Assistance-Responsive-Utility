@@ -27,7 +27,7 @@ class AiUsageTest {
     }
     private fun manager(transport: suspend (Request, Int, Int) -> AiHttpResponse) =
         AndroidOnlineAiManager(context, transport, { "synthetic-test-key" }, { clock })
-    private fun success() = AiHttpResponse(200, """{"candidates":[{"content":{"parts":[{"text":"hidden","thought":true},{"text":"Answer"}]},"groundingMetadata":{"webSearchQueries":["news"]}}],"usageMetadata":{"totalTokenCount":12}}""")
+    private fun success() = AiHttpResponse(200, """{"candidates":[{"content":{"parts":[{"text":"hidden","thought":true},{"text":"Answer"}]},"groundingMetadata":{"webSearchQueries":["news"],"groundingChunks":[{"web":{"uri":"https://example.com/news","title":"Example News"}}],"searchEntryPoint":{"renderedContent":"<div>Search suggestions</div>"}}}],"usageMetadata":{"totalTokenCount":12}}""")
     private fun payload(request: Request): JSONObject {
         val buffer = Buffer()
         request.body!!.writeTo(buffer)
@@ -54,6 +54,8 @@ class AiUsageTest {
             List(10) { ConversationExchange("u".repeat(8_000), "a".repeat(12_000)) }, "s".repeat(3_200))
         assertEquals("Answer", reply.text)
         assertNull(reply.antigravitySession)
+        assertEquals("https://example.com/news", reply.webSources.single().url)
+        assertTrue(reply.searchSuggestionsHtml.contains("Search suggestions"))
         assertEquals(1, calls)
         assertTrue(manager.usageDiagnostics().contains("12 reported tokens"))
     }
@@ -174,5 +176,69 @@ class AiUsageTest {
         assertEquals(60_000L, AiRequestPolicy.quotaCooldownMs("bad json", "NaN", now))
         assertEquals(120_000L, AiRequestPolicy.quotaCooldownMs("{}", "120", now))
         assertEquals(86_400_000L, AiRequestPolicy.quotaCooldownMs("{}", "9999999", now))
+    }
+
+    @Test fun newsFollowUpProvidesSearchAndDateAfterOldAccessDisclaimer() = runBlocking {
+        var calls = 0
+        val manager = manager { request, _, _ ->
+            calls++
+            val data = payload(request)
+            assertTrue(data.getJSONArray("tools").getJSONObject(0).has("google_search"))
+            val instruction = data.getJSONObject("systemInstruction").getJSONArray("parts").getJSONObject(0).getString("text")
+            assertTrue(instruction.contains("Current device date and time:"))
+            assertTrue(instruction.contains("use the search tool now"))
+            success()
+        }
+        manager.ask(OnlineProvider.ANTIGRAVITY, "Tell me more", "HARU", listOf(
+            ConversationExchange("Latest Saudi fuel news", "I do not have real-time internet access")))
+        assertEquals(1, calls)
+    }
+
+    @Test fun ungroundedNewsResponseIsNotSavedAsSuccessfulAnswerAndIsNotRetried() = runBlocking {
+        var calls = 0
+        val manager = manager { _, _, _ ->
+            calls++
+            AiHttpResponse(200, """{"candidates":[{"content":{"parts":[{"text":"I do not have real-time internet access"}]}}]}""")
+        }
+        try { manager.ask(OnlineProvider.GEMINI, "Saudi news", "HARU"); fail("Expected missing-source failure") }
+        catch (e: IllegalStateException) {
+            assertEquals(LiveSearchPolicy.NO_SOURCES, e.message)
+        }
+        assertEquals(1, calls)
+    }
+
+    @Test fun groqLiveNewsUsesOneGoogleRequestAndSharesGoogleCooldown() = runBlocking {
+        var calls = 0
+        val manager = manager { request, _, _ ->
+            calls++
+            assertEquals("generativelanguage.googleapis.com", request.url.host)
+            assertTrue(payload(request).has("tools"))
+            AiHttpResponse(429, "{}")
+        }
+        try { manager.ask(OnlineProvider.GROQ, "Latest news", "HARU"); fail("Expected quota") }
+        catch (e: IllegalStateException) { assertTrue(e.message!!.contains("Gemini/Antigravity")) }
+        clock += 4_000L
+        try { manager.testFastGemini(); fail("Expected same Google cooldown") }
+        catch (e: IllegalStateException) { assertTrue(e.message!!.contains("quota")) }
+        assertEquals(1, calls)
+    }
+
+    @Test fun ordinaryGroqChatKeepsGroqWithoutSearch() = runBlocking {
+        var calls = 0
+        val manager = manager { request, _, _ ->
+            calls++
+            assertEquals("api.groq.com", request.url.host)
+            assertFalse(payload(request).has("tools"))
+            AiHttpResponse(200, """{"choices":[{"message":{"content":"Hello"}}]}""")
+        }
+        assertEquals("Hello", manager.ask(OnlineProvider.GROQ, "Hello", "HARU").text)
+        assertEquals(1, calls)
+    }
+
+    @Test fun missingGeminiKeyForGroqNewsDoesNotMakeAnApiCall() = runBlocking {
+        val manager = AndroidOnlineAiManager(context, { _, _, _ -> error("Must not send") },
+            { name -> if (name == "groq") "synthetic-test-key" else "" }, { clock })
+        try { manager.ask(OnlineProvider.GROQ, "Latest news", "HARU"); fail("Expected key guidance") }
+        catch (e: IllegalArgumentException) { assertTrue(e.message!!.contains("live-search tool")) }
     }
 }

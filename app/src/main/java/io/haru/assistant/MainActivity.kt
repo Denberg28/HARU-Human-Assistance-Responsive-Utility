@@ -390,8 +390,9 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
                         } else {
                             ""
                         }
+                if (reply.usedGeminiSearch) onlineStatus += " · live search via Gemini"
                 onlineStatus += "\n" + onlineAiManager.usageDiagnostics()
-                viewModel.completeAi(reply.text, success = true)
+                viewModel.completeAi(reply.text, success = true, webSources = reply.webSources, searchSuggestionsHtml = reply.searchSuggestionsHtml)
                 if (speakResult) voiceController.speak(reply.text)
             } catch (cancelled: CancellationException) {
                 throw cancelled
@@ -1768,7 +1769,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
                 "HARU's Android app handles explicit task and reminder requests locally before this AI request. " +
                 "If the user asks for a reminder but gives no usable future time, ask for the time instead of claiming it was scheduled. " +
                 "Never claim a task or reminder was created unless the app explicitly reports that action as completed. " +
-                "Use local device tools for notes, tasks, reminders, voice, hazards, news, and trusted locations. " +
+                "Only use tools actually provided with this request. When Google Search is enabled, use it for current information. " +
                 "Do not claim actions you did not perform."
     }
 }
