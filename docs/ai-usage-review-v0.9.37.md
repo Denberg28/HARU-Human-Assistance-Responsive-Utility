@@ -12,6 +12,7 @@ Primary references checked on 2026-10-07:
 - https://ai.google.dev/gemini-api/docs/background-execution
 - https://ai.google.dev/api/interactions-api
 - https://ai.google.dev/gemini-api/docs/google-search
+- https://ai.google.dev/gemini-api/docs/generate-content/thinking
 
 ## Findings and changes
 
@@ -27,9 +28,10 @@ Primary references checked on 2026-10-07:
 | Agent continuation | Previous server interaction/environment could bring an expanding 20-hour context; rejected continuation could trigger a second create | Fresh bounded task snapshot, no hidden recreation, no unbounded server continuation |
 | Agent budget and response parsing | 1,500 total tokens could be exhausted by input/reasoning; intermediate outputs/no final text treated as generic errors | 4,096 token ceiling for deliberately selected research; explicit incomplete/failed/action status; last model output only |
 | Agent request lifetime | One synchronous 75-second request; server work could outlive disconnection | One background create, at most 15 GET polls, 120-second limit, best-effort cancel for a known ID |
-| Diagnostics | Gemini test allowed 1,200 output tokens; agent test inherited default tools when tools omitted | Gemini test 32; agent test 512 with explicit empty tool list |
+| Newer Flash default reasoning | Medium reasoning could exhaust the output budget before final text | Minimal/low thinking according to the known model's supported levels; future/legacy defaults retained; explicit response-budget errors |
+| Diagnostics | Gemini test allowed 1,200 output tokens; agent test inherited default tools when tools omitted | Gemini test 256; agent test 512 with explicit empty tool list |
 | Provider errors | Arbitrary provider message displayed | Fixed bounded errors; structured retry metadata only |
-| Streamlit lab | Agent up to 12,000 tokens (test 2,500), direct Gemini output uncapped, no quota gate | Simple requests route to Flash-Lite; 4,096/512 agent budgets; 1,200/32 direct output; per-key in-process gate and cooldown; bounded polling/cancellation |
+| Streamlit lab | Agent up to 12,000 tokens (test 2,500), direct Gemini output uncapped, no quota gate | Simple requests route to Flash-Lite; 4,096/512 agent budgets; 1,200/256 direct output; per-key in-process gate and cooldown; bounded polling/cancellation |
 
 The Android agent ceiling was increased only for explicit research because the prior 1,500 total-token ceiling could be consumed before answering. Routine lookups no longer pay for an agent loop. This is a bounded tradeoff, not a promise of percentage savings. Agent budgets are best-effort Google controls and include input, output and thinking. Direct output limits also include model thinking where applicable, so complex requests can still hit a budget.
 

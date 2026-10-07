@@ -412,7 +412,14 @@ def _ask_ai(
 
         model_path = model if model.startswith("models/") else f"models/{model}"
         payload = {"contents": [{"parts": [{"text": prompt}]}],
-                   "generationConfig": {"maxOutputTokens": 32 if prompt.strip() == "Reply with exactly: HARU OK" else 1200}}
+                   "generationConfig": {"maxOutputTokens": 256 if prompt.strip() == "Reply with exactly: HARU OK" else 1200}}
+        thinking_level = {
+            "gemini-3.7-flash": "low", "gemini-3.8-flash": "low",
+            "gemini-3.1-flash-lite": "minimal", "gemini-3.5-flash-lite": "minimal",
+            "gemini-3.5-flash": "minimal", "gemini-3.6-flash": "minimal",
+        }.get(model)
+        if thinking_level:
+            payload["generationConfig"]["thinkingConfig"] = {"thinkingLevel": thinking_level}
         if system_prompt:
             payload["systemInstruction"] = {"parts": [{"text": system_prompt}]}
 
@@ -434,8 +441,13 @@ def _ask_ai(
         except (KeyError, IndexError, TypeError):
             text = ""
 
+        finish = (data.get("candidates") or [{}])[0].get("finishReason", "")
         if not text:
-            raise AiRuntimeError("Gemini returned no text.")
+            if finish == "MAX_TOKENS":
+                raise AiRuntimeError("Gemini reached HARU's response budget before answering. Shorten the question; no automatic retry was sent.")
+            raise AiRuntimeError("Gemini returned no final text. Check model access and provider restrictions.")
+        if finish == "MAX_TOKENS":
+            text += "\n\nAnswer stopped at HARU's response budget."
 
         if use_grounding:
             sources = _gemini_grounding_sources(data)

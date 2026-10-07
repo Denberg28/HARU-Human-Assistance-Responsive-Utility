@@ -524,7 +524,7 @@ class AndroidOnlineAiManager internal constructor(
             JSONObject()
                 .put("model", GROQ_DEFAULT_MODEL)
                 .put("messages", messages)
-                .put("max_completion_tokens", if (prompt == TEST_PROMPT) 32 else FAST_CHAT_MAX_OUTPUT_TOKENS),
+                .put("max_completion_tokens", if (prompt == TEST_PROMPT) 256 else FAST_CHAT_MAX_OUTPUT_TOKENS),
             mapOf("Authorization" to "Bearer $key"),
             timeoutMs = 45_000,
         )
@@ -639,7 +639,7 @@ class AndroidOnlineAiManager internal constructor(
                     JSONObject()
                         .put(
                             "maxOutputTokens",
-                            if (prompt == TEST_PROMPT) 32 else FAST_CHAT_MAX_OUTPUT_TOKENS,
+                            if (prompt == TEST_PROMPT) 256 else FAST_CHAT_MAX_OUTPUT_TOKENS,
                         )
                 )
                 .apply {
@@ -655,6 +655,10 @@ class AndroidOnlineAiManager internal constructor(
                         )
                     }
                 }
+
+        AiRequestPolicy.thinkingLevel(modelId)?.let { level ->
+            payload.getJSONObject("generationConfig").put("thinkingConfig", JSONObject().put("thinkingLevel", level))
+        }
 
         val instruction = listOf(systemPrompt, if (summary.isNotBlank()) "Earlier conversation memory:\n$summary" else "")
             .filter { it.isNotBlank() }.joinToString("\n\n")
@@ -704,8 +708,15 @@ class AndroidOnlineAiManager internal constructor(
             }
         }.trim()
 
-        if (text.isBlank()) error("Gemini returned no text.")
-        return text
+        if (text.isBlank()) {
+            if (candidate.optString("finishReason") == "MAX_TOKENS") {
+                error("Gemini reached HARU's response budget before answering. Shorten the question; no automatic retry was sent.")
+            }
+            error("Gemini returned no final text. Check model access and provider restrictions.")
+        }
+        return if (candidate.optString("finishReason") == "MAX_TOKENS") {
+            "$text\n\nAnswer stopped at HARU's response budget."
+        } else text
     }
 
     private suspend fun postJson(

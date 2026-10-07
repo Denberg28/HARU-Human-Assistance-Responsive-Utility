@@ -99,6 +99,8 @@ class AiUsageTest {
         val manager = manager { request, _, _ ->
             calls++
             assertTrue(payload(request).has("tools"))
+            val level = payload(request).getJSONObject("generationConfig").getJSONObject("thinkingConfig").getString("thinkingLevel")
+            assertEquals(if (calls == 1) "low" else "minimal", level)
             if (calls == 1) AiHttpResponse(503, "{}") else {
                 assertTrue(request.url.encodedPath.contains("gemini-3.5-flash-lite"))
                 success()
@@ -111,8 +113,9 @@ class AiUsageTest {
     @Test fun connectionTestsHaveSmallOutputBudgetAndNoSearch() = runBlocking {
         val manager = manager { request, _, _ ->
             val data = payload(request)
-            assertEquals(32, data.getJSONObject("generationConfig").getInt("maxOutputTokens"))
+            assertEquals(256, data.getJSONObject("generationConfig").getInt("maxOutputTokens"))
             assertFalse(data.has("tools"))
+            assertEquals("minimal", data.getJSONObject("generationConfig").getJSONObject("thinkingConfig").getString("thinkingLevel"))
             success()
         }
         manager.testFastGemini()
