@@ -119,6 +119,7 @@ class AiUsageTest {
             success()
         }
         manager.testFastGemini()
+        Unit
     }
 
     @Test fun agentBudgetFailureDoesNotCreateAnotherTask() = runBlocking {
