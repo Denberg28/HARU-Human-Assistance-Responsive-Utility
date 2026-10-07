@@ -1762,7 +1762,7 @@ private fun OnlineAiDialog(
                     Text(status, style = MaterialTheme.typography.bodySmall)
                 }
                 Text(
-                    "Antigravity Auto uses Fast Gemini for normal messages and the Antigravity agent for live search or deeper web work. The two diagnostic buttons test those paths independently. On transient Gemini server errors only, HARU retries once with Flash-Lite. Groq remains available as an alternate provider.",
+                    "Antigravity Auto uses Gemini for chat and news searches. Multi-step research uses a bounded agent task. Connection tests consume quota. Gemini and Antigravity share your Google project's limits; HARU pauses after a quota error. Usage counts cover this app session only. On Gemini server errors, one Flash-Lite fallback is allowed.",
                     style = MaterialTheme.typography.labelSmall,
                 )
             }

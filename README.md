@@ -2,11 +2,11 @@
 
 HARU is a lightweight, free-first personal assistant and companion. The Android app has two primary tabs: **HARU** and **Map**. Creator: MD.
 
-## Android v0.9.36
+## Android v0.9.37
 
 The Android app includes tasks and reminders, on-demand AI and voice, a lock-screen
 companion, and a map with location sharing. Appearance and AI choices use compact
-labeled dropdowns. See [release notes](docs/release-v0.9.36.md).
+labeled dropdowns. See [release notes](docs/release-v0.9.37.md).
 
 - Tap the HARU title for About. Open Settings for appearance, AI, lock-screen setup,
   and update checks.
@@ -28,7 +28,7 @@ labeled dropdowns. See [release notes](docs/release-v0.9.36.md).
   separate read and write tokens. Sender identity is not independently verified.
   Location sharing depends on the existing hosted service being online.
 
-There is no automatic background AI polling or bundled on-device LLM.
+AI starts only on an explicit request or connection test. Routine news searches use one grounded Gemini generation; bounded agent tasks use status polling and best-effort server cancellation. Quota cooldowns apply to Gemini and Antigravity together. See [AI usage review](docs/ai-usage-review-v0.9.37.md) for limits and verification.
 
 ## Install and build
 

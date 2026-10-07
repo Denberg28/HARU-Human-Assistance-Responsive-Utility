@@ -7,6 +7,14 @@ import android.net.NetworkCapabilities
 import io.haru.assistant.memory.AntigravitySession
 import io.haru.assistant.memory.ConversationExchange
 import io.haru.assistant.memory.ConversationMemoryPolicy
+import android.os.SystemClock
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
+import okhttp3.Call
+import okhttp3.Callback
+import okhttp3.Response
+import java.io.IOException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
@@ -44,21 +52,42 @@ private class ProviderHttpException(
     message: String,
 ) : IllegalStateException(message)
 
-class AndroidOnlineAiManager(
+class AndroidOnlineAiManager internal constructor(
     context: Context,
+    private val testTransport: (suspend (Request, Int, Int) -> AiHttpResponse)?,
+    private val credentialRead: ((String) -> String)?,
+    elapsedMs: () -> Long,
 ) {
+    constructor(context: Context) : this(context, null, null, { SystemClock.elapsedRealtime() })
     private val appContext = context.applicationContext
     private val preferences =
         appContext.getSharedPreferences("haru_online_ai", Context.MODE_PRIVATE)
-    private val credentials = SecureCredentialStore(appContext)
+    private val credentials by lazy { SecureCredentialStore(appContext) }
+    private fun credential(name: String): String = credentialRead?.invoke(name) ?: credentials.get(name)
     private val httpClient =
         OkHttpClient.Builder()
             .dns(HaruResilientDns.create())
-            .retryOnConnectionFailure(true)
+            .retryOnConnectionFailure(false)
+            .followRedirects(false)
+            .followSslRedirects(false)
             .build()
 
+    private val requestGate = AiRequestGate(elapsedMs)
+    private val stats = AiRequestStats()
+    private var activeScope = "gemini"
+
+    fun usageDiagnostics(): String = stats.description()
+
+    private suspend fun <T> guarded(scope: String, block: suspend () -> T): T =
+        requestGate.run(scope) {
+            activeScope = scope
+            val remaining = preferences.getLong("quota_until_$scope", 0L) - System.currentTimeMillis()
+            check(remaining <= 0L) { AiRequestPolicy.waitMessage(scope, remaining) }
+            block()
+        }
+
     init {
-        credentials.delete("openrouter")
+        if (credentialRead == null) credentials.delete("openrouter")
         if (preferences.getString(KEY_PROVIDER, "") == "LOCAL_ONLY") {
             preferences.edit()
                 .putString(KEY_PROVIDER, OnlineProvider.ANTIGRAVITY.name)
@@ -117,13 +146,13 @@ class AndroidOnlineAiManager(
     }
 
     suspend fun refreshGeminiModels(): List<GeminiModel> =
-        withContext(Dispatchers.IO) {
-            val key = credentials.get("gemini")
+        withContext(Dispatchers.IO) { guarded("gemini") {
+            val key = credential("gemini")
             require(key.isNotBlank()) {
                 "Save a Gemini API key before refreshing models."
             }
 
-            val (code, raw) =
+            val response =
                 executeHttp(
                     request =
                         Request.Builder()
@@ -132,22 +161,15 @@ class AndroidOnlineAiManager(
                             .header("Accept", "application/json")
                             .header("Cache-Control", "no-cache")
                             .header("x-goog-api-key", key)
-                            .header("User-Agent", "HARU-Android/0.9.30")
+                            .header("User-Agent", "HARU-Android/0.9.37")
                             .build(),
                     timeoutMs = 20_000,
                     maxChars = MAX_CATALOG_RESPONSE_CHARS,
                 )
 
-            if (code !in 200..299) {
-                val detail = providerErrorDetail(raw)
-                error(
-                    detail.ifBlank {
-                        "Gemini model refresh failed (HTTP $code)."
-                    }
-                )
-            }
+            val raw = checkedBody(response)
 
-            val models = JSONObject(raw).optJSONArray("models") ?: JSONArray()
+            val models = parseProviderJson(raw).optJSONArray("models") ?: JSONArray()
                 val listed = buildList {
                     for (i in 0 until models.length()) {
                         val item = models.optJSONObject(i) ?: continue
@@ -207,7 +229,7 @@ class AndroidOnlineAiManager(
                 }
 
             refreshed
-        }
+        } }
 
     fun saveProvider(provider: OnlineProvider) {
         preferences.edit().putString(KEY_PROVIDER, provider.name).apply()
@@ -225,14 +247,14 @@ class AndroidOnlineAiManager(
     }
 
     fun hasGeminiKey(): Boolean =
-        credentials.get("gemini").isNotBlank()
+        credential("gemini").isNotBlank()
 
     fun saveGroqKey(value: String) {
         credentials.put("groq", value)
     }
 
     fun hasGroqKey(): Boolean =
-        credentials.get("groq").isNotBlank()
+        credential("groq").isNotBlank()
 
     suspend fun ask(
         provider: OnlineProvider,
@@ -241,7 +263,7 @@ class AndroidOnlineAiManager(
         history: List<ConversationExchange> = emptyList(),
         summary: String = "",
         antigravitySession: AntigravitySession? = null,
-    ): OnlineAiReply = withContext(Dispatchers.IO) {
+    ): OnlineAiReply = withContext(Dispatchers.IO) { guarded(if (provider == OnlineProvider.GROQ) "groq" else "gemini") {
         require(prompt.isNotBlank()) { "Prompt is empty." }
         require(prompt.length <= MAX_PROMPT_CHARS) {
             "Prompt is too large."
@@ -250,23 +272,8 @@ class AndroidOnlineAiManager(
             "System prompt is too large."
         }
 
-        val recentHistory =
-            history
-                .takeLast(ConversationMemoryPolicy.PROVIDER_RECENT_EXCHANGES)
-                .mapNotNull { exchange ->
-                    val user =
-                        ConversationMemoryPolicy.sanitizeUser(exchange.user)
-                    val assistant =
-                        ConversationMemoryPolicy.sanitizeAssistant(exchange.assistant)
-                    if (user.isBlank() || assistant.isBlank()) {
-                        null
-                    } else {
-                        ConversationExchange(user, assistant)
-                    }
-                }
-
-        val cleanSummary =
-            ConversationMemoryPolicy.sanitizeSummary(summary)
+        val recentHistory = AiRequestPolicy.boundedHistory(history)
+        val cleanSummary = ConversationMemoryPolicy.sanitizeSummary(summary).takeLast(AiRequestPolicy.SUMMARY_CHARS)
 
         when (provider) {
             OnlineProvider.ANTIGRAVITY ->
@@ -283,7 +290,7 @@ class AndroidOnlineAiManager(
                                     enableSearch = HaruAiRoutingPolicy.needsWebSearch(prompt),
                                 ),
                             antigravitySession =
-                                antigravitySession?.takeIf { it.isFresh() },
+                                null,
                         )
 
                     HaruAiRoute.ANTIGRAVITY_AGENT ->
@@ -322,7 +329,7 @@ class AndroidOnlineAiManager(
                         )
                 )
         }
-    }
+    } }
 
     suspend fun test(provider: OnlineProvider): String =
         when (provider) {
@@ -337,7 +344,7 @@ class AndroidOnlineAiManager(
         }
 
     suspend fun testFastGemini(): String =
-        withContext(Dispatchers.IO) {
+        withContext(Dispatchers.IO) { guarded("gemini") {
             askGeminiWithTransientFallback(
                 modelId = settings().geminiModel.id,
                 prompt = TEST_PROMPT,
@@ -346,10 +353,10 @@ class AndroidOnlineAiManager(
                 summary = "",
                 enableSearch = false,
             )
-        }
+        } }
 
     suspend fun testAntigravityAgent(): String =
-        withContext(Dispatchers.IO) {
+        withContext(Dispatchers.IO) { guarded("gemini") {
             askAntigravity(
                 prompt = TEST_PROMPT,
                 systemPrompt = TEST_SYSTEM_PROMPT,
@@ -358,136 +365,76 @@ class AndroidOnlineAiManager(
                 session = null,
                 enableWebTools = false,
             ).text
-        }
+        } }
 
-    private fun askAntigravity(
+    private suspend fun askAntigravity(
         prompt: String,
         systemPrompt: String,
         history: List<ConversationExchange>,
         summary: String,
-        session: AntigravitySession?,
+        @Suppress("UNUSED_PARAMETER") session: AntigravitySession?,
         enableWebTools: Boolean,
     ): OnlineAiReply {
-        val key = credentials.get("gemini")
+        val key = credential("gemini")
         require(key.isNotBlank()) { "Gemini API key is required." }
-
-        val freshSession =
-            session?.takeIf { it.isFresh() }
-
-        if (freshSession != null) {
-            val continuationPayload =
-                JSONObject()
-                    .put("agent", ANTIGRAVITY_AGENT)
-                    .put("input", prompt)
-                    .put(
-                        "previous_interaction_id",
-                        freshSession.interactionId,
-                    )
-                    .put(
-                        "environment",
-                        freshSession.environmentId,
-                    )
-                    .put(
-                        "agent_config",
-                        JSONObject()
-                            .put("type", "antigravity")
-                            .put("model", settings().geminiModel.id)
-                            .put("max_total_tokens", ANTIGRAVITY_TOKEN_BUDGET)
-                    )
-                    .apply {
-                        if (enableWebTools) {
-                            put(
-                                "tools",
-                                antigravityTools(),
-                            )
-                        }
-                    }
-
-            try {
-                return parseAntigravityReply(
-                    postJson(
-                        INTERACTIONS_URL,
-                        continuationPayload,
-                        mapOf("x-goog-api-key" to key),
-                        timeoutMs = ANTIGRAVITY_TIMEOUT_MS,
-                    )
-                )
-            } catch (exc: ProviderHttpException) {
-                if (
-                    exc.statusCode !in setOf(
-                        400,
-                        404,
-                        409,
-                        412,
-                    )
-                ) {
-                    throw exc
-                }
-            }
+        require(prompt.length <= 6_000 && prompt.length + systemPrompt.length <= 6_500) {
+            "Agent task is too large. Shorten it to 6,000 characters or select Gemini for a direct answer."
         }
-
+        // Bounded local memory replaces unbounded previous_interaction_id context.
         val input = buildString {
-            if (systemPrompt.isNotBlank()) {
-                append(systemPrompt)
-                append("\n\n")
+            append(systemPrompt)
+            append("\nKeep the task focused and produce a concise final answer within the token budget.\n")
+            if (summary.isNotBlank()) append("Earlier conversation memory: " + summary.takeLast(500) + "\n")
+            history.takeLast(1).forEach {
+                append("User: " + it.user.take(500) + "\nHARU: " + it.assistant.take(500) + "\n")
             }
-            if (summary.isNotBlank()) {
-                append("Compact memory from earlier conversation:\n")
-                append(summary)
-                append("\n\n")
-            }
-            if (history.isNotEmpty()) {
-                append("Recent conversation context (oldest to newest):\n")
-                history.forEach { exchange ->
-                    append("User: ")
-                    append(exchange.user)
-                    append("\nHARU: ")
-                    append(exchange.assistant)
-                    append("\n")
-                }
-                append("\n")
-            }
-            append("User: ")
-            append(prompt)
+            append("User: $prompt")
         }
-
-        val payload =
-            JSONObject()
-                .put("agent", ANTIGRAVITY_AGENT)
-                .put("input", input)
-                .put("environment", "remote")
-                .put(
-                    "agent_config",
-                    JSONObject()
-                        .put("type", "antigravity")
-                        .put("model", settings().geminiModel.id)
-                        .put("max_total_tokens", ANTIGRAVITY_TOKEN_BUDGET)
-                )
-                .apply {
-                    if (enableWebTools) {
-                        put(
-                            "tools",
-                            antigravityTools(),
-                        )
-                    }
-                }
-
-        return parseAntigravityReply(
-            postJson(
-                INTERACTIONS_URL,
-                payload,
-                mapOf("x-goog-api-key" to key),
-                timeoutMs = ANTIGRAVITY_TIMEOUT_MS,
-            )
-        )
+        val payload = JSONObject()
+            .put("agent", ANTIGRAVITY_AGENT)
+            .put("input", input)
+            .put("environment", "remote")
+            .put("background", true)
+            .put("agent_config", JSONObject().put("type", "antigravity")
+                .put("model", settings().geminiModel.id)
+                .put("max_total_tokens", if (prompt == TEST_PROMPT) 512 else ANTIGRAVITY_TOKEN_BUDGET))
+            // Explicit lists prevent code execution and other default agent tools.
+            .put("tools", if (enableWebTools) JSONArray()
+                .put(JSONObject().put("type", "google_search"))
+                .put(JSONObject().put("type", "url_context")) else JSONArray())
+        val headers = mapOf("x-goog-api-key" to key)
+        val response = AntigravityRunner(
+            create = { postJson(INTERACTIONS_URL, payload, headers, timeoutMs = 20_000) },
+            read = { id ->
+                val result = executeHttp(Request.Builder()
+                    .url("$INTERACTIONS_URL/$id?include_input=false")
+                    .header("x-goog-api-key", key).header("Accept", "application/json")
+                    .get().build(), 20_000, MAX_AI_RESPONSE_CHARS)
+                parseProviderJson(checkedBody(result))
+            },
+            cancel = { id -> postJson("$INTERACTIONS_URL/$id/cancel", JSONObject(), headers, timeoutMs = 5_000); Unit },
+        ).run()
+        stats.recordUsage(response)
+        if (response.optString("status") == "failed") {
+            val errorCode = response.optJSONObject("error")?.let { it.optString("code", it.optString("status")) }.orEmpty().uppercase()
+            if (errorCode in setOf("8", "429", "RESOURCE_EXHAUSTED", "RATE_LIMIT_EXCEEDED", "QUOTA_EXCEEDED")) {
+                checkedBody(AiHttpResponse(429, response.toString()))
+            }
+        }
+        return parseAntigravityReply(response)
     }
-
-    private fun antigravityTools(): JSONArray =
-        JSONArray().put(JSONObject().put("type", "google_search"))
 
     private fun parseAntigravityReply(
         response: JSONObject,
     ): OnlineAiReply {
+        when (response.optString("status")) {
+            "completed" -> Unit
+            "incomplete" -> error("Agent stopped at HARU's token budget. Narrow the task; no automatic continuation was sent.")
+            "requires_action" -> error("Agent needs an unsupported tool action. No automatic continuation was sent.")
+            "cancelled" -> error("Agent request was cancelled.")
+            "failed" -> error("Agent execution failed. Check project quota and agent access in Google AI Studio.")
+            else -> error("Agent returned an unexpected execution state.")
+        }
         val direct = response.optString("output_text").trim()
         val text =
             direct.ifBlank {
@@ -495,7 +442,7 @@ class AndroidOnlineAiManager(
                 val steps =
                     response.optJSONArray("steps") ?: JSONArray()
 
-                for (i in 0 until steps.length()) {
+                for (i in steps.length() - 1 downTo 0) {
                     val step = steps.optJSONObject(i) ?: continue
                     if (step.optString("type") != "model_output") continue
 
@@ -510,6 +457,7 @@ class AndroidOnlineAiManager(
                                 ?.let(parts::add)
                         }
                     }
+                    if (parts.isNotEmpty()) break
                 }
 
                 parts.joinToString("\n")
@@ -519,42 +467,16 @@ class AndroidOnlineAiManager(
             error("Antigravity returned no final text.")
         }
 
-        val interactionId =
-            response.optString("id")
-                .trim()
-                .take(MAX_INTERACTION_ID_CHARS)
-        val environmentId =
-            response.optString("environment_id")
-                .trim()
-                .take(MAX_INTERACTION_ID_CHARS)
-
-        val session =
-            if (
-                interactionId.isNotBlank() &&
-                environmentId.isNotBlank()
-            ) {
-                AntigravitySession(
-                    interactionId = interactionId,
-                    environmentId = environmentId,
-                    updatedAtMs = System.currentTimeMillis(),
-                )
-            } else {
-                null
-            }
-
-        return OnlineAiReply(
-            text = text,
-            antigravitySession = session,
-        )
+        return OnlineAiReply(text = text)
     }
 
-    private fun askGroq(
+    private suspend fun askGroq(
         prompt: String,
         systemPrompt: String,
         history: List<ConversationExchange>,
         summary: String,
     ): String {
-        val key = credentials.get("groq")
+        val key = credential("groq")
         require(key.isNotBlank()) { "Groq API key is required." }
 
         val messages = JSONArray()
@@ -601,11 +523,13 @@ class AndroidOnlineAiManager(
             GROQ_CHAT_URL,
             JSONObject()
                 .put("model", GROQ_DEFAULT_MODEL)
-                .put("messages", messages),
+                .put("messages", messages)
+                .put("max_completion_tokens", if (prompt == TEST_PROMPT) 256 else FAST_CHAT_MAX_OUTPUT_TOKENS),
             mapOf("Authorization" to "Bearer $key"),
             timeoutMs = 45_000,
         )
 
+        stats.tokens += (response.optJSONObject("usage")?.optLong("total_tokens", 0L) ?: 0L).coerceAtLeast(0L)
         val text =
             response
                 .optJSONArray("choices")
@@ -619,7 +543,7 @@ class AndroidOnlineAiManager(
         return text
     }
 
-    private fun askGeminiWithTransientFallback(
+    private suspend fun askGeminiWithTransientFallback(
         modelId: String,
         prompt: String,
         systemPrompt: String,
@@ -659,7 +583,7 @@ class AndroidOnlineAiManager(
         }
     }
 
-    private fun askGemini(
+    private suspend fun askGemini(
         modelId: String,
         prompt: String,
         systemPrompt: String,
@@ -671,39 +595,10 @@ class AndroidOnlineAiManager(
             "Invalid Gemini model identifier."
         }
 
-        val key = credentials.get("gemini")
+        val key = credential("gemini")
         require(key.isNotBlank()) { "Gemini API key is required." }
 
         val contents = JSONArray()
-
-        if (summary.isNotBlank()) {
-            contents.put(
-                JSONObject()
-                    .put("role", "user")
-                    .put(
-                        "parts",
-                        JSONArray().put(
-                            JSONObject().put(
-                                "text",
-                                "Earlier conversation memory:\n$summary",
-                            )
-                        )
-                    )
-            )
-            contents.put(
-                JSONObject()
-                    .put("role", "model")
-                    .put(
-                        "parts",
-                        JSONArray().put(
-                            JSONObject().put(
-                                "text",
-                                "Understood. I will use that compact memory as context.",
-                            )
-                        )
-                    )
-            )
-        }
 
         history.forEach { exchange ->
             contents.put(
@@ -744,7 +639,7 @@ class AndroidOnlineAiManager(
                     JSONObject()
                         .put(
                             "maxOutputTokens",
-                            FAST_CHAT_MAX_OUTPUT_TOKENS,
+                            if (prompt == TEST_PROMPT) 256 else FAST_CHAT_MAX_OUTPUT_TOKENS,
                         )
                 )
                 .apply {
@@ -761,13 +656,19 @@ class AndroidOnlineAiManager(
                     }
                 }
 
-        if (systemPrompt.isNotBlank()) {
+        AiRequestPolicy.thinkingLevel(modelId)?.let { level ->
+            payload.getJSONObject("generationConfig").put("thinkingConfig", JSONObject().put("thinkingLevel", level))
+        }
+
+        val instruction = listOf(systemPrompt, if (summary.isNotBlank()) "Earlier conversation memory:\n$summary" else "")
+            .filter { it.isNotBlank() }.joinToString("\n\n")
+        if (instruction.isNotBlank()) {
             payload.put(
                 "systemInstruction",
                 JSONObject().put(
                     "parts",
                     JSONArray().put(
-                        JSONObject().put("text", systemPrompt)
+                        JSONObject().put("text", instruction)
                     )
                 )
             )
@@ -781,6 +682,7 @@ class AndroidOnlineAiManager(
             timeoutMs = 45_000,
         )
 
+        stats.recordUsage(response)
         val candidate = response
             .optJSONArray("candidates")
             ?.optJSONObject(0)
@@ -793,6 +695,7 @@ class AndroidOnlineAiManager(
 
         val text = buildString {
             for (i in 0 until parts.length()) {
+                if (parts.optJSONObject(i)?.optBoolean("thought", false) == true) continue
                 val value = parts
                     .optJSONObject(i)
                     ?.optString("text")
@@ -805,11 +708,18 @@ class AndroidOnlineAiManager(
             }
         }.trim()
 
-        if (text.isBlank()) error("Gemini returned no text.")
-        return text
+        if (text.isBlank()) {
+            if (candidate.optString("finishReason") == "MAX_TOKENS") {
+                error("Gemini reached HARU's response budget before answering. Shorten the question; no automatic retry was sent.")
+            }
+            error("Gemini returned no final text. Check model access and provider restrictions.")
+        }
+        return if (candidate.optString("finishReason") == "MAX_TOKENS") {
+            "$text\n\nAnswer stopped at HARU's response budget."
+        } else text
     }
 
-    private fun postJson(
+    private suspend fun postJson(
         url: String,
         payload: JSONObject,
         headers: Map<String, String>,
@@ -826,79 +736,81 @@ class AndroidOnlineAiManager(
                 .post(body)
                 .header("Content-Type", "application/json")
                 .header("Accept", "application/json")
-                .header("User-Agent", "HARU-Android/0.9.30")
+                .header("User-Agent", "HARU-Android/0.9.37")
 
         headers.forEach { (name, value) ->
             builder.header(name, value)
         }
 
-        val (code, raw) =
-            executeHttp(
-                request = builder.build(),
-                timeoutMs = timeoutMs,
-                maxChars = MAX_AI_RESPONSE_CHARS,
-            )
-
-        if (code !in 200..299) {
-            val detail = providerErrorDetail(raw)
-
-            throw ProviderHttpException(
-                statusCode = code,
-                message =
-                    when (code) {
-                        401, 403 -> "Authentication was rejected."
-                        429 ->
-                            detail
-                                .take(MAX_PROVIDER_ERROR_CHARS)
-                                .ifBlank {
-                                    "Provider quota or rate limit reached."
-                                }
-                        in 500..599 ->
-                            "Provider HTTP " +
-                                code +
-                                " · " +
-                                detail
-                                    .take(MAX_PROVIDER_ERROR_CHARS)
-                                    .ifBlank {
-                                        "AI provider is temporarily unavailable."
-                                    }
-                        else ->
-                            detail.ifBlank {
-                                "Provider request failed (HTTP $code)."
-                            }
-                    },
-            )
-        }
-
-        return if (raw.isBlank()) JSONObject() else JSONObject(raw)
+        val response = executeHttp(builder.build(), timeoutMs, MAX_AI_RESPONSE_CHARS)
+        val raw = checkedBody(response)
+        return if (raw.isBlank()) JSONObject() else parseProviderJson(raw)
     }
 
-    private fun executeHttp(
+    private fun parseProviderJson(raw: String): JSONObject =
+        try { JSONObject(raw) }
+        catch (_: org.json.JSONException) { error("Provider returned an unreadable JSON response.") }
+
+    private fun checkedBody(response: AiHttpResponse): String {
+        val code = response.code
+        if (code in 200..299) return response.body
+        val message = when (code) {
+            401, 403 -> "Authentication or access was rejected. Check the saved key, project restrictions and model access."
+            429 -> {
+                stats.quotaErrors += 1
+                val wait = AiRequestPolicy.quotaCooldownMs(response.body, response.retryAfter, System.currentTimeMillis())
+                preferences.edit().putLong("quota_until_$activeScope", System.currentTimeMillis() + wait).apply()
+                AiRequestPolicy.waitMessage(activeScope, wait)
+            }
+            400 -> "Provider rejected the request configuration (HTTP 400). Check model and search/tool support."
+            404 -> "Model or agent is unavailable (HTTP 404). Refresh the models or select a supported model."
+            in 500..599 -> "Provider HTTP $code · AI provider is temporarily unavailable."
+            else -> "Provider request failed (HTTP $code)."
+        }
+        throw ProviderHttpException(code, message)
+    }
+
+    private suspend fun executeHttp(
         request: Request,
         timeoutMs: Int,
         maxChars: Int,
-    ): Pair<Int, String> {
-        val client =
-            httpClient
-                .newBuilder()
-                .connectTimeout(timeoutMs.toLong(), TimeUnit.MILLISECONDS)
-                .readTimeout(timeoutMs.toLong(), TimeUnit.MILLISECONDS)
-                .writeTimeout(timeoutMs.toLong(), TimeUnit.MILLISECONDS)
-                .callTimeout(timeoutMs.toLong(), TimeUnit.MILLISECONDS)
-                .build()
-
+    ): AiHttpResponse {
+        if (request.method == "POST") {
+            if (request.url.encodedPath.endsWith("/cancel")) stats.cancellations += 1
+            else stats.generations += 1
+        } else if (request.url.encodedPath.contains("/interactions/")) stats.polls += 1
+        testTransport?.let { return it(request, timeoutMs, maxChars) }
+        val client = httpClient.newBuilder()
+            .connectTimeout(timeoutMs.toLong(), TimeUnit.MILLISECONDS)
+            .readTimeout(timeoutMs.toLong(), TimeUnit.MILLISECONDS)
+            .writeTimeout(timeoutMs.toLong(), TimeUnit.MILLISECONDS)
+            .callTimeout(timeoutMs.toLong(), TimeUnit.MILLISECONDS).build()
         try {
-            client.newCall(request).execute().use { response ->
-                val raw =
-                    response.body
-                        ?.charStream()
-                        ?.use { it.readBoundedText(maxChars) }
-                        .orEmpty()
-
-                return response.code to raw
+            return suspendCancellableCoroutine { continuation ->
+                val call = client.newCall(request)
+                continuation.invokeOnCancellation { call.cancel() }
+                call.enqueue(object : Callback {
+                    override fun onFailure(call: Call, e: IOException) {
+                        continuation.resumeWithException(e)
+                    }
+                    override fun onResponse(call: Call, response: Response) {
+                        try {
+                            val result = response.use {
+                                AiHttpResponse(it.code, it.body?.charStream()?.use { reader ->
+                                    reader.readBoundedText(maxChars)
+                                }.orEmpty(), it.header("Retry-After"))
+                            }
+                            continuation.resume(result)
+                        } catch (e: Exception) { continuation.resumeWithException(e) }
+                    }
+                })
             }
-        } catch (exc: UnknownHostException) {
-            throw IllegalStateException(networkFailureMessage(), exc)
+        } catch (_: UnknownHostException) {
+            throw IllegalStateException(networkFailureMessage())
+        } catch (_: java.net.SocketTimeoutException) {
+            throw IllegalStateException("AI request timed out. No automatic network retry was sent.")
+        } catch (_: IOException) {
+            throw IllegalStateException("AI connection failed. Check your internet connection before trying again.")
         }
     }
 
@@ -921,13 +833,6 @@ class AndroidOnlineAiManager(
             "DNS lookup failed. HARU tried Android DNS twice and secure DNS fallback, but the provider hostname still could not be resolved."
         }
     }
-
-    private fun providerErrorDetail(raw: String): String =
-        runCatching {
-            JSONObject(raw)
-                .optJSONObject("error")
-                ?.optString("message")
-        }.getOrNull().orEmpty()
 
     private fun preferred(models: List<GeminiModel>): GeminiModel =
         models.firstOrNull {
@@ -965,11 +870,8 @@ class AndroidOnlineAiManager(
         private const val MAX_MODEL_LABEL_CHARS = 100
         private const val MAX_CATALOG_RESPONSE_CHARS = 1_000_000
         private const val MAX_AI_RESPONSE_CHARS = 1_000_000
-        private const val MAX_INTERACTION_ID_CHARS = 512
-        private const val ANTIGRAVITY_TOKEN_BUDGET = 1_500
-        private const val ANTIGRAVITY_TIMEOUT_MS = 75_000
+        private const val ANTIGRAVITY_TOKEN_BUDGET = 4_096
         private const val FAST_CHAT_MAX_OUTPUT_TOKENS = 1_200
-        private const val MAX_PROVIDER_ERROR_CHARS = 320
         private val JSON_MEDIA_TYPE =
             "application/json; charset=utf-8".toMediaType()
         private const val TEST_PROMPT = "Reply with exactly: HARU OK"
