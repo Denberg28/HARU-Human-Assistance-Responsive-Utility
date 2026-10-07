@@ -31,8 +31,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -987,63 +985,23 @@ private fun SimpleSettingsDialog(
                     style = MaterialTheme.typography.labelSmall,
                 )
 
-                Text(
-                    "Accent color",
-                    fontWeight = FontWeight.SemiBold,
+                HaruOptionDropdown(
+                    label = "Accent color",
+                    selectedText = themeColor.label,
+                    options = HaruThemeColor.entries,
+                    optionLabel = { it.label },
+                    isSelected = { it == themeColor },
+                    onSelect = onSelectThemeColor,
                 )
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    HaruThemeColor.entries.take(3).forEach { color ->
-                        OutlinedButton(
-                            onClick = { onSelectThemeColor(color) },
-                            modifier = Modifier.weight(1f),
-                        ) {
-                            Text(
-                                (if (themeColor == color) "✓ " else "") +
-                                    color.label
-                            )
-                        }
-                    }
-                }
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    HaruThemeColor.entries.drop(3).forEach { color ->
-                        OutlinedButton(
-                            onClick = { onSelectThemeColor(color) },
-                            modifier = Modifier.weight(1f),
-                        ) {
-                            Text(
-                                (if (themeColor == color) "✓ " else "") +
-                                    color.label
-                            )
-                        }
-                    }
-                }
 
-                Text(
-                    "Background",
-                    fontWeight = FontWeight.SemiBold,
+                HaruOptionDropdown(
+                    label = "Background",
+                    selectedText = backgroundTheme.label,
+                    options = HaruBackgroundTheme.entries,
+                    optionLabel = { it.label },
+                    isSelected = { it == backgroundTheme },
+                    onSelect = onSelectBackgroundTheme,
                 )
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    HaruBackgroundTheme.entries.forEach { background ->
-                        OutlinedButton(
-                            onClick = { onSelectBackgroundTheme(background) },
-                            modifier = Modifier.weight(1f),
-                        ) {
-                            Text(
-                                (if (backgroundTheme == background) "✓ " else "") +
-                                    background.label
-                            )
-                        }
-                    }
-                }
 
                 OutlinedButton(
                     onClick = onOpenAi,
@@ -1635,7 +1593,6 @@ private fun OnlineAiDialog(
 ) {
     var geminiKey by remember { mutableStateOf("") }
     var groqKey by remember { mutableStateOf("") }
-    var modelMenuExpanded by remember { mutableStateOf(false) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -1649,68 +1606,31 @@ private fun OnlineAiDialog(
                     .fillMaxWidth()
                     .verticalScroll(rememberScrollState()),
             ) {
-                Text("Online AI", fontWeight = FontWeight.SemiBold)
-                listOf(
-                    OnlineProvider.ANTIGRAVITY,
-                    OnlineProvider.GEMINI,
-                    OnlineProvider.GROQ,
-                ).forEach { option ->
-                    OutlinedButton(
-                        onClick = { onSelectProvider(option) },
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Text((if (provider == option) "✓ " else "") + providerLabel(option))
-                    }
-                }
+                HaruOptionDropdown(
+                    label = "AI provider",
+                    selectedText = providerLabel(provider),
+                    options = OnlineProvider.entries,
+                    optionLabel = ::providerLabel,
+                    isSelected = { it == provider },
+                    onSelect = onSelectProvider,
+                )
 
                 Spacer(Modifier.height(10.dp))
-                Text("Gemini model", fontWeight = FontWeight.SemiBold)
-                Box(modifier = Modifier.fillMaxWidth()) {
-                    OutlinedButton(
-                        onClick = { modelMenuExpanded = true },
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Text(selectedGeminiModel.label + " ▾")
-                    }
-                    DropdownMenu(
-                        expanded = modelMenuExpanded,
-                        onDismissRequest = { modelMenuExpanded = false },
-                    ) {
-                        geminiModels.forEach { model ->
-                            DropdownMenuItem(
-                                text = {
-                                    Text(
-                                        (if (model.id == selectedGeminiModel.id) "✓ " else "") +
-                                            model.label
-                                    )
-                                },
-                                onClick = {
-                                    onSelectGeminiModel(model)
-                                    modelMenuExpanded = false
-                                },
-                            )
-                        }
-
-                        HorizontalDivider()
-
-                        DropdownMenuItem(
-                            text = {
-                                Text(
-                                    if (hasGeminiKey) {
-                                        "↻ Update agents"
-                                    } else {
-                                        "↻ Update agents · save key first"
-                                    }
-                                )
-                            },
-                            enabled = hasGeminiKey,
-                            onClick = {
-                                modelMenuExpanded = false
-                                onRefreshGeminiModels()
-                            },
-                        )
-                    }
-                }
+                HaruOptionDropdown(
+                    label = "Gemini model",
+                    selectedText = selectedGeminiModel.label,
+                    options = geminiModels,
+                    optionLabel = { it.label },
+                    isSelected = { it.id == selectedGeminiModel.id },
+                    onSelect = onSelectGeminiModel,
+                    actionLabel = if (hasGeminiKey) {
+                        "Update models"
+                    } else {
+                        "Update models · save key first"
+                    },
+                    actionEnabled = hasGeminiKey,
+                    onAction = onRefreshGeminiModels,
+                )
 
                 Spacer(Modifier.height(4.dp))
                 Text(
