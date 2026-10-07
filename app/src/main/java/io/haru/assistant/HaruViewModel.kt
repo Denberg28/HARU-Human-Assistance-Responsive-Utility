@@ -7,6 +7,7 @@ import androidx.lifecycle.ViewModel
 import io.haru.assistant.core.CommandRouter
 import io.haru.assistant.core.HaruMood
 import io.haru.assistant.core.HaruUiState
+import io.haru.assistant.onlineai.WebSource
 
 class HaruViewModel(
     private val router: CommandRouter = CommandRouter()
@@ -31,6 +32,8 @@ class HaruViewModel(
         uiState = uiState.copy(
             mood = HaruMood.LISTENING,
             message = "Listening…",
+            webSources = emptyList(),
+            searchSuggestionsHtml = "",
             isBusy = true
         )
     }
@@ -39,7 +42,8 @@ class HaruViewModel(
         uiState = uiState.copy(
             mood = HaruMood.IDLE,
             message = message,
-            isBusy = false
+            webSources = emptyList(),
+            searchSuggestionsHtml = "",
         )
     }
 
@@ -53,6 +57,8 @@ class HaruViewModel(
         uiState = uiState.copy(
             mood = if (result.success) HaruMood.HAPPY else HaruMood.CONFUSED,
             message = result.message,
+            webSources = emptyList(),
+            searchSuggestionsHtml = "",
             command = "",
             isBusy = false
         )
@@ -68,6 +74,8 @@ class HaruViewModel(
             uiState = uiState.copy(
                 mood = HaruMood.HAPPY,
                 message = localResult.message,
+                webSources = emptyList(),
+                searchSuggestionsHtml = "",
                 command = "",
                 isBusy = false,
             )
@@ -77,16 +85,20 @@ class HaruViewModel(
         uiState = uiState.copy(
             mood = HaruMood.THINKING,
             message = "Thinking…",
+            webSources = emptyList(),
+            searchSuggestionsHtml = "",
             command = "",
             isBusy = true,
         )
         return command
     }
 
-    fun completeAi(message: String, success: Boolean = true) {
+    fun completeAi(message: String, success: Boolean = true, webSources: List<WebSource> = emptyList(), searchSuggestionsHtml: String = "") {
         uiState = uiState.copy(
             mood = if (success) HaruMood.HAPPY else HaruMood.CONFUSED,
             message = message,
+            webSources = webSources,
+            searchSuggestionsHtml = searchSuggestionsHtml,
             isBusy = false,
         )
     }

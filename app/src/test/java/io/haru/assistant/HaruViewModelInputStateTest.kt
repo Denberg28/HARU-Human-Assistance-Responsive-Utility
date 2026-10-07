@@ -1,6 +1,7 @@
 package io.haru.assistant
 
 import io.haru.assistant.core.HaruMood
+import io.haru.assistant.onlineai.WebSource
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -72,4 +73,33 @@ class HaruViewModelInputStateTest {
         assertEquals("", viewModel.uiState.command)
         assertEquals("", viewModel.uiState.latestUserMessage)
     }
+    @Test
+    fun newRequestsErrorsAndMemoryResetRemoveOldNewsSources() {
+        val viewModel = HaruViewModel()
+        val sources = listOf(WebSource("Publisher", "https://example.com/news"))
+        fun seed() = viewModel.completeAi("News", webSources = sources, searchSuggestionsHtml = "<div>Search</div>")
+        fun assertCleared() {
+            assertTrue(viewModel.uiState.webSources.isEmpty())
+            assertEquals("", viewModel.uiState.searchSuggestionsHtml)
+        }
+        seed()
+        viewModel.setListening()
+        assertCleared()
+        viewModel.cancelListening()
+        seed()
+        viewModel.updateCommand("Latest news")
+        viewModel.prepareAiPrompt()
+        assertCleared()
+        seed()
+        viewModel.completeAi("Search failed", success = false)
+        assertCleared()
+        seed()
+        viewModel.resetConversation()
+        assertCleared()
+        seed()
+        viewModel.updateCommand("hello")
+        viewModel.submit()
+        assertCleared()
+    }
+
 }

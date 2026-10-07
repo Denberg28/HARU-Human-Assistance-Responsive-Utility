@@ -407,6 +407,9 @@ private fun SimpleHaruPane(
                 AssistantResponseText(
                     message = state.message,
                 )
+                if (state.webSources.isNotEmpty()) {
+                    LiveSearchSources(state.webSources, state.searchSuggestionsHtml)
+                }
             }
 
             Spacer(Modifier.height(12.dp))

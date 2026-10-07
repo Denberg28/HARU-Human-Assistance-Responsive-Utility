@@ -67,4 +67,18 @@ class HaruAiRoutingPolicyTest {
         assertEquals(HaruAiRoute.ANTIGRAVITY_AGENT, HaruAiRoutingPolicy.routeForAntigravity("Deep research this topic"))
         assertTrue(HaruAiRoutingPolicy.needsWebSearch("Deep research this topic"))
     }
+
+    @Test fun naturalNewsQuestionsAndFilipinoRequestsEnableSearch() {
+        assertTrue(HaruAiRoutingPolicy.needsWebSearch("What's happening to the Saudi fuel line?"))
+        assertTrue(HaruAiRoutingPolicy.needsWebSearch("What happened in Saudi Arabia?"))
+        assertTrue(HaruAiRoutingPolicy.needsWebSearch("Ano ang balita sa Saudi ngayon?"))
+    }
+
+    @Test fun followUpsKeepLiveSearchButNewTopicsDoNot() {
+        assertTrue(HaruAiRoutingPolicy.needsWebSearch("Tell me more", "Latest Saudi fuel news"))
+        assertTrue(HaruAiRoutingPolicy.needsWebSearch("And why?", listOf("Latest Saudi fuel news", "Tell me more")))
+        assertFalse(HaruAiRoutingPolicy.needsWebSearch("Explain rotor lift", listOf("Latest Saudi news")))
+        assertFalse(HaruAiRoutingPolicy.needsWebSearch("Tell me more", listOf("Latest Saudi news", "Explain rotor lift")))
+        assertFalse(HaruAiRoutingPolicy.needsWebSearch("Tell me more", "Explain electric current"))
+    }
 }

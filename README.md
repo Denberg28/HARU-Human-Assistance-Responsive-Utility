@@ -6,7 +6,7 @@ HARU is a lightweight, free-first personal assistant and companion. The Android 
 
 The Android app includes tasks and reminders, on-demand AI and voice, a lock-screen
 companion, and a map with location sharing. Appearance and AI choices use compact
-labeled dropdowns. See [release notes](docs/release-v0.9.37.md).
+labeled dropdowns. See [release notes](docs/release-v0.9.38.md).
 
 - Tap the HARU title for About. Open Settings for appearance, AI, lock-screen setup,
   and update checks.
@@ -27,6 +27,8 @@ labeled dropdowns. See [release notes](docs/release-v0.9.37.md).
 - Live coordinates are encrypted before upload. The sharing service validates
   separate read and write tokens. Sender identity is not independently verified.
   Location sharing depends on the existing hosted service being online.
+
+Live news requests require provider-supplied sources and display a compact Sources dropdown. Groq live requests use a saved Gemini key for Google Search; without it, HARU provides setup guidance. See [live-news diagnosis](docs/live-news-review-v0.9.38.md).
 
 AI starts only on an explicit request or connection test. Routine news searches use one grounded Gemini generation; bounded agent tasks use status polling and best-effort server cancellation. Quota cooldowns apply to Gemini and Antigravity together. See [AI usage review](docs/ai-usage-review-v0.9.37.md) for limits and verification.
 
