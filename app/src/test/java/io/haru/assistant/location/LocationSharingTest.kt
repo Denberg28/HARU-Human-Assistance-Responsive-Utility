@@ -39,6 +39,31 @@ class LocationSharingTest {
         }
     }
 
+    @Test fun lostUploadResponseRecoversSequenceAndRetriesOnlyOnce() = runBlocking {
+        var packed = ""
+        var attempts = 0
+        val expires = Instant.now().plusSeconds(3600).toString()
+        val manager = HaruLiveLocationManager { request ->
+            when (request.getString("action")) {
+                "create" -> {
+                    packed = request.getString("payload")
+                    JSONObject().put("expires_at", expires).put("seq", 1L)
+                }
+                "read" -> JSONObject().put("expires_at", expires).put("seq", 2L).put("payload", packed)
+                "update" -> {
+                    attempts += 1
+                    if (attempts == 1) throw LiveLocationException(409, "Sequence changed")
+                    assertEquals(2L, request.getLong("expected_seq"))
+                    JSONObject().put("seq", 3L)
+                }
+                else -> error("Unexpected request")
+            }
+        }
+        val bundle = manager.create("Test", 14.0, 123.0, 5.0, 60)
+        assertEquals(3L, manager.update(bundle.session, 14.1, 123.1, 5.0, 1L))
+        assertEquals(2, attempts)
+    }
+
     @Test fun malformedLiveCodesCannotFallBackToSnapshotLinks() {
         val manager = HaruLiveLocationManager()
         val id = "12345678-1234-4123-8123-123456789abc"

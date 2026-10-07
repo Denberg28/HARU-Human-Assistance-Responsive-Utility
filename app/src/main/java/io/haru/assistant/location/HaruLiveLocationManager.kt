@@ -140,14 +140,22 @@ class HaruLiveLocationManager internal constructor(
             capturedAt = System.currentTimeMillis(),
         )
 
-        val response = post(
-            JSONObject()
-                .put("action", "update")
-                .put("session_id", session.sessionId)
-                .put("write_token", session.writeToken)
-                .put("payload", encrypted)
-                .put("expected_seq", expectedSeq)
-        )
+        fun updateRequest(sequence: Long) = JSONObject()
+            .put("action", "update")
+            .put("session_id", session.sessionId)
+            .put("write_token", session.writeToken)
+            .put("payload", encrypted)
+            .put("expected_seq", sequence)
+
+        val response = try {
+            post(updateRequest(expectedSeq))
+        } catch (conflict: LiveLocationException) {
+            if (conflict.statusCode != 409) throw conflict
+            // An upload may have reached the server even if its response was lost.
+            // Recover its sequence with our read capability, then retry once.
+            val current = read(LiveMonitorSession(session.sessionId, session.readToken))
+            post(updateRequest(current.seq))
+        }
 
         response.getLong("seq")
     }
