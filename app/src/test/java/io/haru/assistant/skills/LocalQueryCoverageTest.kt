@@ -9,6 +9,8 @@ class LocalQueryCoverageTest {
         val time = TimeSkill()
         assertTrue(time.canHandle("What time is it?"))
         assertTrue(time.canHandle("today's date"))
+        assertTrue(time.canHandle("What time is it now?"))
+        assertTrue(time.execute("Today?").message.contains(java.time.LocalDateTime.now().year.toString()))
         listOf("What time is flight 5J 325 today?", "Explain current time synchronization", "What date did the first moon landing happen?").forEach {
             assertFalse(it, time.canHandle(it))
         }
