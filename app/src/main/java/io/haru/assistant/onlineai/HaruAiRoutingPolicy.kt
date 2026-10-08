@@ -1,5 +1,10 @@
 package io.haru.assistant.onlineai
 
+enum class AiAnswerMode(val label: String) {
+    AUTO("Auto · live lookup"),
+    KNOWLEDGE("General knowledge"),
+}
+
 enum class HaruAiRoute { FAST_CHAT, ANTIGRAVITY_AGENT }
 
 object HaruAiRoutingPolicy {
@@ -13,7 +18,10 @@ object HaruAiRoutingPolicy {
 
     fun needsWebSearch(prompt: String, previousPrompt: String = ""): Boolean {
         val value = normalize(prompt)
-        if (AGENT.containsMatchIn(value) || EXPLICIT_SEARCH.containsMatchIn(value) || FRESH.containsMatchIn(value) || SENSITIVE.containsMatchIn(value)) return true
+        if (KNOWLEDGE_ONLY.containsMatchIn(value)) return false
+        if (AGENT.containsMatchIn(value) || EXPLICIT_SEARCH.containsMatchIn(value)) return true
+        if (TEXT_TASK.containsMatchIn(value)) return false
+        if (FRESH.containsMatchIn(value) || SENSITIVE.containsMatchIn(value)) return true
         if (needsUrlContext(prompt)) return false // Fetch supplied pages; avoid a separate search.
         if (EDUCATIONAL.containsMatchIn(value)) return false
         return WEB.any { it.containsMatchIn(value) } ||
@@ -21,14 +29,22 @@ object HaruAiRoutingPolicy {
     }
 
     fun needsWebSearch(prompt: String, previousPrompts: List<String>): Boolean {
+        if (knowledgeOnly(prompt)) return false
         if (needsWebSearch(prompt)) return true
         if (!isFollowUp(prompt)) return false
         val topic = previousPrompts.takeLast(3).asReversed().firstOrNull { !isFollowUp(it) } ?: return false
         return needsWebSearch(topic)
     }
 
+    fun needsLiveVerification(prompt: String, previousPrompts: List<String> = emptyList()): Boolean =
+        needsWebSearch(KNOWLEDGE_ONLY.replace(normalize(prompt), ""), previousPrompts.map { KNOWLEDGE_ONLY.replace(normalize(it), "") })
+
+    fun knowledgeOnly(prompt: String): Boolean = KNOWLEDGE_ONLY.containsMatchIn(normalize(prompt))
+
     fun isFollowUp(prompt: String): Boolean = FOLLOW_UP.containsMatchIn(normalize(prompt))
     private fun normalize(prompt: String) = prompt.lowercase().replace(Regex("""\s+"""), " ").trim()
+    private val KNOWLEDGE_ONLY = Regex("""\b(without (?:web )?search|no (?:web )?search|(?:use|from) (?:only )?your (?:own )?knowledge|general knowledge only)\b""")
+    private val TEXT_TASK = Regex("""^(?:translate|rewrite|rephrase|proofread|correct (?:the )?grammar|write (?:a |an )?fictional|create (?:a |an )?fictional)\b""")
     private val AGENT = Regex("""\b(deep research|research thoroughly|in-depth research)\b""")
     private val URL = Regex("""https://[^\s<>]+""", RegexOption.IGNORE_CASE)
     private val URL_ACTION = Regex("""\b(read|summarize|summarise|summary|open|visit|inspect|compare|review this (?:article|page|link))\b""")

@@ -8,7 +8,9 @@ import java.time.format.DateTimeFormatter
 data class WebSource(val title: String, val url: String)
 
 internal object LiveSearchPolicy {
-    const val NO_SOURCES = "The AI provider responded, but did not return verifiable live sources for this question. HARU could not verify current information. This is a search-result issue; it does not mean your phone is offline. No automatic retry was sent."
+    const val UNVERIFIED = "Current facts unverified: no live sources were returned. The answer below is a model response, not verified news."
+    const val KNOWLEDGE_NOTICE = "General knowledge answer: live information was not checked. Dates, news, prices and other changing facts may be outdated."
+    const val KNOWLEDGE_INSTRUCTION = "Live retrieval is unavailable or disabled for this request. Answer the useful general, historical or explanatory parts from your knowledge. Clearly state which current facts cannot be checked. Never invent current headlines, quotations, page contents or citations. Do not diagnose the phone as offline. If a page cannot be read, ask the user to paste its text."
 
     fun instruction(now: ZonedDateTime = ZonedDateTime.now()): String =
         "Current device date and time: ${now.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)} (${now.zone}). " +
@@ -16,7 +18,7 @@ internal object LiveSearchPolicy {
             "Treat previous assistant replies and conversation memory as context, not verified current facts. " +
             "If a previous reply said you lacked internet access, use the search tool now. " +
             "Distinguish publication dates from event dates. Do not invent news or sources. " +
-            "If search returns no relevant evidence, say current information could not be verified, without diagnosing the user's internet connection."
+            "If search returns no relevant evidence, still answer useful general or historical parts, clearly separate them from current facts that could not be verified, and do not diagnose the user's internet connection."
 
     fun safeUrl(value: String): Boolean {
         val url = value.takeIf { it.length <= 4096 }?.toHttpUrlOrNull() ?: return false

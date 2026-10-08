@@ -8,7 +8,7 @@ from ai_usage import cooldown_seconds, gemini_request, needs_agent, needs_reason
 
 MAX_JSON_RESPONSE_BYTES = 4_000_000
 from urllib.error import HTTPError, URLError
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 from urllib.request import Request, urlopen, build_opener, HTTPRedirectHandler
 
 
@@ -180,6 +180,17 @@ def list_openai_compatible_models(
     return names
 
 
+UNVERIFIED_NOTICE = "Current facts unverified: no live sources were returned. The answer below is a model response, not verified news."
+
+
+def _safe_source_url(value: str) -> bool:
+    try:
+        url = urlsplit(value)
+        return len(value) <= 4096 and url.scheme == "https" and bool(url.hostname) and not url.username and not url.password and not any(ord(c) < 32 for c in value)
+    except ValueError:
+        return False
+
+
 def _gemini_grounding_sources(data: dict, limit: int = 5) -> list[tuple[str, str]]:
     try:
         metadata = data["candidates"][0].get("groundingMetadata", {})
@@ -191,8 +202,8 @@ def _gemini_grounding_sources(data: dict, limit: int = 5) -> list[tuple[str, str
     for chunk in metadata.get("groundingChunks", []):
         web = chunk.get("web") or {}
         uri = (web.get("uri") or "").strip()
-        title = (web.get("title") or "Web source").strip()
-        if not uri or uri in seen:
+        title = re.sub(r"[\x00-\x1f\x7f]", " ", str(web.get("title") or "Web source")).strip()[:200]
+        if not _safe_source_url(uri) or uri in seen:
             continue
         seen.add(uri)
         sources.append((title, uri))
@@ -448,7 +459,7 @@ def _ask_ai(
         if use_grounding:
             sources = _gemini_grounding_sources(data)
             if not sources:
-                raise AiRuntimeError("The provider returned no verifiable live sources. Current information could not be verified; no automatic retry was sent.", kind="missing_sources")
+                text = UNVERIFIED_NOTICE + "\n\n" + text
             if sources:
                 source_lines = "\n".join(
                     f"- {title}: {uri}" for title, uri in sources
@@ -457,7 +468,7 @@ def _ask_ai(
 
         if use_url:
             metadata = (data.get("candidates") or [{}])[0].get("urlContextMetadata", {}).get("urlMetadata", [])
-            sources = [item.get("retrievedUrl", "") for item in metadata if item.get("urlRetrievalStatus") == "URL_RETRIEVAL_STATUS_SUCCESS" and str(item.get("retrievedUrl", "")).startswith("https://")]
+            sources = [item.get("retrievedUrl", "") for item in metadata if item.get("urlRetrievalStatus") == "URL_RETRIEVAL_STATUS_SUCCESS" and _safe_source_url(str(item.get("retrievedUrl", "")))]
             if not sources:
                 raise AiRuntimeError("The supplied page could not be retrieved. Paste its text to review it; no automatic retry was sent.", kind="missing_sources")
             text += "\n\nRetrieved pages:\n" + "\n".join(sources[:5])

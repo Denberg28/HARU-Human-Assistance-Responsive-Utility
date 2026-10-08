@@ -48,6 +48,7 @@ import io.haru.assistant.memory.ConversationMemoryPolicy
 import io.haru.assistant.memory.EncryptedConversationStore
 import io.haru.assistant.onlineai.AndroidOnlineAiManager
 import io.haru.assistant.onlineai.GeminiModel
+import io.haru.assistant.onlineai.AiAnswerMode
 import io.haru.assistant.onlineai.OnlineProvider
 import io.haru.assistant.ui.HaruBackgroundTheme
 import io.haru.assistant.ui.HaruScreen
@@ -93,6 +94,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
     private var backgroundTheme by mutableStateOf(HaruBackgroundTheme.LIGHT)
 
     private var onlineProvider by mutableStateOf(OnlineProvider.ANTIGRAVITY)
+    private var aiAnswerMode by mutableStateOf(AiAnswerMode.AUTO)
     private var selectedGeminiModel by mutableStateOf(AndroidOnlineAiManager.FALLBACK_GEMINI_MODEL)
     private var geminiModels by mutableStateOf(listOf(AndroidOnlineAiManager.FALLBACK_GEMINI_MODEL))
     private var onlineStatus by mutableStateOf("Antigravity Auto is the online default.")
@@ -220,6 +222,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
         val onlineSettings = onlineAiManager.settings()
         onlineProvider = onlineSettings.provider
         selectedGeminiModel = onlineSettings.geminiModel
+        aiAnswerMode = onlineSettings.answerMode
         geminiModels = onlineAiManager.geminiModels()
         refreshOnlineKeyState()
         trustedLocations = trustedLocationManager.load()
@@ -249,6 +252,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
                     companionQuiet = companionMode == CompanionMode.REST,
                     onlineProvider = onlineProvider,
                     selectedGeminiModel = selectedGeminiModel,
+                    aiAnswerMode = aiAnswerMode,
                     geminiModels = geminiModels,
                     onlineStatus = onlineStatus,
                     hasGeminiKey = hasGeminiKey,
@@ -283,6 +287,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
                     onOpenAppSettings = ::openAppSettings,
                     onSelectOnlineProvider = ::selectOnlineProvider,
                     onSelectGeminiModel = ::selectGeminiModel,
+                    onSelectAiAnswerMode = ::selectAiAnswerMode,
                     onRefreshGeminiModels = ::refreshGeminiModels,
                     onSaveGeminiKey = ::saveGeminiKey,
                     onSaveGroqKey = ::saveGroqKey,
@@ -367,7 +372,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
                 val memoryState =
                     conversationStore.appendCompleted(
                         user = prompt,
-                        assistant = reply.text,
+                        assistant = reply.memoryText,
                         antigravitySession =
                             if (requestProvider == OnlineProvider.ANTIGRAVITY) {
                                 antigravitySession
@@ -391,6 +396,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
                             ""
                         }
                 if (reply.usedGeminiSearch) onlineStatus += " · web lookup via Gemini"
+                if (!reply.rememberAnswer) onlineStatus += " · unverified answer excluded from memory"
                 onlineStatus += "\n" + onlineAiManager.usageDiagnostics()
                 viewModel.completeAi(reply.text, success = true, webSources = reply.webSources, searchSuggestionsHtml = reply.searchSuggestionsHtml)
                 if (speakResult) voiceController.speak(reply.text)
@@ -503,6 +509,12 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
         onlineStatus = "Conversation memory cleared · 0/" +
             ConversationMemoryPolicy.MAX_EXCHANGES
         viewModel.resetConversation()
+    }
+
+    private fun selectAiAnswerMode(mode: AiAnswerMode) {
+        aiAnswerMode = mode
+        onlineAiManager.saveAnswerMode(mode)
+        onlineStatus = mode.label + " selected."
     }
 
     private fun selectOnlineProvider(provider: OnlineProvider) {
@@ -1765,7 +1777,8 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
         private val LOCATION_TIMEOUT_TOKEN = Any()
 
         private const val SYSTEM_PROMPT =
-            "You are HARU, a concise and practical personal assistant. " +
+            "You are HARU, a capable general-purpose personal assistant. Answer the user's question directly across topics, including recipes, explanations, writing, code, reasoning and news when evidence is available. " +
+                "Provide useful partial answers when a detail cannot be verified; explain the specific limitation briefly. Match the requested detail and language. Assistant modes are priorities, not topic restrictions. " +
                 "HARU's Android app handles explicit task and reminder requests locally before this AI request. " +
                 "If the user asks for a reminder but gives no usable future time, ask for the time instead of claiming it was scheduled. " +
                 "Never claim a task or reminder was created unless the app explicitly reports that action as completed. " +

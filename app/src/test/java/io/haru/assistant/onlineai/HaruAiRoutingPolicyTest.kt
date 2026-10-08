@@ -102,4 +102,13 @@ class HaruAiRoutingPolicyTest {
         assertEquals("minimal", AiRequestPolicy.thinkingLevel("gemini-3.5-flash-lite", "Hello"))
     }
 
+    @Test fun textTransformationAndExplicitKnowledgeDoNotRequireLiveTools() {
+        listOf("Translate this: Latest news in Cebu", "Rewrite this news report", "Write a fictional news report about Mars", "Latest news without search").forEach {
+            assertFalse(it, HaruAiRoutingPolicy.needsWebSearch(it))
+        }
+        assertTrue(HaruAiRoutingPolicy.needsWebSearch("Translate and search the web for current news"))
+        assertTrue(HaruAiRoutingPolicy.needsLiveVerification("Latest news without search"))
+        assertFalse(HaruAiRoutingPolicy.needsLiveVerification("Pancake recipe without search"))
+    }
+
 }

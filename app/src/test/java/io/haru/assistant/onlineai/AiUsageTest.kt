@@ -194,16 +194,18 @@ class AiUsageTest {
         assertEquals(1, calls)
     }
 
-    @Test fun ungroundedNewsResponseIsNotSavedAsSuccessfulAnswerAndIsNotRetried() = runBlocking {
+    @Test fun ungroundedResponseIsShownWithWarningExcludedFromMemoryAndNotRetried() = runBlocking {
         var calls = 0
         val manager = manager { _, _, _ ->
             calls++
-            AiHttpResponse(200, """{"candidates":[{"content":{"parts":[{"text":"I do not have real-time internet access"}]}}]}""")
+            AiHttpResponse(200, """{"candidates":[{"content":{"parts":[{"text":"Useful background"}]}}]}""")
         }
-        try { manager.ask(OnlineProvider.GEMINI, "Saudi news", "HARU"); fail("Expected missing-source failure") }
-        catch (e: IllegalStateException) {
-            assertEquals(LiveSearchPolicy.NO_SOURCES, e.message)
-        }
+        val reply = manager.ask(OnlineProvider.GEMINI, "Saudi news", "HARU")
+        assertTrue(reply.text.startsWith(LiveSearchPolicy.UNVERIFIED))
+        assertTrue(reply.text.contains("Useful background"))
+        assertFalse(reply.memoryText.contains("Useful background"))
+        assertFalse(reply.rememberAnswer)
+        assertTrue(reply.webSources.isEmpty())
         assertEquals(1, calls)
     }
 
@@ -235,12 +237,87 @@ class AiUsageTest {
         assertEquals(1, calls)
     }
 
-    @Test fun missingGeminiKeyForGroqNewsDoesNotMakeAnApiCall() = runBlocking {
-        val manager = AndroidOnlineAiManager(context, { _, _, _ -> error("Must not send") },
-            { name -> if (name == "groq") "synthetic-test-key" else "" }, { clock })
-        try { manager.ask(OnlineProvider.GROQ, "Latest news", "HARU"); fail("Expected key guidance") }
-        catch (e: IllegalArgumentException) { assertTrue(e.message!!.contains("live-search tool")) }
+    @Test fun groqWithoutGeminiStillAnswersGeneralPartsWithOneGroqRequest() = runBlocking {
+        var calls = 0
+        val manager = AndroidOnlineAiManager(context, { request, _, _ ->
+            calls++
+            assertEquals("api.groq.com", request.url.host)
+            assertTrue(payload(request).getJSONArray("messages").toString().contains("Live retrieval is unavailable"))
+            AiHttpResponse(200, """{"choices":[{"message":{"content":"Background explanation"}}]}""")
+        }, { name -> if (name == "groq") "synthetic-test-key" else "" }, { clock })
+        val reply = manager.ask(OnlineProvider.GROQ, "Latest news", "HARU")
+        assertTrue(reply.text.startsWith(LiveSearchPolicy.KNOWLEDGE_NOTICE))
+        assertTrue(reply.text.contains("Background explanation"))
+        assertFalse(reply.rememberAnswer)
+        assertFalse(reply.usedGeminiSearch)
+        assertEquals(1, calls)
     }
+
+    @Test fun knowledgeModePersistsSkipsSearchAndAgentAndKeepsStableMemory() = runBlocking {
+        var calls = 0
+        val transport: suspend (Request, Int, Int) -> AiHttpResponse = { request, _, _ ->
+            calls++
+            assertTrue(request.url.encodedPath.endsWith(":generateContent"))
+            assertFalse(payload(request).has("tools"))
+            AiHttpResponse(200, """{"candidates":[{"content":{"parts":[{"text":"Useful answer"}]}}]}""")
+        }
+        manager(transport).saveAnswerMode(AiAnswerMode.KNOWLEDGE)
+        val manager = manager(transport)
+        assertEquals(AiAnswerMode.KNOWLEDGE, manager.settings().answerMode)
+        val current = manager.ask(OnlineProvider.ANTIGRAVITY, "Deep research latest news", "HARU")
+        assertTrue(current.text.startsWith(LiveSearchPolicy.KNOWLEDGE_NOTICE))
+        assertFalse(current.rememberAnswer)
+        clock += 4000
+        val stable = manager.ask(OnlineProvider.GEMINI, "Give me a pancake recipe", "HARU")
+        assertEquals("Useful answer", stable.text)
+        assertTrue(stable.rememberAnswer)
+        assertTrue(stable.webSources.isEmpty())
+        assertEquals(2, calls)
+    }
+
+    @Test fun missingSourcesKeepsFollowUpTopicWithoutSavingUnverifiedAssertions() = runBlocking {
+        var calls = 0
+        val manager = manager { request, _, _ ->
+            calls++
+            assertTrue(payload(request).has("tools"))
+            if (calls == 1) AiHttpResponse(200, """{"candidates":[{"content":{"parts":[{"text":"Unverified claim"}]}}]}""")
+            else {
+                assertFalse(payload(request).toString().contains("Unverified claim"))
+                success()
+            }
+        }
+        val first = manager.ask(OnlineProvider.GEMINI, "Latest Saudi news", "HARU")
+        clock += 4000
+        val next = manager.ask(OnlineProvider.GEMINI, "Tell me more", "HARU",
+            listOf(ConversationExchange("Latest Saudi news", first.memoryText)))
+        assertTrue(next.rememberAnswer)
+        assertEquals("Answer", next.memoryText)
+        assertEquals(1, next.webSources.size)
+        assertEquals(2, calls)
+    }
+
+    @Test fun explicitKnowledgeRequestDisablesToolsAndMarksChangingFacts() = runBlocking {
+        val manager = manager { request, _, _ ->
+            assertFalse(payload(request).has("tools"))
+            AiHttpResponse(200, """{"candidates":[{"content":{"parts":[{"text":"Background"}]}}]}""")
+        }
+        val reply = manager.ask(OnlineProvider.ANTIGRAVITY, "Latest news without search", "HARU")
+        assertTrue(reply.text.startsWith(LiveSearchPolicy.KNOWLEDGE_NOTICE))
+        assertFalse(reply.rememberAnswer)
+    }
+
+    @Test fun agentWithoutSourcesKeepsUsefulResponseWithoutPretendingItIsVerified() = runBlocking {
+        var calls = 0
+        val manager = manager { _, _, _ ->
+            calls++
+            AiHttpResponse(200, """{"id":"v1_test","status":"completed","output_text":"Useful background"}""")
+        }
+        val reply = manager.ask(OnlineProvider.ANTIGRAVITY, "Deep research news", "HARU")
+        assertTrue(reply.text.startsWith(LiveSearchPolicy.UNVERIFIED))
+        assertFalse(reply.rememberAnswer)
+        assertEquals(1, calls)
+    }
+
     @Test fun codeReviewUsesOneDirectReasoningRequestWithoutWebOrAgent() = runBlocking {
         var calls = 0
         val manager = manager { request, _, _ ->

@@ -76,6 +76,7 @@ import io.haru.assistant.companion.HaruDailyPulseFactory
 import io.haru.assistant.core.HaruMood
 import io.haru.assistant.location.TrustedLocation
 import io.haru.assistant.onlineai.GeminiModel
+import io.haru.assistant.onlineai.AiAnswerMode
 import io.haru.assistant.onlineai.OnlineProvider
 import org.maplibre.android.MapLibre
 import org.maplibre.android.annotations.MarkerOptions
@@ -100,6 +101,7 @@ fun HaruScreen(
     companionQuiet: Boolean,
     onlineProvider: OnlineProvider,
     selectedGeminiModel: GeminiModel,
+    aiAnswerMode: AiAnswerMode,
     geminiModels: List<GeminiModel>,
     onlineStatus: String,
     hasGeminiKey: Boolean,
@@ -132,6 +134,7 @@ fun HaruScreen(
     onOpenAppSettings: () -> Unit,
     onSelectOnlineProvider: (OnlineProvider) -> Unit,
     onSelectGeminiModel: (GeminiModel) -> Unit,
+    onSelectAiAnswerMode: (AiAnswerMode) -> Unit,
     onRefreshGeminiModels: () -> Unit,
     onSaveGeminiKey: (String) -> Unit,
     onSaveGroqKey: (String) -> Unit,
@@ -330,6 +333,7 @@ fun HaruScreen(
         OnlineAiDialog(
             provider = onlineProvider,
             selectedGeminiModel = selectedGeminiModel,
+            aiAnswerMode = aiAnswerMode,
             geminiModels = geminiModels,
             status = onlineStatus,
             hasGeminiKey = hasGeminiKey,
@@ -337,6 +341,7 @@ fun HaruScreen(
             onDismiss = { showOnlineAi = false },
             onSelectProvider = onSelectOnlineProvider,
             onSelectGeminiModel = onSelectGeminiModel,
+            onSelectAiAnswerMode = onSelectAiAnswerMode,
             onRefreshGeminiModels = onRefreshGeminiModels,
             onSaveGeminiKey = onSaveGeminiKey,
             onSaveGroqKey = onSaveGroqKey,
@@ -1631,6 +1636,7 @@ private fun AppUpdateDialog(
 private fun OnlineAiDialog(
     provider: OnlineProvider,
     selectedGeminiModel: GeminiModel,
+    aiAnswerMode: AiAnswerMode,
     geminiModels: List<GeminiModel>,
     status: String,
     hasGeminiKey: Boolean,
@@ -1638,6 +1644,7 @@ private fun OnlineAiDialog(
     onDismiss: () -> Unit,
     onSelectProvider: (OnlineProvider) -> Unit,
     onSelectGeminiModel: (GeminiModel) -> Unit,
+    onSelectAiAnswerMode: (AiAnswerMode) -> Unit,
     onRefreshGeminiModels: () -> Unit,
     onSaveGeminiKey: (String) -> Unit,
     onSaveGroqKey: (String) -> Unit,
@@ -1669,6 +1676,16 @@ private fun OnlineAiDialog(
                     onSelect = onSelectProvider,
                 )
 
+                Spacer(Modifier.height(10.dp))
+                HaruOptionDropdown(
+                    label = "Answer mode",
+                    selectedText = aiAnswerMode.label,
+                    options = AiAnswerMode.entries,
+                    optionLabel = { it.label },
+                    isSelected = { it == aiAnswerMode },
+                    onSelect = onSelectAiAnswerMode,
+                )
+                Text("Auto looks up live facts when needed. General knowledge answers directly without search; changing facts may be outdated.", style = MaterialTheme.typography.labelSmall)
                 Spacer(Modifier.height(10.dp))
                 HaruOptionDropdown(
                     label = "Gemini model",
