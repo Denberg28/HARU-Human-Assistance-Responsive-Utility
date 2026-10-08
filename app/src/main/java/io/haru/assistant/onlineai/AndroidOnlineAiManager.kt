@@ -40,6 +40,7 @@ data class GeminiModel(
 data class OnlineAiSettings(
     val provider: OnlineProvider = OnlineProvider.ANTIGRAVITY,
     val geminiModel: GeminiModel = AndroidOnlineAiManager.FALLBACK_GEMINI_MODEL,
+    val answerMode: AiAnswerMode = AiAnswerMode.AUTO,
 )
 
 data class OnlineAiReply(
@@ -48,7 +49,12 @@ data class OnlineAiReply(
     val webSources: List<WebSource> = emptyList(),
     val searchSuggestionsHtml: String = "",
     val usedGeminiSearch: Boolean = false,
-)
+    val rememberAnswer: Boolean = true,
+) {
+    // Retain the user's topic for follow-ups without retaining unverified assertions.
+    val memoryText: String get() = if (rememberAnswer) text else
+        "Live information was not verified for this question. Do not infer current facts from the previous model response."
+}
 
 private class ProviderHttpException(
     val statusCode: Int,
@@ -80,6 +86,7 @@ class AndroidOnlineAiManager internal constructor(
     private var activeScope = "gemini"
     private var webSources: List<WebSource> = emptyList()
     private var searchSuggestionsHtml = ""
+    private var rememberAnswer = true
 
     fun usageDiagnostics(): String = stats.description()
 
@@ -88,6 +95,7 @@ class AndroidOnlineAiManager internal constructor(
             activeScope = scope
             webSources = emptyList()
             searchSuggestionsHtml = ""
+            rememberAnswer = true
             val remaining = preferences.getLong("quota_until_$scope", 0L) - System.currentTimeMillis()
             check(remaining <= 0L) { AiRequestPolicy.waitMessage(scope, remaining) }
             block()
@@ -117,7 +125,8 @@ class AndroidOnlineAiManager internal constructor(
         val selected = catalog.firstOrNull { it.id == storedId }
             ?: preferred(catalog)
 
-        return OnlineAiSettings(provider, selected)
+        return OnlineAiSettings(provider, selected,
+            AiAnswerMode.entries.firstOrNull { it.name == preferences.getString("answer_mode", "") } ?: AiAnswerMode.AUTO)
     }
 
     fun geminiModels(): List<GeminiModel> {
@@ -168,7 +177,7 @@ class AndroidOnlineAiManager internal constructor(
                             .header("Accept", "application/json")
                             .header("Cache-Control", "no-cache")
                             .header("x-goog-api-key", key)
-                            .header("User-Agent", "HARU-Android/0.9.39")
+                            .header("User-Agent", "HARU-Android/0.9.40")
                             .build(),
                     timeoutMs = 20_000,
                     maxChars = MAX_CATALOG_RESPONSE_CHARS,
@@ -242,6 +251,10 @@ class AndroidOnlineAiManager internal constructor(
         preferences.edit().putString(KEY_PROVIDER, provider.name).apply()
     }
 
+    fun saveAnswerMode(mode: AiAnswerMode) {
+        preferences.edit().putString("answer_mode", mode.name).apply()
+    }
+
     fun saveGeminiModel(model: GeminiModel) {
         require(geminiModels().any { it.id == model.id }) {
             "Refresh Gemini models before selecting this model."
@@ -271,9 +284,15 @@ class AndroidOnlineAiManager internal constructor(
         summary: String = "",
         antigravitySession: AntigravitySession? = null,
     ): OnlineAiReply = withContext(Dispatchers.IO) {
-        val enableSearch = HaruAiRoutingPolicy.needsWebSearch(prompt, history.map { it.user })
-        val enableUrl = HaruAiRoutingPolicy.needsUrlContext(prompt) ||
+        val wantsSearch = HaruAiRoutingPolicy.needsLiveVerification(prompt, history.map { it.user })
+        val wantsUrl = HaruAiRoutingPolicy.needsUrlContext(prompt) ||
             (HaruAiRoutingPolicy.isFollowUp(prompt) && HaruAiRoutingPolicy.needsUrlContext(history.lastOrNull()?.user.orEmpty()))
+        val knowledgeMode = settings().answerMode == AiAnswerMode.KNOWLEDGE || HaruAiRoutingPolicy.knowledgeOnly(prompt)
+        val retrievalAvailable = !knowledgeMode && (provider != OnlineProvider.GROQ || hasGeminiKey())
+        val enableSearch = wantsSearch && retrievalAvailable
+        val enableUrl = wantsUrl && retrievalAvailable
+        val unverifiedKnowledge = (wantsSearch || wantsUrl) && !retrievalAvailable
+        val effectiveSystemPrompt = if (knowledgeMode || unverifiedKnowledge) systemPrompt + "\n" + LiveSearchPolicy.KNOWLEDGE_INSTRUCTION else systemPrompt
         val effectiveProvider = if (provider == OnlineProvider.GROQ && (enableSearch || enableUrl)) OnlineProvider.GEMINI else provider
         guarded(if (effectiveProvider == OnlineProvider.GROQ) "groq" else "gemini") {
         require(prompt.isNotBlank()) { "Prompt is empty." }
@@ -287,21 +306,16 @@ class AndroidOnlineAiManager internal constructor(
         val recentHistory = AiRequestPolicy.boundedHistory(history)
         val cleanSummary = ConversationMemoryPolicy.sanitizeSummary(summary).takeLast(AiRequestPolicy.SUMMARY_CHARS)
 
-        if (provider == OnlineProvider.GROQ && (enableSearch || enableUrl)) {
-            require(credential("gemini").isNotBlank()) {
-                "Groq chat is connected without a live-search tool. Save a Gemini key in Settings to enable live news search, or select Gemini/Antigravity."
-            }
-        }
-        when (effectiveProvider) {
+        val reply = when (effectiveProvider) {
             OnlineProvider.ANTIGRAVITY ->
-                when (HaruAiRoutingPolicy.routeForAntigravity(prompt)) {
+                when (if (knowledgeMode) HaruAiRoute.FAST_CHAT else HaruAiRoutingPolicy.routeForAntigravity(prompt)) {
                     HaruAiRoute.FAST_CHAT ->
                         OnlineAiReply(
                             text =
                                 askGeminiWithTransientFallback(
                                     modelId = if (enableSearch) economicalSearchModel() else settings().geminiModel.id,
                                     prompt = prompt,
-                                    systemPrompt = systemPrompt,
+                                    systemPrompt = effectiveSystemPrompt,
                                     history = recentHistory,
                                     summary = cleanSummary,
                                     enableSearch = enableSearch,
@@ -314,7 +328,7 @@ class AndroidOnlineAiManager internal constructor(
                     HaruAiRoute.ANTIGRAVITY_AGENT ->
                         askAntigravity(
                             prompt = prompt,
-                            systemPrompt = systemPrompt,
+                            systemPrompt = effectiveSystemPrompt,
                             history = recentHistory,
                             summary = cleanSummary,
                             session = antigravitySession,
@@ -329,7 +343,7 @@ class AndroidOnlineAiManager internal constructor(
                         askGeminiWithTransientFallback(
                             modelId = if (enableSearch) economicalSearchModel() else settings().geminiModel.id,
                             prompt = prompt,
-                            systemPrompt = systemPrompt,
+                            systemPrompt = effectiveSystemPrompt,
                             history = recentHistory,
                             summary = cleanSummary,
                             enableSearch = enableSearch,
@@ -341,13 +355,19 @@ class AndroidOnlineAiManager internal constructor(
                     text =
                         askGroq(
                             prompt = prompt,
-                            systemPrompt = systemPrompt,
+                            systemPrompt = effectiveSystemPrompt,
                             history = recentHistory,
                             summary = cleanSummary,
                         )
                 )
-        }.copy(webSources = webSources, searchSuggestionsHtml = searchSuggestionsHtml,
-            usedGeminiSearch = (enableSearch || enableUrl) && effectiveProvider == OnlineProvider.GEMINI)
+        }
+        if (unverifiedKnowledge) rememberAnswer = false
+        reply.copy(
+            text = if (unverifiedKnowledge) LiveSearchPolicy.KNOWLEDGE_NOTICE + "\n\n" + reply.text else reply.text,
+            webSources = webSources, searchSuggestionsHtml = searchSuggestionsHtml,
+            usedGeminiSearch = (enableSearch || enableUrl) && effectiveProvider != OnlineProvider.GROQ,
+            rememberAnswer = rememberAnswer,
+        )
     } }
 
     suspend fun test(provider: OnlineProvider): String =
@@ -447,10 +467,10 @@ class AndroidOnlineAiManager internal constructor(
         if (enableWebTools) {
             val grounding = LiveSearchPolicy.interactionGrounding(response)
             webSources = LiveSearchPolicy.sources(grounding)
-            check(webSources.isNotEmpty()) { LiveSearchPolicy.NO_SOURCES }
+            if (webSources.isEmpty()) rememberAnswer = false
             searchSuggestionsHtml = LiveSearchPolicy.suggestions(grounding)
         }
-        return reply
+        return if (enableWebTools && webSources.isEmpty()) reply.copy(text = LiveSearchPolicy.UNVERIFIED + "\n\n" + reply.text) else reply
     }
 
     private fun parseAntigravityReply(
@@ -759,7 +779,7 @@ class AndroidOnlineAiManager internal constructor(
         }
         if (enableSearch) {
             webSources = LiveSearchPolicy.sources(candidate)
-            check(webSources.isNotEmpty()) { LiveSearchPolicy.NO_SOURCES }
+            if (webSources.isEmpty()) rememberAnswer = false
             searchSuggestionsHtml = LiveSearchPolicy.suggestions(candidate)
         }
         if (enableUrl) {
@@ -767,9 +787,10 @@ class AndroidOnlineAiManager internal constructor(
             check(retrieved.isNotEmpty()) { "The provider could not retrieve the supplied page. It may be inaccessible, private or paywalled. Paste its text for HARU to review; no automatic retry was sent." }
             webSources = (webSources + retrieved).distinctBy { it.url }.take(10)
         }
+        val displayedText = if (enableSearch && webSources.isEmpty()) LiveSearchPolicy.UNVERIFIED + "\n\n" + text else text
         return if (candidate.optString("finishReason") == "MAX_TOKENS") {
-            "$text\n\nAnswer stopped at HARU's response budget."
-        } else text
+            "$displayedText\n\nAnswer stopped at HARU's response budget."
+        } else displayedText
     }
 
     private suspend fun postJson(
@@ -789,7 +810,7 @@ class AndroidOnlineAiManager internal constructor(
                 .post(body)
                 .header("Content-Type", "application/json")
                 .header("Accept", "application/json")
-                .header("User-Agent", "HARU-Android/0.9.39")
+                .header("User-Agent", "HARU-Android/0.9.40")
 
         headers.forEach { (name, value) ->
             builder.header(name, value)

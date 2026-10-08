@@ -80,7 +80,7 @@ class AiUsageTests(unittest.TestCase):
             {"@type": "type.googleapis.com/google.rpc.RetryInfo", "retryDelay": "90s"}]}), 90)
 
     def test_query_coverage_and_cost_routing(self):
-        ordinary = ["Translate hello to French", "Explain photosynthesis", "What is electric current?", "Define price elasticity", "Audit this code: a + b", "Solve x squared = 4"]
+        ordinary = ["Translate hello to French", "Explain photosynthesis", "What is electric current?", "Define price elasticity", "Audit this code: a + b", "Solve x squared = 4", "Translate this: latest news", "Write a fictional news report", "Latest news without search"]
         for query in ordinary:
             with self.subTest(query=query):
                 self.assertFalse(ai_usage.needs_agent(query))
@@ -111,10 +111,21 @@ class AiUsageTests(unittest.TestCase):
         self.assertEqual(request.call_args.kwargs["payload"]["tools"], [{"url_context": {}}])
 
     @patch("ai_runtime._json_request")
-    def test_missing_sources_fail_once(self, request):
+    def test_missing_sources_show_labeled_response_once(self, request):
         request.return_value = {"candidates": [{"content": {"parts": [{"text": "Unverified"}]}}]}
-        with self.assertRaisesRegex(AiRuntimeError, "no verifiable live sources"):
-            ask_ai(self.config, "Latest news", enable_native_tools=True)
+        reply = ask_ai(self.config, "Latest news", enable_native_tools=True)
+        self.assertTrue(reply.startswith("Current facts unverified:"))
+        self.assertTrue(reply.endswith("Unverified"))
+        self.assertEqual(request.call_count, 1)
+
+    @patch("ai_runtime._json_request")
+    def test_unsafe_source_urls_do_not_make_response_appear_grounded(self, request):
+        request.return_value = {"candidates": [{"content": {"parts": [{"text": "Useful background"}]},
+            "groundingMetadata": {"groundingChunks": [{"web": {"uri": url}} for url in
+                ["javascript:alert(1)", "http://example.com/news", "https://user:password@example.com/news"]]}}]}
+        reply = ask_ai(self.config, "Latest news", enable_native_tools=True)
+        self.assertTrue(reply.startswith("Current facts unverified:"))
+        self.assertNotIn("Live sources:", reply)
         self.assertEqual(request.call_count, 1)
 
     @patch("ai_runtime._json_request")

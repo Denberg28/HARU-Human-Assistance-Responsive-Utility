@@ -37,6 +37,11 @@ def needs_reasoning(prompt: str) -> bool:
 
 def needs_web_search(prompt: str, previous_prompts=()) -> bool:
     value = current_query(prompt).lower()
+    if re.search(r"\b(without (?:web )?search|no (?:web )?search|(?:use|from) (?:only )?your (?:own )?knowledge|general knowledge only)\b", value):
+        return False
+    if not re.search(r"\b(search (?:the web|online|for)|browse|look up|deep research)\b", value) and re.search(
+        r"^(?:translate|rewrite|rephrase|proofread|correct (?:the )?grammar|write (?:a |an )?fictional|create (?:a |an )?fictional)\b", value):
+        return False
     if needs_agent(value) or re.search(
         r"\b(search (?:the web|online|for)|browse|google|look up|lookup|find online|check online|on the web|internet|compare sources|verify sources|cross.check|latest|breaking|currently|right now|tonight|recent|recently|live|ngayon|pinakabago|dosage|contraindications|drug interactions|medical advice|legal advice|tax law|investment advice|caap regulations|pcar)\b"
         r"|\b(current|today)\b.{0,60}\b(news|weather|forecast|price|prices|stock|availability|score|scores|schedule|events|updates|president|ceo|law|regulations)\b"

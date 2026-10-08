@@ -1280,6 +1280,8 @@ with assistant_tab:
             if len(reply) <= 8000
             else reply[:8000] + "\n…"
         )
+        if history_reply.startswith("Current facts unverified:"):
+            history_reply = "Live information was not verified for this question. Do not infer current facts from the previous model response."
         st.session_state.history.append((pending_command, history_reply))
         if len(st.session_state.history) > 100:
             st.session_state.history = st.session_state.history[-100:]
