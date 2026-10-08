@@ -263,7 +263,7 @@ class AiUsageTest {
             assertEquals("hidden", data.getString("reasoning_format"))
             val complex = data.getJSONArray("messages").toString().contains("Solve")
             assertEquals(if (complex) "low" else "none", data.getString("reasoning_effort"))
-            assertEquals(if (complex) 2400 else 640, data.getInt("max_tokens"))
+            assertEquals(if (complex) 2400 else 640, data.getInt("max_completion_tokens"))
             AiHttpResponse(200, """{"choices":[{"message":{"content":"Answer"}}]}""")
         }
         manager.ask(OnlineProvider.GROQ, "Translate hello to French", "HARU")
