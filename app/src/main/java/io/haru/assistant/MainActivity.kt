@@ -390,7 +390,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
                         } else {
                             ""
                         }
-                if (reply.usedGeminiSearch) onlineStatus += " · live search via Gemini"
+                if (reply.usedGeminiSearch) onlineStatus += " · web lookup via Gemini"
                 onlineStatus += "\n" + onlineAiManager.usageDiagnostics()
                 viewModel.completeAi(reply.text, success = true, webSources = reply.webSources, searchSuggestionsHtml = reply.searchSuggestionsHtml)
                 if (speakResult) voiceController.speak(reply.text)

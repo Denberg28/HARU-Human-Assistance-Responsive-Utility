@@ -465,7 +465,11 @@ private fun SimpleHaruPane(
                 placeholder = {
                     Text("Ask, add a task, or set a reminder")
                 },
-                singleLine = true,
+                singleLine = false,
+                minLines = 1,
+                maxLines = 4,
+                isError = state.commandTooLong,
+                supportingText = { if (state.commandTooLong) Text("Request is too long. Shorten or split it to 8,000 characters.") },
                 keyboardOptions =
                     KeyboardOptions(imeAction = ImeAction.Send),
                 keyboardActions =
@@ -1765,7 +1769,7 @@ private fun OnlineAiDialog(
                     Text(status, style = MaterialTheme.typography.bodySmall)
                 }
                 Text(
-                    "Antigravity Auto uses Gemini for chat and news searches. Multi-step research uses a bounded agent task. Connection tests consume quota. Gemini and Antigravity share your Google project's limits; HARU pauses after a quota error. Usage counts cover this app session only. On Gemini server errors, one Flash-Lite fallback is allowed.",
+                    "Antigravity Auto uses Gemini for chat and news searches. Only explicit deep research uses a bounded agent task. Code review and reasoning use direct requests. Refresh models to discover economical search options; 2.5 Flash-Lite is retained when available. Search access depends on your Google project and billing tier. Connection tests consume quota. Gemini and Antigravity share your Google project's limits; HARU pauses after a quota error. Usage counts cover this app session only. On Gemini server errors, one Flash-Lite fallback is allowed, except 2.5 search requests remain on 2.5.",
                     style = MaterialTheme.typography.labelSmall,
                 )
             }

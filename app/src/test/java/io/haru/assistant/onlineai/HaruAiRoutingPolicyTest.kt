@@ -27,9 +27,9 @@ class HaruAiRoutingPolicyTest {
     }
 
     @Test
-    fun explicitWebResearchEscalatesToAgent() {
+    fun sourceComparisonUsesOneDirectRequest() {
         assertEquals(
-            HaruAiRoute.ANTIGRAVITY_AGENT,
+            HaruAiRoute.FAST_CHAT,
             HaruAiRoutingPolicy.routeForAntigravity(
                 "Search the web and compare sources for me."
             ),
@@ -81,4 +81,25 @@ class HaruAiRoutingPolicyTest {
         assertFalse(HaruAiRoutingPolicy.needsWebSearch("Tell me more", listOf("Latest Saudi news", "Explain rotor lift")))
         assertFalse(HaruAiRoutingPolicy.needsWebSearch("Tell me more", "Explain electric current"))
     }
+    @Test fun queryCoverageAvoidsToolsForSuppliedReasoningAndConcepts() {
+        listOf("Audit this Kotlin code: fun add(a: Int, b: Int) = a+b", "Investigate why my rover oscillates", "Explain weather forecasting", "Define price elasticity", "Translate this paragraph to Filipino", "Solve x + 2 = 5").forEach {
+            assertEquals(it, HaruAiRoute.FAST_CHAT, HaruAiRoutingPolicy.routeForAntigravity(it))
+            assertFalse(it, HaruAiRoutingPolicy.needsWebSearch(it))
+        }
+        listOf("What time is flight 5J 325 today?", "What is the weather in Nabua?", "Who is the president of the Philippines?", "Check CAAP regulations and PCAR", "Latest Saudi news", "Explain current weather in Nabua", "Explain news about Saudi fuel").forEach {
+            assertTrue(it, HaruAiRoutingPolicy.needsWebSearch(it))
+        }
+        assertTrue(HaruAiRoutingPolicy.needsUrlContext("Summarize https://example.com/article"))
+        assertFalse(HaruAiRoutingPolicy.needsWebSearch("Summarize https://example.com/article"))
+    }
+
+    @Test fun budgetsScaleWithQuestionNeedsWithoutChangingTestsOrAgentLimits() {
+        assertEquals(256, AiRequestPolicy.outputBudget("Reply with exactly: HARU OK"))
+        assertEquals(640, AiRequestPolicy.outputBudget("Translate hello to Filipino"))
+        assertEquals(1200, AiRequestPolicy.outputBudget("Latest news"))
+        assertEquals(2400, AiRequestPolicy.outputBudget("Derive the equation step by step"))
+        assertEquals("low", AiRequestPolicy.thinkingLevel("gemini-3.5-flash-lite", "Solve this equation"))
+        assertEquals("minimal", AiRequestPolicy.thinkingLevel("gemini-3.5-flash-lite", "Hello"))
+    }
+
 }

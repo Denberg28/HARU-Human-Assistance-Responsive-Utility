@@ -58,4 +58,11 @@ class GeminiAgentCatalogTest {
             )
         )
     }
+    @Test fun retainsEconomyModelOnlyWhenListed() {
+        val latest = GeminiModel("gemini-3.5-flash-lite", "Lite")
+        val economy = GeminiModel("gemini-2.5-flash-lite", "Economy")
+        assertEquals(listOf(latest, economy), GeminiAgentCatalogPolicy.newestSupportedAgents(listOf(latest, economy)))
+        assertEquals(listOf(latest), GeminiAgentCatalogPolicy.newestSupportedAgents(listOf(latest)))
+    }
+
 }

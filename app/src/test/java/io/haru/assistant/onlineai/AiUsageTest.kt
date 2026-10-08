@@ -241,4 +241,77 @@ class AiUsageTest {
         try { manager.ask(OnlineProvider.GROQ, "Latest news", "HARU"); fail("Expected key guidance") }
         catch (e: IllegalArgumentException) { assertTrue(e.message!!.contains("live-search tool")) }
     }
+    @Test fun codeReviewUsesOneDirectReasoningRequestWithoutWebOrAgent() = runBlocking {
+        var calls = 0
+        val manager = manager { request, _, _ ->
+            calls++
+            assertTrue(request.url.encodedPath.endsWith(":generateContent"))
+            val data = payload(request)
+            assertFalse(data.has("tools"))
+            val config = data.getJSONObject("generationConfig")
+            assertEquals(2400, config.getInt("maxOutputTokens"))
+            assertEquals("low", config.getJSONObject("thinkingConfig").getString("thinkingLevel"))
+            success()
+        }
+        manager.ask(OnlineProvider.ANTIGRAVITY, "Audit this code for bugs: fun add(a: Int, b: Int) = a - b", "HARU")
+        assertEquals(1, calls)
+    }
+
+    @Test fun groqRoutineAndReasoningBudgetsDifferWithoutHiddenReasoning() = runBlocking {
+        val manager = manager { request, _, _ ->
+            val data = payload(request)
+            assertEquals("hidden", data.getString("reasoning_format"))
+            val complex = data.getJSONArray("messages").toString().contains("Solve")
+            assertEquals(if (complex) "low" else "none", data.getString("reasoning_effort"))
+            assertEquals(if (complex) 2400 else 640, data.getInt("max_completion_tokens"))
+            AiHttpResponse(200, """{"choices":[{"message":{"content":"Answer"}}]}""")
+        }
+        manager.ask(OnlineProvider.GROQ, "Translate hello to French", "HARU")
+        clock += 4000
+        manager.ask(OnlineProvider.GROQ, "Solve x squared minus 4 equals zero", "HARU")
+        Unit
+    }
+
+    @Test fun suppliedPageUsesUrlContextOnlyAndVerifiedRetrieval() = runBlocking {
+        var calls = 0
+        val manager = manager { request, _, _ ->
+            calls++
+            val tools = payload(request).getJSONArray("tools")
+            assertEquals(1, tools.length())
+            assertTrue(tools.getJSONObject(0).has("url_context"))
+            AiHttpResponse(200, """{"candidates":[{"content":{"parts":[{"text":"Summary"}]},"urlContextMetadata":{"urlMetadata":[{"retrievedUrl":"https://example.com/article","urlRetrievalStatus":"URL_RETRIEVAL_STATUS_SUCCESS"}]}}]}""")
+        }
+        val reply = manager.ask(OnlineProvider.GROQ, "Summarize https://example.com/article", "HARU")
+        assertEquals("https://example.com/article", reply.webSources.single().url)
+        assertTrue(reply.usedGeminiSearch)
+        assertEquals(1, calls)
+    }
+
+    @Test fun inaccessiblePageFailsOnceWithoutInventedSourceOrRetry() = runBlocking {
+        var calls = 0
+        val manager = manager { _, _, _ ->
+            calls++
+            AiHttpResponse(200, """{"candidates":[{"content":{"parts":[{"text":"Invented summary https://example.com/article"}]},"urlContextMetadata":{"urlMetadata":[{"retrievedUrl":"https://example.com/article","urlRetrievalStatus":"URL_RETRIEVAL_STATUS_ERROR"}]}}]}""")
+        }
+        try { manager.ask(OnlineProvider.GEMINI, "Summarize https://example.com/article", "HARU"); fail("Expected retrieval failure") }
+        catch (e: IllegalStateException) { assertTrue(e.message!!.contains("Paste")) }
+        assertEquals(1, calls)
+    }
+
+    @Test fun listedEconomySearchModelIsUsedWithoutPaidTierFallback() = runBlocking {
+        context.getSharedPreferences("haru_online_ai", Context.MODE_PRIVATE).edit()
+            .putString("gemini_catalog", """[{"id":"gemini-3.8-flash","label":"Flash"},{"id":"gemini-3.5-flash-lite","label":"Lite"},{"id":"gemini-2.5-flash-lite","label":"Economy"}]""")
+            .putString("gemini_model", "gemini-3.8-flash").commit()
+        var calls = 0
+        val manager = manager { request, _, _ ->
+            calls++
+            assertTrue(request.url.encodedPath.contains("gemini-2.5-flash-lite"))
+            assertFalse(payload(request).getJSONObject("generationConfig").has("thinkingConfig"))
+            AiHttpResponse(503, "{}")
+        }
+        try { manager.ask(OnlineProvider.GEMINI, "Latest news", "HARU"); fail("Expected provider error") }
+        catch (_: IllegalStateException) { }
+        assertEquals(1, calls)
+    }
+
 }

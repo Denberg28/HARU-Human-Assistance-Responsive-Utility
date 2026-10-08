@@ -7,13 +7,13 @@ class TimeSkill : HaruSkill {
     override val name = "Time"
 
     override fun canHandle(command: String): Boolean {
-        val c = command.lowercase()
-        return "what time" in c || "current time" in c || "what date" in c || "today" == c.trim()
+        val c = command.trim().lowercase().replace(Regex("""\s+"""), " ").trimEnd('?', '.', '!')
+        return c in setOf("what time is it", "what is the time", "what time is it now", "current time", "time", "time now", "what date is it", "what is the date", "what date is today", "today", "date", "today's date")
     }
 
     override fun execute(command: String): SkillResult {
         val now = LocalDateTime.now()
-        val wantsDate = command.lowercase().contains("date") || command.trim().equals("today", true)
+        val wantsDate = command.lowercase().contains("date") || command.trim().trimEnd('?', '.', '!').equals("today", true)
         val value = if (wantsDate) {
             now.format(DateTimeFormatter.ofPattern("EEEE, MMMM d, yyyy"))
         } else {

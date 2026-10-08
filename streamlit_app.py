@@ -6,6 +6,8 @@ import operator
 import os
 import re
 
+from ai_usage import needs_web_search, needs_url_context
+
 import streamlit as st
 import streamlit.components.v1 as components
 from streamlit_geolocation import streamlit_geolocation
@@ -280,10 +282,10 @@ def local_tool_result(command: str):
             "I'm HARU. In Local mode I can handle offline utility tasks; connect a local or online AI model for open-ended reasoning.",
         )
 
-    if "what time" in low or "current time" in low or low == "time":
+    if low.rstrip("?.!") in {"what time is it", "what time is it now", "current time", "time", "time now", "what is the time"}:
         return "HAPPY", datetime.now().strftime("%I:%M %p").lstrip("0")
 
-    if "what date" in low or low in {"today", "date"}:
+    if low.rstrip("?.!") in {"what date is it", "what is the date", "today", "date", "today\'s date", "what is today\'s date"}:
         return "HAPPY", datetime.now().strftime("%A, %B %d, %Y").replace(" 0", " ")
 
     if low in {"news", "latest news", "brief me", "news briefing"}:
@@ -493,11 +495,11 @@ def route_command(command: str):
     if len(clean) > 12000:
         return "ALERT", "That request is too large for HARU's free-first mode. Keep it under 12,000 characters."
 
-    # HARU shell mode:
-    # - Connected provider is the primary agent.
-    # - HARU only adds identity, recent conversation context, and local deterministic tool context.
-    # - If no provider is connected, HARU falls back to its lightweight local tools.
+    # Deterministic utilities and confirmed device actions need no paid paraphrase.
     tool_result = local_tool_result(clean)
+    conversational = {"hi", "hello", "hey", "haru", "hello haru", "good morning", "good afternoon", "good evening", "who are you", "what are you", "news", "latest news", "brief me", "news briefing", "hazards", "hazard", "disaster", "disaster update", "hazard update"}
+    if tool_result is not None and clean.lower() not in conversational:
+        return tool_result
 
     if ai_is_active():
         config = current_ai_config()
@@ -546,10 +548,8 @@ def route_command(command: str):
         )
 
         enable_native_tools = config.provider in {
-            "OpenAI API",
-            "Google Gemini API",
-            "Anthropic Claude API",
-        }
+            "OpenAI API", "Google Gemini API", "Anthropic Claude API",
+        } and (needs_web_search(clean, [str(item[0]) for item in recent_history]) or needs_url_context(clean))
 
         try:
             reply = ask_ai(

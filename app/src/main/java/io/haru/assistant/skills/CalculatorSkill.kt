@@ -12,18 +12,24 @@ class CalculatorSkill : HaruSkill {
             ?: return SkillResult("I couldn't read that calculation.", false)
 
         val (aText, op, bText) = match.destructured
-        val a = aText.toDouble()
-        val b = bText.toDouble()
+        val a = aText.toBigDecimal()
+        val b = bText.toBigDecimal()
 
+        var approximate = false
         val result = when (op.lowercase()) {
             "+" -> a + b
             "-" -> a - b
             "*", "x", "×" -> a * b
-            "/" -> if (b != 0.0) a / b else return SkillResult("I can't divide by zero.", false)
+            "/" -> if (b.signum() != 0) {
+                try { a.divide(b) } catch (_: ArithmeticException) {
+                    approximate = true
+                    a.divide(b, java.math.MathContext.DECIMAL64)
+                }
+            } else return SkillResult("I can't divide by zero.")
             else -> return SkillResult("That operator isn't supported yet.", false)
         }
 
-        val display = if (result % 1.0 == 0.0) result.toLong().toString() else "%.4f".format(result).trimEnd('0').trimEnd('.')
-        return SkillResult("$aText $op $bText = $display")
+        val display = result.stripTrailingZeros().toPlainString()
+        return SkillResult("$aText $op $bText ${if (approximate) "≈" else "="} $display")
     }
 }

@@ -14,8 +14,8 @@ class AiUsageTests(unittest.TestCase):
     def test_simple_news_uses_one_grounded_bounded_generation(self, request):
         request.return_value = {"candidates": [{"content": {"parts": [
             {"text": "private thinking", "thought": True}, {"text": "News"}
-        ]}}]}
-        self.assertEqual(ask_ai(self.config, "Search the web for latest news", enable_native_tools=True), "News")
+        ]}, "groundingMetadata": {"groundingChunks": [{"web": {"uri": "https://example.com/news", "title": "Publisher"}}]}}]}
+        self.assertEqual(ask_ai(self.config, "Search the web for latest news", enable_native_tools=True), "News\n\nLive sources:\n- Publisher: https://example.com/news")
         self.assertEqual(request.call_count, 1)
         url = request.call_args.args[0]
         payload = request.call_args.kwargs["payload"]
@@ -78,6 +78,72 @@ class AiUsageTests(unittest.TestCase):
         self.assertEqual(ai_usage.cooldown_seconds({}, "99999999"), 86400)
         self.assertEqual(ai_usage.cooldown_seconds({"details": [
             {"@type": "type.googleapis.com/google.rpc.RetryInfo", "retryDelay": "90s"}]}), 90)
+
+    def test_query_coverage_and_cost_routing(self):
+        ordinary = ["Translate hello to French", "Explain photosynthesis", "What is electric current?", "Define price elasticity", "Audit this code: a + b", "Solve x squared = 4"]
+        for query in ordinary:
+            with self.subTest(query=query):
+                self.assertFalse(ai_usage.needs_agent(query))
+                self.assertFalse(ai_usage.needs_web_search(query))
+        for query in ["Explain news about Saudi fuel", "Latest Saudi news", "What time is flight 5J 325 today?", "Who is the president of France?", "PCAR requirements", "Weather in Cebu"]:
+            with self.subTest(query=query):
+                self.assertTrue(ai_usage.needs_web_search(query))
+        self.assertTrue(ai_usage.needs_web_search("Tell me more", ["Latest news", "What about Cebu?"]))
+        self.assertFalse(ai_usage.needs_web_search("Tell me more", ["Explain photosynthesis"]))
+        self.assertFalse(ai_usage.needs_agent("Recent HARU conversation:\nUser: Deep research a topic\n\nCurrent user request:\nTranslate hello"))
+
+    @patch("ai_runtime._json_request")
+    def test_ordinary_review_is_direct_without_tools_with_reasoning_budget(self, request):
+        request.return_value = {"candidates": [{"content": {"parts": [{"text": "Review"}]}}]}
+        self.assertEqual(ask_ai(self.config, "Audit this code: a - b"), "Review")
+        self.assertEqual(request.call_count, 1)
+        payload = request.call_args.kwargs["payload"]
+        self.assertNotIn("tools", payload)
+        self.assertEqual(payload["generationConfig"]["maxOutputTokens"], 2400)
+        self.assertEqual(payload["generationConfig"]["thinkingConfig"]["thinkingLevel"], "low")
+
+    @patch("ai_runtime._json_request")
+    def test_supplied_page_uses_retrieval_without_separate_search(self, request):
+        request.return_value = {"candidates": [{"content": {"parts": [{"text": "Summary"}]}, "urlContextMetadata": {"urlMetadata": [{"retrievedUrl": "https://example.com/article", "urlRetrievalStatus": "URL_RETRIEVAL_STATUS_SUCCESS"}]}}]}
+        reply = ask_ai(self.config, "Summarize https://example.com/article", enable_native_tools=True)
+        self.assertIn("Retrieved pages", reply)
+        self.assertEqual(request.call_count, 1)
+        self.assertEqual(request.call_args.kwargs["payload"]["tools"], [{"url_context": {}}])
+
+    @patch("ai_runtime._json_request")
+    def test_missing_sources_fail_once(self, request):
+        request.return_value = {"candidates": [{"content": {"parts": [{"text": "Unverified"}]}}]}
+        with self.assertRaisesRegex(AiRuntimeError, "no verifiable live sources"):
+            ask_ai(self.config, "Latest news", enable_native_tools=True)
+        self.assertEqual(request.call_count, 1)
+
+    @patch("ai_runtime._json_request")
+    def test_other_backends_have_output_caps(self, request):
+        cases = [
+            ("Ollama", {"message": {"content": "Hello"}}, "options", "num_predict"),
+            ("Local OpenAI-compatible", {"choices": [{"message": {"content": "Hello"}}]}, None, "max_tokens"),
+            ("OpenAI API", {"output": [{"type": "message", "content": [{"type": "output_text", "text": "Hello"}]}]}, None, "max_output_tokens"),
+            ("Anthropic Claude API", {"content": [{"type": "text", "text": "Hello"}]}, None, "max_tokens"),
+        ]
+        for provider, response, parent, key in cases:
+            with self.subTest(provider=provider):
+                request.return_value = response
+                ask_ai(AiConfig(mode="Cloud", provider=provider, model="synthetic-model", api_key="synthetic-key"), "Hello")
+                payload = request.call_args.kwargs["payload"]
+                self.assertEqual((payload[parent] if parent else payload)[key], 640)
+                self.assertNotIn("tools", payload)
+
+    def test_local_utility_returns_without_ai_call(self):
+        import ast
+        from pathlib import Path
+        parsed = ast.parse(Path("streamlit_app.py").read_text())
+        function = next(node for node in parsed.body if isinstance(node, ast.FunctionDef) and node.name == "route_command")
+        def must_not_call():
+            raise AssertionError("Local utility must not check or call AI")
+        scope = {"local_tool_result": lambda _: ("HAPPY", "confirmed local result"), "ai_is_active": must_not_call}
+        exec(compile(ast.Module(body=[function], type_ignores=[]), "streamlit_app.py", "exec"), scope)
+        for query in ["what time is it", "1 / 0", "add task buy milk", "show reminders"]:
+            self.assertEqual(scope["route_command"](query), ("HAPPY", "confirmed local result"))
 
 
 if __name__ == "__main__":
