@@ -13,12 +13,57 @@ _LOCK = threading.Lock()
 _STATES: dict[str, dict] = {}
 
 
+def current_query(prompt: str) -> str:
+    marker = "\n\nCurrent user request:\n"
+    value = prompt.rsplit(marker, 1)[-1] if marker in prompt else prompt
+    return value.split("\n\nHARU LOCAL TOOL CONTEXT:\n", 1)[0].strip()
+
+
 def needs_agent(prompt: str) -> bool:
-    return bool(re.search(
-        r"\b(deep research|research thoroughly|in-depth research|investigate|audit|compare sources|verify sources|cross-check|cross check)\b"
-        r"|\b(open|visit|read|inspect)\s+(?:this\s+)?(?:url|website|web page|webpage|link)\b",
-        prompt.lower(),
-    ))
+    return bool(re.search(r"\b(deep research|research thoroughly|in-depth research)\b", current_query(prompt).lower()))
+
+
+def needs_url_context(prompt: str) -> bool:
+    value = current_query(prompt)
+    return bool(re.search(r"https://[^\s<>]+", value, re.I) and re.search(
+        r"\b(read|summari[sz]e|summary|open|visit|inspect|compare|review this (?:article|page|link))\b", value.lower()))
+
+
+def needs_reasoning(prompt: str) -> bool:
+    value = current_query(prompt)
+    return len(value) > 450 or bool(re.search(
+        r"\b(solve|derive|calculate|prove|debug|audit|investigate|analy[sz]e|design|code|equation|step.by.step|detailed|thorough|long|essay|complete|full|compare)\b", value.lower()))
+
+
+def needs_web_search(prompt: str, previous_prompts=()) -> bool:
+    value = current_query(prompt).lower()
+    if needs_agent(value) or re.search(
+        r"\b(search (?:the web|online|for)|browse|google|look up|lookup|find online|check online|on the web|internet|compare sources|verify sources|cross.check|latest|breaking|currently|right now|tonight|recent|recently|live|ngayon|pinakabago|dosage|contraindications|drug interactions|medical advice|legal advice|tax law|investment advice|caap regulations|pcar)\b"
+        r"|\b(current|today)\b.{0,60}\b(news|weather|forecast|price|prices|stock|availability|score|scores|schedule|events|updates|president|ceo|law|regulations)\b"
+        r"|\b(news|weather|forecast|price|prices|stock|availability|score|scores|schedule|events|updates|president|ceo|law|regulations)\b.{0,60}\b(current|today)\b", value):
+        return True
+    if needs_url_context(value) or re.search(
+        r"^(?:(?:explain|define|describe|teach)(?: me)? (?:the )?(?:basics|concept|principles|weather forecasting|price elasticity|exchange rates?|electric current|news literacy)|what (?:is|are) (?:a |an |the )?(?:news|weather|forecasting|price elasticity|exchange rate|electric current)[?.!]*$|how (?:does|do) (?:weather|forecasting|pricing))\b", value):
+        return False
+    if re.search(r"\bwhat time\b.{0,60}\b(flight|train|bus|event|meeting)\b|\b(news|weather|forecast|price|prices|availability|exchange rate)\b|\b(what(?:'s| is) (?:happening|going on)|what happened|any updates?|situation (?:in|at)|status of|who is (?:the )?(?:president|ceo|prime minister))\b|\b(sino|ano|anong|kumusta|kamusta)\b.{0,60}\b(balita|panahon|presyo|nangyari|nangyayari)\b", value):
+        return True
+    follow = r"^(?:and\b|what about\b|how about\b|tell me more\b|more details\b|why\??$|when\??$|where\??$|continue\??$|check again\b|try again\b|update me\b|is (?:that|it)\b)"
+    if re.search(follow, value):
+        for previous in reversed(list(previous_prompts)[-3:]):
+            if not re.search(follow, current_query(previous).lower()):
+                return needs_web_search(previous)
+    return False
+
+
+def output_budget(prompt: str) -> int:
+    value = current_query(prompt)
+    if value == "Reply with exactly: HARU OK":
+        return 256
+    if needs_reasoning(value):
+        return 2400
+    if needs_web_search(value) or needs_url_context(value):
+        return 1200
+    return 640 if len(value) <= 120 else 1200
 
 
 def cooldown_seconds(error: dict, retry_after: str | None = None) -> float:

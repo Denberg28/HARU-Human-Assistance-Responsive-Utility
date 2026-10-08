@@ -4,7 +4,7 @@ from dataclasses import dataclass
 import json
 import re
 import time
-from ai_usage import cooldown_seconds, gemini_request, needs_agent
+from ai_usage import cooldown_seconds, gemini_request, needs_agent, needs_reasoning, needs_url_context, needs_web_search, output_budget
 
 MAX_JSON_RESPONSE_BYTES = 4_000_000
 from urllib.error import HTTPError, URLError
@@ -106,7 +106,7 @@ def _json_request(url: str, *, payload=None, headers=None, timeout=25, method=No
         ) from None
     except URLError as exc:
         raise AiRuntimeError(
-            "Could not reach provider. Check your internet connection.",
+            "Could not reach the provider. The provider or network path may be unavailable; this does not establish that your device is offline.",
             kind="network",
             retryable=True,
         ) from None
@@ -249,7 +249,7 @@ def _ask_ai(
         messages.append({"role": "user", "content": prompt})
         data = _json_request(
             f"{base}/api/chat",
-            payload={"model": model, "messages": messages, "stream": False},
+            payload={"model": model, "messages": messages, "stream": False, "options": {"num_predict": output_budget(prompt)}},
             timeout=config.timeout_s,
         )
         text = ((data.get("message") or {}).get("content") or "").strip()
@@ -272,7 +272,7 @@ def _ask_ai(
         messages.append({"role": "user", "content": prompt})
         data = _json_request(
             f"{base}/v1/chat/completions",
-            payload={"model": model, "messages": messages, "temperature": 0.3},
+            payload={"model": model, "messages": messages, "temperature": 0.3, "max_tokens": output_budget(prompt)},
             headers=headers,
             timeout=config.timeout_s,
         )
@@ -287,6 +287,7 @@ def _ask_ai(
         payload = {
             "model": model,
             "input": prompt if not system_prompt else f"{system_prompt}\n\nUser: {prompt}",
+            "max_output_tokens": output_budget(prompt),
         }
         if enable_native_tools:
             payload["tools"] = [{"type": "web_search"}]
@@ -406,22 +407,23 @@ def _ask_ai(
 
         model_path = model if model.startswith("models/") else f"models/{model}"
         payload = {"contents": [{"parts": [{"text": prompt}]}],
-                   "generationConfig": {"maxOutputTokens": 256 if prompt.strip() == "Reply with exactly: HARU OK" else 1200}}
+                   "generationConfig": {"maxOutputTokens": output_budget(prompt)}}
         thinking_level = {
             "gemini-3.7-flash": "low", "gemini-3.8-flash": "low",
             "gemini-3.1-flash-lite": "minimal", "gemini-3.5-flash-lite": "minimal",
             "gemini-3.5-flash": "minimal", "gemini-3.6-flash": "minimal",
         }.get(model)
         if thinking_level:
-            payload["generationConfig"]["thinkingConfig"] = {"thinkingLevel": thinking_level}
+            payload["generationConfig"]["thinkingConfig"] = {"thinkingLevel": "low" if needs_reasoning(prompt) else thinking_level}
         if system_prompt:
             payload["systemInstruction"] = {"parts": [{"text": system_prompt}]}
 
         # Gemini models can use Google Search grounding. Gemma is kept as a
         # high-volume text model without unsupported native-tool requests.
-        use_grounding = enable_native_tools and model.startswith("gemini-")
-        if use_grounding:
-            payload["tools"] = [{"google_search": {}}]
+        use_url = enable_native_tools and needs_url_context(prompt) and model.startswith("gemini-")
+        use_grounding = enable_native_tools and (not use_url or needs_web_search(prompt)) and model.startswith("gemini-")
+        if use_url or use_grounding:
+            payload["tools"] = ([{"url_context": {}}] if use_url else []) + ([{"google_search": {}}] if use_grounding else [])
 
         data = _json_request(
             f"https://generativelanguage.googleapis.com/v1beta/{quote(model_path, safe='/')}:generateContent",
@@ -445,12 +447,20 @@ def _ask_ai(
 
         if use_grounding:
             sources = _gemini_grounding_sources(data)
+            if not sources:
+                raise AiRuntimeError("The provider returned no verifiable live sources. Current information could not be verified; no automatic retry was sent.", kind="missing_sources")
             if sources:
                 source_lines = "\n".join(
                     f"- {title}: {uri}" for title, uri in sources
                 )
                 text = f"{text}\n\nLive sources:\n{source_lines}"
 
+        if use_url:
+            metadata = (data.get("candidates") or [{}])[0].get("urlContextMetadata", {}).get("urlMetadata", [])
+            sources = [item.get("retrievedUrl", "") for item in metadata if item.get("urlRetrievalStatus") == "URL_RETRIEVAL_STATUS_SUCCESS" and str(item.get("retrievedUrl", "")).startswith("https://")]
+            if not sources:
+                raise AiRuntimeError("The supplied page could not be retrieved. Paste its text to review it; no automatic retry was sent.", kind="missing_sources")
+            text += "\n\nRetrieved pages:\n" + "\n".join(sources[:5])
         return text
 
     if provider == "Anthropic Claude API":
@@ -458,7 +468,7 @@ def _ask_ai(
             raise AiRuntimeError("Anthropic API key is required.")
         payload = {
             "model": model,
-            "max_tokens": 1200,
+            "max_tokens": output_budget(prompt),
             "messages": [{"role": "user", "content": prompt}],
         }
         if system_prompt:
@@ -468,7 +478,7 @@ def _ask_ai(
                 {
                     "type": "web_search_20260318",
                     "name": "web_search",
-                    "max_uses": 5,
+                    "max_uses": 2,
                 }
             ]
 

@@ -27,10 +27,13 @@ class HaruViewModelInputStateTest {
 
         viewModel.updateCommand(oversized)
 
-        assertEquals(HaruViewModel.MAX_COMMAND_CHARS, viewModel.uiState.command.length)
+        assertEquals(HaruViewModel.MAX_COMMAND_CHARS + 1, viewModel.uiState.command.length)
         assertFalse(viewModel.uiState.command.contains('\u0000'))
         assertFalse(viewModel.uiState.command.contains('\n'))
-        assertTrue(viewModel.uiState.canSubmit)
+        assertTrue(viewModel.uiState.commandTooLong)
+        assertFalse(viewModel.uiState.canSubmit)
+        viewModel.updateCommand("hello")
+        assertFalse(viewModel.uiState.commandTooLong)
 
         viewModel.setListening()
         assertFalse(viewModel.uiState.canSubmit)
@@ -100,6 +103,18 @@ class HaruViewModelInputStateTest {
         viewModel.updateCommand("hello")
         viewModel.submit()
         assertCleared()
+    }
+
+    @Test fun pastedCodeKeepsNewlinesAndIndentationAndLongRequestsAreBlocked() {
+        val vm = HaruViewModel()
+        val code = "Review this code:\r\ndef f():\r\n    return 1"
+        vm.updateCommand(code)
+        assertEquals("Review this code:\ndef f():\n    return 1", vm.prepareAiPrompt())
+        vm.completeAi("Done")
+        vm.updateCommand("x".repeat(HaruViewModel.MAX_COMMAND_CHARS + 30))
+        assertTrue(vm.uiState.commandTooLong)
+        assertFalse(vm.uiState.canSubmit)
+        assertEquals(null, vm.prepareAiPrompt())
     }
 
 }

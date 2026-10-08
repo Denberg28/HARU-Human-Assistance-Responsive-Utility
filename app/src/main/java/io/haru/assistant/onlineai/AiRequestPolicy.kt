@@ -26,7 +26,20 @@ internal object AiRequestPolicy {
         }.asReversed()
     }
 
-    fun thinkingLevel(modelId: String): String? = when (modelId) {
+    fun outputBudget(prompt: String): Int = when {
+        prompt == "Reply with exactly: HARU OK" -> 256
+        HaruAiRoutingPolicy.needsReasoning(prompt) -> 2_400
+        HaruAiRoutingPolicy.needsWebSearch(prompt) || HaruAiRoutingPolicy.needsUrlContext(prompt) -> 1_200
+        prompt.length <= 120 -> 640
+        else -> 1_200
+    }
+
+    fun thinkingLevel(modelId: String, prompt: String = ""): String? = when {
+        HaruAiRoutingPolicy.needsReasoning(prompt) && modelId in setOf("gemini-3.1-flash-lite", "gemini-3.5-flash-lite", "gemini-3.5-flash", "gemini-3.6-flash", "gemini-3.7-flash", "gemini-3.8-flash") -> "low"
+        else -> minimalThinking(modelId)
+    }
+
+    private fun minimalThinking(modelId: String): String? = when (modelId) {
         "gemini-3.7-flash", "gemini-3.8-flash" -> "low"
         "gemini-3.1-flash-lite", "gemini-3.5-flash-lite", "gemini-3.5-flash", "gemini-3.6-flash" -> "minimal"
         else -> null // Future and legacy models keep their documented defaults.
@@ -92,6 +105,8 @@ internal class AiRequestGate(private val elapsedMs: () -> Long) {
 internal data class AiHttpResponse(val code: Int, val body: String, val retryAfter: String? = null)
 
 internal class AiRequestStats {
+    @Volatile var lastModel = ""
+    @Volatile var lastOutputBudget = 0
     @Volatile var generations = 0
     @Volatile var polls = 0
     @Volatile var searches = 0
@@ -99,7 +114,8 @@ internal class AiRequestStats {
     @Volatile var quotaErrors = 0
     @Volatile var cancellations = 0
     fun description(): String =
-        "This app session: $generations generation request(s), $polls poll(s), $searches reported search query(s), $tokens reported tokens, $quotaErrors quota error(s), $cancellations cancel request(s)."
+        "This app session: $generations generation request(s), $polls poll(s), $searches reported search query(s), $tokens reported tokens, $quotaErrors quota error(s), $cancellations cancel request(s)." +
+            if (lastModel.isNotBlank()) " Last model: $lastModel · output cap $lastOutputBudget tokens." else ""
     fun recordUsage(response: JSONObject) {
         val usage = response.optJSONObject("usageMetadata") ?: response.optJSONObject("usage")
         tokens += (usage?.optLong("totalTokenCount", usage.optLong("total_tokens", 0L)) ?: 0L).coerceAtLeast(0L)

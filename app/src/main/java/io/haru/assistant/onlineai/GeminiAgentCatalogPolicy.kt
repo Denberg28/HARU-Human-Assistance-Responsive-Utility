@@ -28,7 +28,8 @@ internal object GeminiAgentCatalogPolicy {
         return listOfNotNull(
             newestFlash,
             newestFlashLite,
-        )
+            eligible.firstOrNull { it.id == "gemini-2.5-flash-lite" },
+        ).distinctBy { it.id }
     }
 
     fun isEligibleAgentId(id: String): Boolean {

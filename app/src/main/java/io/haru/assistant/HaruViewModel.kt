@@ -17,7 +17,8 @@ class HaruViewModel(
         private set
 
     fun updateCommand(value: String) {
-        uiState = uiState.copy(command = sanitizeCommand(value))
+        val clean = sanitizeCommand(value)
+        uiState = uiState.copy(command = clean.take(MAX_COMMAND_CHARS + 1), commandTooLong = clean.length > MAX_COMMAND_CHARS)
     }
 
     fun recordLatestUser(value: String) {
@@ -49,7 +50,7 @@ class HaruViewModel(
 
     fun submit() {
         val command = uiState.command.trim()
-        if (uiState.isBusy || command.isBlank()) return
+        if (!uiState.canSubmit) return
         recordLatestUser(command)
         uiState = uiState.copy(mood = HaruMood.THINKING, isBusy = true)
 
@@ -66,7 +67,7 @@ class HaruViewModel(
 
     fun prepareAiPrompt(): String? {
         val command = uiState.command.trim()
-        if (uiState.isBusy || command.isBlank()) return null
+        if (!uiState.canSubmit) return null
         recordLatestUser(command)
 
         val localResult = router.route(command)
@@ -112,11 +113,11 @@ class HaruViewModel(
     private fun sanitizeCommand(value: String): String =
         value
             .replace(Regex("""[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]"""), "")
-            .replace('\n', ' ')
-            .replace('\r', ' ')
-            .take(MAX_COMMAND_CHARS)
+            .replace("\r\n", "\n")
+            .replace('\r', '\n')
+            .take(MAX_COMMAND_CHARS + 1)
 
     companion object {
-        internal const val MAX_COMMAND_CHARS = 2000
+        internal const val MAX_COMMAND_CHARS = 8000
     }
 }

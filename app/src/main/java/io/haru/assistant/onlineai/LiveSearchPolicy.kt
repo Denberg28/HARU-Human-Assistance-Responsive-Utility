@@ -39,6 +39,19 @@ internal object LiveSearchPolicy {
     fun suggestions(candidate: JSONObject): String = candidate.optJSONObject("groundingMetadata")
         ?.optJSONObject("searchEntryPoint")?.optString("renderedContent").orEmpty().take(65_536)
 
+    fun urlSources(candidate: JSONObject): List<WebSource> {
+        val urls = candidate.optJSONObject("urlContextMetadata")?.optJSONArray("urlMetadata")
+        return buildList {
+            for (i in 0 until (urls?.length() ?: 0)) {
+                val item = urls?.optJSONObject(i) ?: continue
+                val url = item.optString("retrievedUrl")
+                if (item.optString("urlRetrievalStatus") == "URL_RETRIEVAL_STATUS_SUCCESS" && safeUrl(url)) {
+                    add(WebSource(url.toHttpUrlOrNull()!!.host, url))
+                }
+            }
+        }.distinctBy { it.url }.take(10)
+    }
+
     fun interactionGrounding(response: JSONObject): JSONObject {
         val chunks = org.json.JSONArray()
         val steps = response.optJSONArray("steps")

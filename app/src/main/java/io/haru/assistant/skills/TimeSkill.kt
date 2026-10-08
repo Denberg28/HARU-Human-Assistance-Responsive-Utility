@@ -7,8 +7,8 @@ class TimeSkill : HaruSkill {
     override val name = "Time"
 
     override fun canHandle(command: String): Boolean {
-        val c = command.lowercase()
-        return "what time" in c || "current time" in c || "what date" in c || "today" == c.trim()
+        val c = command.trim().lowercase().replace(Regex("""\s+"""), " ").trimEnd('?', '.', '!')
+        return c in setOf("what time is it", "what is the time", "current time", "time", "what date is it", "what is the date", "what date is today", "today", "date", "today's date")
     }
 
     override fun execute(command: String): SkillResult {
