@@ -10,4 +10,5 @@ class HelpSkill : HaruSkill {
 
     override fun execute(command: String): SkillResult = SkillResult(
         "Write a journal entry for today or choose a past date. Star a memorable day and expand older entries by year, month, week, and date. Tasks and reminders are available in Today."
+    )
 }
