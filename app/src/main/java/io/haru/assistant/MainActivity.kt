@@ -42,36 +42,23 @@ import io.haru.assistant.location.LiveLocationSession
 import io.haru.assistant.location.LiveMonitorSession
 import io.haru.assistant.location.TrustedLocation
 import io.haru.assistant.location.TrustedLocationManager
-import io.haru.assistant.memory.AntigravitySession
-import io.haru.assistant.memory.ConversationExchange
-import io.haru.assistant.memory.ConversationMemoryPolicy
-import io.haru.assistant.memory.EncryptedConversationStore
-import io.haru.assistant.onlineai.AndroidOnlineAiManager
-import io.haru.assistant.onlineai.GeminiModel
-import io.haru.assistant.onlineai.AiAnswerMode
-import io.haru.assistant.onlineai.OnlineProvider
 import io.haru.assistant.ui.HaruBackgroundTheme
 import io.haru.assistant.ui.HaruScreen
 import io.haru.assistant.ui.HaruTheme
 import io.haru.assistant.ui.HaruThemeColor
 import io.haru.assistant.ui.HaruThemePreferenceStore
 import io.haru.assistant.update.AndroidAppUpdateManager
-import io.haru.assistant.voice.HaruVoiceController
 import io.haru.assistant.util.cancellableResult
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import java.text.DateFormat
-import java.util.Date
 
-class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
+class MainActivity : ComponentActivity() {
 
     private var activeViewModel: HaruViewModel? = null
 
-    private lateinit var voiceController: HaruVoiceController
-    private lateinit var onlineAiManager: AndroidOnlineAiManager
     private lateinit var companionStore: AndroidCompanionStore
     private lateinit var companionModeStore: CompanionModeStore
     private lateinit var haruCheckerStore: HaruCheckerStore
@@ -80,9 +67,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
     private lateinit var trustedLocationManager: TrustedLocationManager
     private lateinit var liveLocationManager: HaruLiveLocationManager
     private lateinit var appUpdateManager: AndroidAppUpdateManager
-    private lateinit var conversationStore: EncryptedConversationStore
 
-    private var pendingVoiceStart = false
     private var pendingShareName = "Loved one"
     private var pendingShareMinutes = 60
 
@@ -93,23 +78,8 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
     private var themeColor by mutableStateOf(HaruThemeColor.LAVENDER)
     private var backgroundTheme by mutableStateOf(HaruBackgroundTheme.LIGHT)
 
-    private var onlineProvider by mutableStateOf(OnlineProvider.ANTIGRAVITY)
-    private var aiAnswerMode by mutableStateOf(AiAnswerMode.AUTO)
-    private var selectedGeminiModel by mutableStateOf(AndroidOnlineAiManager.FALLBACK_GEMINI_MODEL)
-    private var geminiModels by mutableStateOf(listOf(AndroidOnlineAiManager.FALLBACK_GEMINI_MODEL))
-    private var onlineStatus by mutableStateOf("Antigravity Auto is the online default.")
-    private var hasGeminiKey by mutableStateOf(false)
-    private var hasGroqKey by mutableStateOf(false)
     private var updateStatus by mutableStateOf("")
     private var updateUrl by mutableStateOf("")
-    private var conversationHistory by mutableStateOf(emptyList<ConversationExchange>())
-    private var conversationSummary by mutableStateOf("")
-    private var antigravitySession: AntigravitySession? = null
-    private var conversationEpoch = 0L
-    private var activeAiJob: Job? = null
-    private var geminiRefreshJob: Job? = null
-    private var activeAiTestJob: Job? = null
-
     private var trustedLocations by mutableStateOf(emptyList<TrustedLocation>())
     private var currentDeviceLocation by mutableStateOf<TrustedLocation?>(null)
     private var mapGpsActive by mutableStateOf(false)
@@ -145,19 +115,6 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
     private var pendingLocationPurpose = LocationRequestPurpose.NONE
     private var activeLocationListener: LocationListener? = null
     private val mainHandler = Handler(Looper.getMainLooper())
-    private val audioPermissionLauncher =
-        registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-            if (granted && pendingVoiceStart) {
-                pendingVoiceStart = false
-                voiceController.startListening()
-            } else if (!granted) {
-                pendingVoiceStart = false
-                activeViewModel?.cancelListening(
-                    "Microphone permission is needed for voice input."
-                )
-            }
-        }
-
     private val notificationPermissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
             if (granted) ReminderScheduler.rescheduleAll(this)
@@ -193,11 +150,6 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        voiceController = HaruVoiceController(
-            context = this,
-            callbacks = this,
-        )
-        onlineAiManager = AndroidOnlineAiManager(applicationContext)
         companionStore = AndroidCompanionStore(applicationContext)
         companionModeStore = CompanionModeStore(applicationContext)
         haruCheckerStore = HaruCheckerStore(applicationContext)
@@ -206,7 +158,6 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
         trustedLocationManager = TrustedLocationManager(applicationContext)
         liveLocationManager = HaruLiveLocationManager()
         appUpdateManager = AndroidAppUpdateManager()
-        conversationStore = EncryptedConversationStore(applicationContext)
 
         companionSnapshot = companionStore.load()
         companionMode = companionModeStore.load()
@@ -215,25 +166,13 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
         themeColor = themeStore.load()
         backgroundTheme = themeStore.loadBackground()
         cleanupLegacyStorageOnce()
+        deleteSharedPreferences("haru_secure_credentials")
+        deleteSharedPreferences("haru_online_ai")
         if (lockScreenEnabled) {
             requestNotificationPermissionIfNeeded()
             HaruLockScreenService.start(this)
         }
-        val onlineSettings = onlineAiManager.settings()
-        onlineProvider = onlineSettings.provider
-        selectedGeminiModel = onlineSettings.geminiModel
-        aiAnswerMode = onlineSettings.answerMode
-        geminiModels = onlineAiManager.geminiModels()
-        refreshOnlineKeyState()
         trustedLocations = trustedLocationManager.load()
-        val memoryState = conversationStore.loadState()
-        conversationHistory = memoryState.exchanges
-        conversationSummary = memoryState.summary
-        antigravitySession =
-            memoryState.antigravitySession
-                ?.takeIf { it.isFresh() }
-
-
         setContent {
             HaruTheme(
                 themeColor = themeColor,
@@ -242,7 +181,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
                 val haruViewModel: HaruViewModel = viewModel()
                 activeViewModel = haruViewModel
                 HaruScreen(
-                    viewModel = haruViewModel,
+                    journalViewModel = haruViewModel,
                     todayLines = companionSnapshot.todayLines(),
                     companionSnapshot = companionSnapshot,
                     haruCheckerEnabled = haruCheckerEnabled,
@@ -250,14 +189,6 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
                     themeColor = themeColor,
                     backgroundTheme = backgroundTheme,
                     companionQuiet = companionMode == CompanionMode.REST,
-                    onlineProvider = onlineProvider,
-                    selectedGeminiModel = selectedGeminiModel,
-                    aiAnswerMode = aiAnswerMode,
-                    geminiModels = geminiModels,
-                    onlineStatus = onlineStatus,
-                    hasGeminiKey = hasGeminiKey,
-                    hasGroqKey = hasGroqKey,
-                    memoryCount = conversationHistory.size,
                     appVersion = currentVersionName(),
                     updateStatus = updateStatus,
                     updateUrl = updateUrl,
@@ -272,11 +203,8 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
                     liveShareActive = liveShareActive,
                     locationShareBusy = locationShareBusy,
                     liveMonitorActive = liveMonitorActive,
-                    onSubmitClick = {
-                        submitWithAi(haruViewModel, speakResult = false)
-                    },
-                    onMicClick = { requestVoiceRecognition() },
                     onAddCompanionTask = ::addCompanionTask,
+                    onAddReminder = ::addReminder,
                     onUpdateCompanionTask = ::updateCompanionTask,
                     onDeleteCompanionTask = ::deleteCompanionTask,
                     onReorderCompanionTasks = ::reorderCompanionTasks,
@@ -285,16 +213,6 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
                     onSelectThemeColor = ::selectThemeColor,
                     onSelectBackgroundTheme = ::selectBackgroundTheme,
                     onOpenAppSettings = ::openAppSettings,
-                    onSelectOnlineProvider = ::selectOnlineProvider,
-                    onSelectGeminiModel = ::selectGeminiModel,
-                    onSelectAiAnswerMode = ::selectAiAnswerMode,
-                    onRefreshGeminiModels = ::refreshGeminiModels,
-                    onSaveGeminiKey = ::saveGeminiKey,
-                    onSaveGroqKey = ::saveGroqKey,
-                    onTestOnlineAi = ::testOnlineAi,
-                    onTestFastGemini = ::testFastGemini,
-                    onTestAntigravityAgent = ::testAntigravityAgent,
-                    onResetMemory = { resetConversationMemory(haruViewModel) },
                     onCheckUpdate = ::checkForUpdate,
                     onOpenUpdate = ::openUrl,
                     onOpenUrl = ::openUrl,
@@ -310,114 +228,12 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
         }
     }
 
-    private fun submitWithAi(
-        viewModel: HaruViewModel,
-        speakResult: Boolean,
-    ) {
-        if (!viewModel.uiState.canSubmit) return
-        if (activeAiJob?.isActive == true || activeAiTestJob?.isActive == true) {
-            viewModel.completeAi("An AI request is already running. Wait for it to finish.", success = false)
-            return
-        }
-        val command = viewModel.uiState.command.trim()
-        viewModel.recordLatestUser(command)
-
-        val companionReply = handleCompanionCommand(command)
-        if (companionReply != null) {
-            viewModel.updateCommand("")
-            viewModel.completeAi(companionReply, success = true)
-            if (speakResult) voiceController.speak(companionReply)
-            return
-        }
-
-        val prompt = viewModel.prepareAiPrompt() ?: run {
-            if (speakResult) voiceController.speak(viewModel.uiState.message)
-            return
-        }
-
-        val requestProvider = onlineProvider
-        val requestProviderName = providerName(requestProvider)
-        val requestEpoch = conversationEpoch
-        val requestHistory = conversationHistory
-        val requestSummary = conversationSummary
-        val requestCompanionMode = companionMode
-        val requestAntigravitySession =
-            antigravitySession?.takeIf { it.isFresh() }
-
-        activeAiJob = lifecycleScope.launch {
-            try {
-                val reply = onlineAiManager.ask(
-                    provider = requestProvider,
-                    prompt = prompt,
-                    systemPrompt = systemPromptFor(requestCompanionMode),
-                    history = requestHistory,
-                    summary = requestSummary,
-                    antigravitySession =
-                        if (requestProvider == OnlineProvider.ANTIGRAVITY) {
-                            requestAntigravitySession
-                        } else {
-                            null
-                        },
-                )
-
-                if (requestEpoch != conversationEpoch) {
-                    return@launch
-                }
-
-                if (requestProvider == OnlineProvider.ANTIGRAVITY) {
-                    antigravitySession =
-                        reply.antigravitySession
-                }
-
-                val memoryState =
-                    conversationStore.appendCompleted(
-                        user = prompt,
-                        assistant = reply.memoryText,
-                        antigravitySession =
-                            if (requestProvider == OnlineProvider.ANTIGRAVITY) {
-                                antigravitySession
-                            } else {
-                                null
-                            },
-                    )
-
-                conversationHistory = memoryState.exchanges
-                conversationSummary = memoryState.summary
-
-                onlineStatus =
-                    requestProviderName +
-                        " connected · memory " +
-                        conversationHistory.size +
-                        "/" +
-                        ConversationMemoryPolicy.MAX_EXCHANGES +
-                        if (conversationSummary.isNotBlank()) {
-                            " + recap"
-                        } else {
-                            ""
-                        }
-                if (reply.usedGeminiSearch) onlineStatus += " · web lookup via Gemini"
-                if (!reply.rememberAnswer) onlineStatus += " · unverified answer excluded from memory"
-                onlineStatus += "\n" + onlineAiManager.usageDiagnostics()
-                viewModel.completeAi(reply.text, success = true, webSources = reply.webSources, searchSuggestionsHtml = reply.searchSuggestionsHtml)
-                if (speakResult) voiceController.speak(reply.text)
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (exc: Exception) {
-                if (requestEpoch != conversationEpoch) {
-                    return@launch
-                }
-
-                val message =
-                    exc.message ?: "HARU could not complete that request."
-                onlineStatus = message + "\n" + onlineAiManager.usageDiagnostics()
-                viewModel.completeAi(message, success = false)
-                if (speakResult) voiceController.speak(message)
-            } finally {
-                if (requestEpoch == conversationEpoch) {
-                    activeAiJob = null
-                }
-            }
-        }
+    private fun addReminder(text: String, dueAt: Long) {
+        val reminder = companionStore.addReminder(text, dueAt)
+        companionSnapshot = companionStore.load()
+        ReminderScheduler.schedule(this, reminder)
+        requestNotificationPermissionIfNeeded()
+        HaruLockScreenService.refresh(this)
     }
 
     private fun addCompanionTask(text: String) {
@@ -447,15 +263,6 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
         companionSnapshot =
             companionStore.reorderOpenTasks(order)
         HaruLockScreenService.refresh(this)
-    }
-
-    private fun selectCompanionMode(mode: CompanionMode) {
-        companionMode = mode
-        companionModeStore.save(mode)
-        activeViewModel?.completeAi(
-            mode.activationMessage,
-            success = true,
-        )
     }
 
     private fun toggleHaruChecker() {
@@ -493,132 +300,6 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
                     Uri.parse("package:$packageName"),
                 )
             )
-        }
-    }
-
-    private fun resetConversationMemory(
-        viewModel: HaruViewModel,
-    ) {
-        conversationEpoch += 1L
-        activeAiJob?.cancel()
-        activeAiJob = null
-        conversationStore.clear()
-        conversationHistory = emptyList()
-        conversationSummary = ""
-        antigravitySession = null
-        onlineStatus = "Conversation memory cleared · 0/" +
-            ConversationMemoryPolicy.MAX_EXCHANGES
-        viewModel.resetConversation()
-    }
-
-    private fun selectAiAnswerMode(mode: AiAnswerMode) {
-        aiAnswerMode = mode
-        onlineAiManager.saveAnswerMode(mode)
-        onlineStatus = mode.label + " selected."
-    }
-
-    private fun selectOnlineProvider(provider: OnlineProvider) {
-        onlineProvider = provider
-        onlineAiManager.saveProvider(provider)
-        if (provider != OnlineProvider.ANTIGRAVITY) {
-            antigravitySession = null
-            conversationStore.saveAntigravitySession(null)
-        }
-        onlineStatus = providerName(provider) + " selected."
-    }
-
-    private fun saveGeminiKey(value: String) {
-        if (value.isBlank()) return
-        onlineAiManager.saveGeminiKey(value)
-        refreshOnlineKeyState()
-        onlineStatus = "Gemini key saved securely on this phone."
-    }
-
-    private fun saveGroqKey(value: String) {
-        if (value.isBlank()) return
-        onlineAiManager.saveGroqKey(value)
-        refreshOnlineKeyState()
-        onlineStatus = "Groq key saved securely on this phone."
-    }
-
-    private fun selectGeminiModel(model: GeminiModel) {
-        selectedGeminiModel = model
-        onlineAiManager.saveGeminiModel(model)
-        onlineStatus = model.label + " selected."
-    }
-
-    private fun refreshOnlineKeyState() {
-        hasGeminiKey = onlineAiManager.hasGeminiKey()
-        hasGroqKey = onlineAiManager.hasGroqKey()
-    }
-
-    private fun refreshGeminiModels() {
-        if (geminiRefreshJob?.isActive == true) {
-            onlineStatus = "Gemini agent update already running."
-            return
-        }
-
-        onlineStatus = "Updating Gemini agents…"
-        geminiRefreshJob =
-            lifecycleScope.launch {
-                try {
-                    geminiModels = onlineAiManager.refreshGeminiModels()
-                    selectedGeminiModel = onlineAiManager.settings().geminiModel
-                    onlineStatus =
-                        "Gemini agents updated · " +
-                            geminiModels.size +
-                            " available · 1 catalog request."
-                } catch (cancelled: CancellationException) {
-                    throw cancelled
-                } catch (exc: Exception) {
-                    onlineStatus =
-                        exc.message ?: "Could not update Gemini agents."
-                } finally {
-                    geminiRefreshJob = null
-                }
-            }
-    }
-
-    private fun runAiConnectionTest(label: String, request: suspend () -> String) {
-        if (activeAiTestJob?.isActive == true || activeAiJob?.isActive == true) {
-            onlineStatus = "An AI request is already running. Wait for it to finish."
-            return
-        }
-
-        onlineStatus = "Testing $label…"
-        activeAiTestJob = lifecycleScope.launch {
-            try {
-                val result = request()
-                onlineStatus = "$label connected · " + result.take(80) + "\n" + onlineAiManager.usageDiagnostics()
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (exc: Exception) {
-                if (isActive) {
-                    onlineStatus = "$label failed · " +
-                        (exc.message ?: "Connection test failed.") + "\n" + onlineAiManager.usageDiagnostics()
-                }
-            } finally {
-                activeAiTestJob = null
-            }
-        }
-    }
-
-    private fun testOnlineAi() {
-        val provider = onlineProvider
-        runAiConnectionTest(providerName(provider)) {
-            onlineAiManager.test(provider)
-        }
-    }
-
-    private fun testFastGemini() {
-        runAiConnectionTest("Fast Gemini · " + selectedGeminiModel.label) {
-            onlineAiManager.testFastGemini()
-        }
-    }
-
-    private fun testAntigravityAgent() {
-        runAiConnectionTest("Antigravity agent") {
-            onlineAiManager.testAntigravityAgent()
         }
     }
 
@@ -1436,146 +1117,6 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
         trustedLocations = emptyList()
     }
 
-    private fun handleCompanionCommand(command: String): String? {
-        if (command.isBlank()) return null
-        val clean = command.trim()
-        val low = clean.lowercase()
-
-        if (
-            low == "what mode" ||
-            low == "current mode" ||
-            low == "haru mode" ||
-            low == "what mode are you in"
-        ) {
-            return companionMode.label +
-                " mode · " +
-                companionMode.role +
-                " · " +
-                companionMode.priority
-        }
-
-        CompanionMode.fromCommand(clean)?.let { mode ->
-            selectCompanionMode(mode)
-            return mode.activationMessage
-        }
-
-        when (low) {
-            "show notes", "list notes", "my notes" -> {
-                val notes = companionSnapshot.notes
-                return if (notes.isEmpty()) {
-                    "You have no saved notes."
-                } else {
-                    "Notes:\n" + notes.mapIndexed { index, note ->
-                        (index + 1).toString() + ". " + note
-                    }.joinToString("\n")
-                }
-            }
-            "clear notes", "delete all notes" -> {
-                companionSnapshot = companionStore.clearNotes()
-                        return "All notes cleared."
-            }
-            "show tasks", "list tasks", "my tasks" -> {
-                val tasks = companionSnapshot.tasks
-                return if (tasks.isEmpty()) {
-                    "Your task list is empty."
-                } else {
-                    "Tasks:\n" + tasks.mapIndexed { index, task ->
-                        val mark = if (task.done) "✓" else "○"
-                        (index + 1).toString() + ". " + mark + " " + task.text
-                    }.joinToString("\n")
-                }
-            }
-            "clear tasks", "delete all tasks" -> {
-                companionSnapshot = companionStore.clearTasks()
-                HaruLockScreenService.refresh(this)
-                return "All tasks cleared."
-            }
-            "show reminders", "list reminders", "my reminders" -> {
-                val reminders = companionSnapshot.reminders
-                    .filter { it.dueAt > System.currentTimeMillis() }
-                    .sortedBy { it.dueAt }
-                return if (reminders.isEmpty()) {
-                    "You have no upcoming reminders."
-                } else {
-                    "Reminders:\n" + reminders.mapIndexed { index, reminder ->
-                        (index + 1).toString() + ". " + reminder.text + " — " +
-                            DateFormat.getDateTimeInstance(
-                                DateFormat.MEDIUM,
-                                DateFormat.SHORT,
-                            ).format(Date(reminder.dueAt))
-                    }.joinToString("\n")
-                }
-            }
-            "clear reminders", "delete all reminders" -> {
-                companionSnapshot.reminders.forEach {
-                    ReminderScheduler.cancel(this, it.id)
-                }
-                companionSnapshot = companionStore.clearReminders()
-                HaruLockScreenService.refresh(this)
-                return "All reminders cleared."
-            }
-        }
-
-        Regex("(?i)^(?:remember that|remember|note|save note)\\s+(.+)$")
-            .matchEntire(clean)
-            ?.let { match ->
-                companionSnapshot = companionStore.addNote(match.groupValues[1])
-                return "Noted: " + match.groupValues[1].trim()
-            }
-
-        Regex("(?i)^(?:done|complete|finish)\\s+(?:task\\s+)?(\\d+)$")
-            .matchEntire(clean)
-            ?.let { match ->
-                val index = match.groupValues[1].toIntOrNull()?.minus(1) ?: return null
-                if (index !in companionSnapshot.tasks.indices) {
-                    return "That task number doesn't exist."
-                }
-                val taskText = companionSnapshot.tasks[index].text
-                companionSnapshot = companionStore.completeTask(index)
-                HaruLockScreenService.refresh(this)
-                return "Completed: " + taskText
-            }
-
-        when (val action = HaruChatActionParser.parse(clean)) {
-            is HaruChatActionResult.AddTask -> {
-                companionSnapshot =
-                    companionStore.addTask(action.text)
-                HaruLockScreenService.refresh(this)
-                return "Added to Today: " + action.text
-            }
-
-            is HaruChatActionResult.SetReminder -> {
-                val reminder =
-                    companionStore.addReminder(
-                        action.text,
-                        action.dueAt,
-                    )
-                companionSnapshot = companionStore.load()
-                ReminderScheduler.schedule(this, reminder)
-                requestNotificationPermissionIfNeeded()
-                HaruLockScreenService.refresh(this)
-
-                val whenText =
-                    DateFormat.getDateTimeInstance(
-                        DateFormat.MEDIUM,
-                        DateFormat.SHORT,
-                    ).format(Date(action.dueAt))
-
-                return "Reminder set for " +
-                    whenText +
-                    ": " +
-                    action.text
-            }
-
-            is HaruChatActionResult.Clarify ->
-                return action.message
-
-            HaruChatActionResult.None -> Unit
-        }
-
-        return null
-    }
-
     private fun requestNotificationPermissionIfNeeded() {
         if (
             Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
@@ -1587,19 +1128,6 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
             notificationPermissionLauncher.launch(
                 Manifest.permission.POST_NOTIFICATIONS
             )
-        }
-    }
-
-    private fun requestVoiceRecognition() {
-        val viewModel = activeViewModel ?: return
-        if (viewModel.uiState.isBusy) return
-        viewModel.setListening()
-
-        if (voiceController.hasAudioPermission()) {
-            voiceController.startListening()
-        } else {
-            pendingVoiceStart = true
-            audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
         }
     }
 
@@ -1660,25 +1188,6 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
         }
     }
 
-    override fun onListening() {
-        activeViewModel?.setListening()
-    }
-
-    override fun onTranscript(text: String) {
-        val viewModel = activeViewModel ?: return
-        viewModel.cancelListening()
-        viewModel.updateCommand(text)
-        submitWithAi(viewModel, speakResult = true)
-    }
-
-    override fun onVoiceError(message: String) {
-        activeViewModel?.cancelListening(message)
-    }
-
-    override fun onRuntimeChanged(
-        status: HaruVoiceController.VoiceRuntimeStatus,
-    ) = Unit
-
     override fun onStop() {
         activityForeground = false
         locationShareEpoch += 1L
@@ -1686,7 +1195,7 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
         liveUploadJob?.cancel()
         liveUploadJob = null
         liveUploadBusy = false
-        voiceController.releaseTransientResources()
+        activeViewModel?.flush()
         currentDeviceLocation = null
         mapLocationStatus = ""
         mapGpsActive = false
@@ -1730,28 +1239,9 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
 
     override fun onDestroy() {
         liveMonitorJob?.cancel()
-        geminiRefreshJob?.cancel()
-        geminiRefreshJob = null
-        activeAiTestJob?.cancel()
-        activeAiTestJob = null
         mainHandler.removeCallbacksAndMessages(null)
-        voiceController.shutdown()
         super.onDestroy()
     }
-
-    private fun systemPromptFor(mode: CompanionMode): String =
-        SYSTEM_PROMPT +
-            " Current assistant mode: " +
-            mode.label +
-            ". " +
-            mode.aiGuidance
-
-    private fun providerName(provider: OnlineProvider): String =
-        when (provider) {
-            OnlineProvider.ANTIGRAVITY -> "Antigravity Auto"
-            OnlineProvider.GEMINI -> selectedGeminiModel.label
-            OnlineProvider.GROQ -> "Groq · Qwen 3.8 27B"
-        }
 
     companion object {
         private const val MAX_EXTERNAL_URL_CHARS = 4096
@@ -1776,13 +1266,5 @@ class MainActivity : ComponentActivity(), HaruVoiceController.Callbacks {
 
         private val LOCATION_TIMEOUT_TOKEN = Any()
 
-        private const val SYSTEM_PROMPT =
-            "You are HARU, a capable general-purpose personal assistant. Answer the user's question directly across topics, including recipes, explanations, writing, code, reasoning and news when evidence is available. " +
-                "Provide useful partial answers when a detail cannot be verified; explain the specific limitation briefly. Match the requested detail and language. Assistant modes are priorities, not topic restrictions. " +
-                "HARU's Android app handles explicit task and reminder requests locally before this AI request. " +
-                "If the user asks for a reminder but gives no usable future time, ask for the time instead of claiming it was scheduled. " +
-                "Never claim a task or reminder was created unless the app explicitly reports that action as completed. " +
-                "Only use tools actually provided with this request. When Google Search is enabled, use it for current information. " +
-                "Do not claim actions you did not perform."
     }
 }

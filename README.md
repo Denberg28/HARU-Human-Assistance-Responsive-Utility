@@ -1,36 +1,16 @@
 # HARU — Human Assistance & Responsive Utility
 
-HARU is a lightweight, free-first personal assistant and companion. The Android app has two primary tabs: **HARU** and **Map**. Creator: MD.
+HARU is a lightweight personal journal and companion. The Android app has **Journal** and **Map** tabs. Creator: MD.
 
-## Android v0.9.37
+## Android v0.10.0
 
-The Android app includes tasks and reminders, on-demand AI and voice, a lock-screen
-companion, and a map with location sharing. Appearance and AI choices use compact
-labeled dropdowns. See [release notes](docs/release-v0.9.38.md).
+AI chat has been replaced by a date-based journal. Write today or choose a past date, then mark a memorable day with ★. Journal text is encrypted on this phone and autosaves after a short typing pause. Save and open errors are shown without clearing stored entries.
 
-- Tap the HARU title for About. Open Settings for appearance, AI, lock-screen setup,
-  and update checks.
-- Enable lock-screen HARU in Settings. On POCO/HyperOS, allow lock-screen
-  notifications and the applicable phone app permissions. HARU uses a silent
-  companion notification and an explicitly enabled foreground service to respond
-  to screen/keyguard events. It does not request an overlay, accessibility, or
-  keyguard-dismiss permission.
-- Add tasks and reminders from HARU. Task dragging saves the new order locally.
-  Reminder timing uses Android's inexact allow-while-idle alarms.
-- Map shows your position on request. Start a live share for 15, 30, 60, or 120
-  minutes and send its package through the system share sheet. Anyone with its
-  code can monitor the location; only share it with people you trust. The Google
-  Maps link is a snapshot and does not stop working when the HARU code expires.
-- Live publishing and monitoring pause while HARU is in the background. Stop
-  sharing revokes the server session when the service is reachable; if revocation
-  fails, the app reports that the code remains valid until automatic expiry.
-- Live coordinates are encrypted before upload. The sharing service validates
-  separate read and write tokens. Sender identity is not independently verified.
-  Location sharing depends on the existing hosted service being online.
+Recent seven dates stay visible. Older entries collapse into weeks, months after four weeks, and years after twelve months. Expand through Year → Month → Week → Day. Calendar months retain their true lengths and crossing weeks are clipped to the parent month. Expansion state and stable list IDs keep navigation in place. The Memorable filter retains the same archive structure.
 
-Live news requests require provider-supplied sources and display a compact Sources dropdown. Groq live requests use a saved Gemini key for Google Search; without it, HARU provides setup guidance. See [live-news diagnosis](docs/live-news-review-v0.9.38.md).
+Tasks, task dragging, reminders, the local companion/check-ins, lock-screen setup, themes, and location sharing are retained. Create reminders with the direct date/time form. Tap the HARU title for About or open Settings for appearance and updates.
 
-AI starts only on an explicit request or connection test. Routine news searches use one grounded Gemini generation; bounded agent tasks use status polling and best-effort server cancellation. Quota cooldowns apply to Gemini and Antigravity together. See [AI usage review](docs/ai-usage-review-v0.9.37.md) for limits and verification.
+Maps and live sharing still need connectivity and permission. Journal entries are never shared through location sharing. AI providers, API keys, model selection, and microphone features have been removed from Android. Old encrypted conversation data is preserved without being converted into journal entries. See [release notes](docs/release-v0.10.0.md).
 
 ## Install and build
 
@@ -48,15 +28,15 @@ CI restores the existing signer from a protected signing secret and checks its c
 
 ## Privacy and reliability
 
-- Credentials and AI conversation memory use Android Keystore-backed encryption. Tasks, notes, and reminders use app-private preferences. Android backup is disabled.
-- Widget content exposes generic counts and local prompts, not task/reminder text. Actual due reminder notifications can show their text on the lock screen according to Android settings.
-- Widget custom broadcasts are private and click actions use immutable PendingIntents. Network response size limits are enforced during reading.
-- AI calls occur only for explicit requests. No location, weather, telemetry, or completed action is invented by local companion prompts.
+- Journal text uses Android Keystore-backed AES-GCM encryption; dates and stars are app-private database metadata. Android backup is disabled.
+- Tasks, notes, and reminders retain their existing app-private storage. Upgrading preserves these records.
+- Companion check-ins are local. Due reminder notifications may display reminder text according to Android settings; journal text is never included.
+- Network access remains for maps, explicit location sharing, and update checks. No AI runtime or API requests remain in the Android app.
 - Never commit API keys, signing keys, local properties, or app secrets.
 
 ## Streamlit HARU Lab
 
-The separate Streamlit app supports rapid cloud/local testing:
+The separate, legacy Streamlit research lab is unchanged by the Android journal release and still supports cloud/local AI testing:
 
 ```powershell
 python -m venv .venv

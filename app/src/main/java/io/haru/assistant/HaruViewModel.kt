@@ -1,123 +1,80 @@
 package io.haru.assistant
 
+import android.app.Application
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import androidx.lifecycle.ViewModel
-import io.haru.assistant.core.CommandRouter
-import io.haru.assistant.core.HaruMood
-import io.haru.assistant.core.HaruUiState
-import io.haru.assistant.onlineai.WebSource
+import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.viewModelScope
+import io.haru.assistant.journal.JournalEntry
+import io.haru.assistant.journal.JournalStore
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.time.LocalDate
 
-class HaruViewModel(
-    private val router: CommandRouter = CommandRouter()
-) : ViewModel() {
-
-    var uiState by mutableStateOf(HaruUiState())
+class HaruViewModel(application: Application) : AndroidViewModel(application) {
+    private val store = JournalStore(application)
+    private val pending = linkedMapOf<LocalDate, JournalEntry?>()
+    private val saves = Channel<Boolean>(Channel.CONFLATED)
+    var entries by mutableStateOf(emptyList<JournalEntry>())
+        private set
+    var ready by mutableStateOf(false)
+        private set
+    var status by mutableStateOf("Opening journal…")
+        private set
+    var loadFailed by mutableStateOf(false)
         private set
 
-    fun updateCommand(value: String) {
-        val clean = sanitizeCommand(value)
-        uiState = uiState.copy(command = clean.take(MAX_COMMAND_CHARS + 1), commandTooLong = clean.length > MAX_COMMAND_CHARS)
-    }
-
-    fun recordLatestUser(value: String) {
-        val clean = sanitizeCommand(value).trim()
-        if (clean.isNotBlank()) {
-            uiState = uiState.copy(latestUserMessage = clean)
+    init {
+        reload()
+        viewModelScope.launch {
+            for (immediate in saves) {
+                if (!immediate) delay(300)
+                val batch = pending.toMap()
+                if (batch.isEmpty()) continue
+                try {
+                    withContext(Dispatchers.IO) { store.save(batch) }
+                    batch.forEach { (date, value) -> if (pending[date] == value) pending.remove(date) }
+                    status = if (pending.isEmpty()) "Saved on this phone" else "Saving…"
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    status = "Could not save. Your draft is still here. Tap Save to retry."
+                }
+            }
         }
     }
 
-    fun setListening() {
-        if (uiState.isBusy) return
-        uiState = uiState.copy(
-            mood = HaruMood.LISTENING,
-            message = "Listening…",
-            webSources = emptyList(),
-            searchSuggestionsHtml = "",
-            isBusy = true
-        )
-    }
-
-    fun cancelListening(message: String = "Ready when you are.") {
-        uiState = uiState.copy(
-            mood = HaruMood.IDLE,
-            message = message,
-            webSources = emptyList(),
-            searchSuggestionsHtml = "",
-        )
-    }
-
-    fun submit() {
-        val command = uiState.command.trim()
-        if (!uiState.canSubmit) return
-        recordLatestUser(command)
-        uiState = uiState.copy(mood = HaruMood.THINKING, isBusy = true)
-
-        val result = router.route(command)
-        uiState = uiState.copy(
-            mood = if (result.success) HaruMood.HAPPY else HaruMood.CONFUSED,
-            message = result.message,
-            webSources = emptyList(),
-            searchSuggestionsHtml = "",
-            command = "",
-            isBusy = false
-        )
-    }
-
-    fun prepareAiPrompt(): String? {
-        val command = uiState.command.trim()
-        if (!uiState.canSubmit) return null
-        recordLatestUser(command)
-
-        val localResult = router.route(command)
-        if (localResult.success) {
-            uiState = uiState.copy(
-                mood = HaruMood.HAPPY,
-                message = localResult.message,
-                webSources = emptyList(),
-                searchSuggestionsHtml = "",
-                command = "",
-                isBusy = false,
-            )
-            return null
+    fun reload() {
+        if (ready) return
+        viewModelScope.launch {
+            loadFailed = false
+            try {
+                entries = withContext(Dispatchers.IO) { store.load() }
+                ready = true
+                status = "Saved on this phone"
+            } catch (e: Exception) {
+                loadFailed = true
+                status = "Could not open the journal. Existing entries have been kept. Tap Retry."
+            }
         }
-
-        uiState = uiState.copy(
-            mood = HaruMood.THINKING,
-            message = "Thinking…",
-            webSources = emptyList(),
-            searchSuggestionsHtml = "",
-            command = "",
-            isBusy = true,
-        )
-        return command
     }
 
-    fun completeAi(message: String, success: Boolean = true, webSources: List<WebSource> = emptyList(), searchSuggestionsHtml: String = "") {
-        uiState = uiState.copy(
-            mood = if (success) HaruMood.HAPPY else HaruMood.CONFUSED,
-            message = message,
-            webSources = webSources,
-            searchSuggestionsHtml = searchSuggestionsHtml,
-            isBusy = false,
-        )
+    fun update(date: LocalDate, text: String, memorable: Boolean) {
+        if (!ready || text.length > MAX_TEXT_CHARS) return
+        val entry = JournalEntry(date, text, memorable)
+        // A blank unstarred day is an empty date, not an accumulating empty record.
+        val value = entry.takeIf { text.isNotEmpty() || memorable }
+        pending[date] = value
+        entries = (entries.filterNot { it.date == date } + listOfNotNull(value)).sortedByDescending { it.date }
+        status = "Saving…"
+        saves.trySend(false)
     }
-
-    fun resetConversation() {
-        uiState = HaruUiState(
-            message = "Conversation memory cleared. Ready for a fresh chat."
-        )
-    }
-
-    private fun sanitizeCommand(value: String): String =
-        value
-            .replace(Regex("""[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]"""), "")
-            .replace("\r\n", "\n")
-            .replace('\r', '\n')
-            .take(MAX_COMMAND_CHARS + 1)
-
-    companion object {
-        internal const val MAX_COMMAND_CHARS = 8000
-    }
+    fun delete(date: LocalDate) = update(date, "", false)
+    fun flush() { saves.trySend(true) }
+    companion object { const val MAX_TEXT_CHARS = 50_000 }
 }
