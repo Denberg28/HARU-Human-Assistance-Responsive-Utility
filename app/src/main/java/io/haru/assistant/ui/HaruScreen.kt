@@ -58,14 +58,9 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.buildAnnotatedString
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.zIndex
@@ -75,9 +70,6 @@ import io.haru.assistant.companion.CompanionSnapshot
 import io.haru.assistant.companion.HaruDailyPulseFactory
 import io.haru.assistant.core.HaruMood
 import io.haru.assistant.location.TrustedLocation
-import io.haru.assistant.onlineai.GeminiModel
-import io.haru.assistant.onlineai.AiAnswerMode
-import io.haru.assistant.onlineai.OnlineProvider
 import org.maplibre.android.MapLibre
 import org.maplibre.android.annotations.MarkerOptions
 import org.maplibre.android.camera.CameraPosition
@@ -91,7 +83,7 @@ import kotlinx.coroutines.isActive
 
 @Composable
 fun HaruScreen(
-    viewModel: HaruViewModel,
+    journalViewModel: HaruViewModel,
     todayLines: List<String>,
     companionSnapshot: CompanionSnapshot,
     haruCheckerEnabled: Boolean,
@@ -99,14 +91,6 @@ fun HaruScreen(
     themeColor: HaruThemeColor,
     backgroundTheme: HaruBackgroundTheme,
     companionQuiet: Boolean,
-    onlineProvider: OnlineProvider,
-    selectedGeminiModel: GeminiModel,
-    aiAnswerMode: AiAnswerMode,
-    geminiModels: List<GeminiModel>,
-    onlineStatus: String,
-    hasGeminiKey: Boolean,
-    hasGroqKey: Boolean,
-    memoryCount: Int,
     appVersion: String,
     updateStatus: String,
     updateUrl: String,
@@ -121,9 +105,8 @@ fun HaruScreen(
     liveShareActive: Boolean,
     locationShareBusy: Boolean,
     liveMonitorActive: Boolean,
-    onSubmitClick: () -> Unit,
-    onMicClick: () -> Unit,
     onAddCompanionTask: (String) -> Unit,
+    onAddReminder: (String, Long) -> Unit,
     onUpdateCompanionTask: (Int, String) -> Unit,
     onDeleteCompanionTask: (Int) -> Unit,
     onReorderCompanionTasks: (List<String>) -> Unit,
@@ -132,16 +115,6 @@ fun HaruScreen(
     onSelectThemeColor: (HaruThemeColor) -> Unit,
     onSelectBackgroundTheme: (HaruBackgroundTheme) -> Unit,
     onOpenAppSettings: () -> Unit,
-    onSelectOnlineProvider: (OnlineProvider) -> Unit,
-    onSelectGeminiModel: (GeminiModel) -> Unit,
-    onSelectAiAnswerMode: (AiAnswerMode) -> Unit,
-    onRefreshGeminiModels: () -> Unit,
-    onSaveGeminiKey: (String) -> Unit,
-    onSaveGroqKey: (String) -> Unit,
-    onTestOnlineAi: () -> Unit,
-    onTestFastGemini: () -> Unit,
-    onTestAntigravityAgent: () -> Unit,
-    onResetMemory: () -> Unit,
     onCheckUpdate: () -> Unit,
     onOpenUpdate: (String) -> Unit,
     onOpenUrl: (String) -> Unit,
@@ -154,13 +127,13 @@ fun HaruScreen(
     onClearTrustedLocations: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    var selectedTab by remember { mutableIntStateOf(0) }
-    var showOnlineAi by remember { mutableStateOf(false) }
+    var selectedTab by androidx.compose.runtime.saveable.rememberSaveable { mutableIntStateOf(0) }
+    val journalStateHolder = androidx.compose.runtime.saveable.rememberSaveableStateHolder()
     var showUpdate by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
     var showAbout by remember { mutableStateOf(false) }
     var showLockScreenSetup by remember { mutableStateOf(false) }
-    val tabs = listOf("HARU", "Map")
+    val tabs = listOf("Journal", "Map")
     Surface(modifier = modifier.fillMaxSize()) {
         Column(
             modifier = Modifier
@@ -204,23 +177,27 @@ fun HaruScreen(
             // and can cause frame drops on mid-range phones. TabRow already
             // provides the selection motion, while the content swaps once.
             if (selectedTab == 0) {
-                SimpleHaruPane(
-                    viewModel = viewModel,
-                    todayLines = todayLines,
+                journalStateHolder.SaveableStateProvider("journal") {
+                var showToday by remember { mutableStateOf(false) }
+                JournalPane(
+                    viewModel = journalViewModel,
                     companionSnapshot = companionSnapshot,
-                    haruCheckerEnabled = haruCheckerEnabled,
-                    companionQuiet = companionQuiet,
-                    companionVisible = !showSettings && !showAbout && !showOnlineAi && !showUpdate && !showLockScreenSetup,
-                    memoryCount = memoryCount,
-                    onResetMemory = onResetMemory,
-                    onSubmitClick = onSubmitClick,
-                    onMicClick = onMicClick,
+                    checkerEnabled = haruCheckerEnabled,
+                    quiet = companionQuiet,
+                    visible = !showSettings && !showAbout && !showUpdate && !showLockScreenSetup && !showToday,
+                    onOpenToday = { showToday = true },
+                    onOpenSettings = { showSettings = true },
+                )
+                if (showToday) SimpleTodayDialog(
+                    snapshot = companionSnapshot,
+                    onDismiss = { showToday = false },
                     onAddTask = onAddCompanionTask,
                     onUpdateTask = onUpdateCompanionTask,
                     onDeleteTask = onDeleteCompanionTask,
                     onReorderTasks = onReorderCompanionTasks,
-                    onOpenSettings = { showSettings = true },
+                    onAddReminder = onAddReminder,
                 )
+                }
             } else {
                 MapPane(
                     locations = trustedLocations,
@@ -274,7 +251,7 @@ fun HaruScreen(
                         fontWeight = FontWeight.SemiBold,
                     )
                     Text(
-                        "A compact personal assistant with quiet caring check-ins, tasks, reminders, voice, and trusted location tools.",
+                        "A private daily journal with memorable days, quiet caring check-ins, tasks, reminders, and trusted location tools.",
                         style = MaterialTheme.typography.bodySmall,
                     )
                     HorizontalDivider()
@@ -295,7 +272,6 @@ fun HaruScreen(
         SimpleSettingsDialog(
             haruCheckerEnabled = haruCheckerEnabled,
             lockScreenEnabled = lockScreenEnabled,
-            onlineProvider = onlineProvider,
             themeColor = themeColor,
             backgroundTheme = backgroundTheme,
             appVersion = appVersion,
@@ -307,10 +283,6 @@ fun HaruScreen(
             onToggleHaruChecker = onToggleHaruChecker,
             onSelectThemeColor = onSelectThemeColor,
             onSelectBackgroundTheme = onSelectBackgroundTheme,
-            onOpenAi = {
-                showSettings = false
-                showOnlineAi = true
-            },
             onOpenUpdate = {
                 showSettings = false
                 showUpdate = true
@@ -329,228 +301,7 @@ fun HaruScreen(
         )
     }
 
-    if (showOnlineAi) {
-        OnlineAiDialog(
-            provider = onlineProvider,
-            selectedGeminiModel = selectedGeminiModel,
-            aiAnswerMode = aiAnswerMode,
-            geminiModels = geminiModels,
-            status = onlineStatus,
-            hasGeminiKey = hasGeminiKey,
-            hasGroqKey = hasGroqKey,
-            onDismiss = { showOnlineAi = false },
-            onSelectProvider = onSelectOnlineProvider,
-            onSelectGeminiModel = onSelectGeminiModel,
-            onSelectAiAnswerMode = onSelectAiAnswerMode,
-            onRefreshGeminiModels = onRefreshGeminiModels,
-            onSaveGeminiKey = onSaveGeminiKey,
-            onSaveGroqKey = onSaveGroqKey,
-            onTest = onTestOnlineAi,
-            onTestFastGemini = onTestFastGemini,
-            onTestAntigravityAgent = onTestAntigravityAgent,
-        )
-    }
-
 }
-
-@Composable
-private fun SimpleHaruPane(
-    viewModel: HaruViewModel,
-    todayLines: List<String>,
-    companionSnapshot: CompanionSnapshot,
-    haruCheckerEnabled: Boolean,
-    companionQuiet: Boolean,
-    companionVisible: Boolean,
-    memoryCount: Int,
-    onResetMemory: () -> Unit,
-    onSubmitClick: () -> Unit,
-    onMicClick: () -> Unit,
-    onAddTask: (String) -> Unit,
-    onUpdateTask: (Int, String) -> Unit,
-    onDeleteTask: (Int) -> Unit,
-    onReorderTasks: (List<String>) -> Unit,
-    onOpenSettings: () -> Unit,
-) {
-    val state = viewModel.uiState
-    var showToday by remember { mutableStateOf(false) }
-    val responseScrollState = rememberScrollState()
-    LaunchedEffect(state.message) {
-        responseScrollState.scrollTo(0)
-    }
-
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .imePadding()
-            .padding(horizontal = 18.dp, vertical = 10.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        Column(
-            modifier = Modifier
-                .weight(1f)
-                .fillMaxWidth()
-                .verticalScroll(responseScrollState),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            if (haruCheckerEnabled && !state.isBusy) {
-                HaruCheckerCard(
-                    snapshot = companionSnapshot,
-                    quiet = companionQuiet,
-                    busy = state.isBusy,
-                    draft = state.command,
-                    visible = companionVisible && !showToday,
-                )
-            } else {
-                HaruFace(mood = state.mood, modifier = Modifier.sizeCompat(96.dp))
-            }
-
-            Spacer(Modifier.height(4.dp))
-
-            if (state.isBusy && state.mood == HaruMood.THINKING) {
-                ThinkingDots()
-            } else {
-                AssistantResponseText(
-                    message = state.message,
-                )
-                if (state.webSources.isNotEmpty()) {
-                    LiveSearchSources(state.webSources, state.searchSuggestionsHtml)
-                }
-            }
-
-            Spacer(Modifier.height(12.dp))
-
-            Card(
-                onClick = { showToday = true },
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Column(Modifier.padding(12.dp)) {
-                    Text(
-                        "Today  ›",
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                    Text(
-                        HaruDailyPulseFactory.focusLine(companionSnapshot),
-                        style = MaterialTheme.typography.bodySmall,
-                        fontWeight = FontWeight.Medium,
-                    )
-                    todayLines
-                        .filterNot { it.startsWith("Tasks:") }
-                        .take(2)
-                        .forEach {
-                            Text(
-                                it,
-                                style = MaterialTheme.typography.bodySmall,
-                            )
-                        }
-                }
-            }
-
-            Spacer(Modifier.height(4.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                TextButton(
-                    onClick = onResetMemory,
-                    enabled = memoryCount > 0,
-                ) {
-                    Text("Clear memory · $memoryCount/10")
-                }
-                TextButton(onClick = onOpenSettings) { Text("Settings") }
-            }
-        }
-
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .navigationBarsPadding()
-                .padding(bottom = 4.dp),
-        ) {
-            OutlinedTextField(
-                value = state.command,
-                onValueChange = viewModel::updateCommand,
-                label = { Text("Tell HARU") },
-                placeholder = {
-                    Text("Ask, add a task, or set a reminder")
-                },
-                singleLine = false,
-                minLines = 1,
-                maxLines = 4,
-                isError = state.commandTooLong,
-                supportingText = { if (state.commandTooLong) Text("Request is too long. Shorten or split it to 8,000 characters.") },
-                keyboardOptions =
-                    KeyboardOptions(imeAction = ImeAction.Send),
-                keyboardActions =
-                    KeyboardActions(onSend = { if (state.canSubmit) onSubmitClick() }),
-                modifier = Modifier.fillMaxWidth(),
-            )
-
-            if (shouldShowCommandExamples(
-                    command = state.command,
-                    latestUserMessage = state.latestUserMessage,
-                )
-            ) {
-                Text(
-                    COMMAND_EXAMPLE_HINT,
-                    style = MaterialTheme.typography.labelSmall,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 3.dp),
-                )
-            }
-
-            Spacer(Modifier.height(7.dp))
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement =
-                    Arrangement.spacedBy(8.dp),
-            ) {
-                Button(
-                    onClick = onSubmitClick,
-                    enabled = state.canSubmit,
-                    modifier = Modifier.weight(1f),
-                ) {
-                    Text("Send")
-                }
-                OutlinedButton(
-                    onClick = onMicClick,
-                    enabled = !state.isBusy,
-                    modifier = Modifier.weight(1f),
-                ) {
-                    Text(
-                        if (state.mood == HaruMood.LISTENING) {
-                            "Listening…"
-                        } else {
-                            "Mic"
-                        }
-                    )
-                }
-            }
-
-            // Voice remains available through the Mic button.
-            // Keep diagnostics out of the primary interface.
-        }
-    }
-
-    if (showToday) {
-        SimpleTodayDialog(
-            snapshot = companionSnapshot,
-            onDismiss = { showToday = false },
-            onAddTask = onAddTask,
-            onUpdateTask = onUpdateTask,
-            onDeleteTask = onDeleteTask,
-            onReorderTasks = onReorderTasks,
-        )
-    }
-}
-
-internal fun shouldShowCommandExamples(
-    command: String,
-    latestUserMessage: String,
-): Boolean =
-    command.isBlank() &&
-        latestUserMessage.isBlank()
-
-private const val COMMAND_EXAMPLE_HINT =
-    "task Buy milk  •  remind me in 30 min to call"
 
 @Composable
 private fun SimpleTodayDialog(
@@ -560,8 +311,10 @@ private fun SimpleTodayDialog(
     onUpdateTask: (Int, String) -> Unit,
     onDeleteTask: (Int) -> Unit,
     onReorderTasks: (List<String>) -> Unit,
+    onAddReminder: (String, Long) -> Unit,
 ) {
     var taskText by remember { mutableStateOf("") }
+    var showReminder by remember { mutableStateOf(false) }
     var selectedTaskIndex by remember {
         mutableStateOf<Int?>(null)
     }
@@ -891,14 +644,15 @@ private fun SimpleTodayDialog(
                     }
                 }
 
-                Text(
-                    "Reminder: type “remind me in 30 min to call” in Tell HARU.",
-                    style = MaterialTheme.typography.labelSmall,
-                )
+                TextButton(onClick = { showReminder = true }) { Text("Add reminder") }
             }
         },
     )
 
+    if (showReminder) ReminderEditDialog(
+        onDismiss = { showReminder = false },
+        onSave = { text, dueAt -> onAddReminder(text, dueAt); showReminder = false },
+    )
 }
 
 @Composable
@@ -946,7 +700,6 @@ private fun TaskEditDialog(
 private fun SimpleSettingsDialog(
     haruCheckerEnabled: Boolean,
     lockScreenEnabled: Boolean,
-    onlineProvider: OnlineProvider,
     themeColor: HaruThemeColor,
     backgroundTheme: HaruBackgroundTheme,
     appVersion: String,
@@ -955,7 +708,6 @@ private fun SimpleSettingsDialog(
     onToggleHaruChecker: () -> Unit,
     onSelectThemeColor: (HaruThemeColor) -> Unit,
     onSelectBackgroundTheme: (HaruBackgroundTheme) -> Unit,
-    onOpenAi: () -> Unit,
     onOpenUpdate: () -> Unit,
 ) {
     AlertDialog(
@@ -1018,16 +770,6 @@ private fun SimpleSettingsDialog(
                     isSelected = { it == backgroundTheme },
                     onSelect = onSelectBackgroundTheme,
                 )
-
-                OutlinedButton(
-                    onClick = onOpenAi,
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text(
-                        "AI · " +
-                            providerLabel(onlineProvider)
-                    )
-                }
 
                 TextButton(
                     onClick = onOpenUpdate,
@@ -1631,529 +1373,6 @@ private fun AppUpdateDialog(
         },
     )
 }
-
-@Composable
-private fun OnlineAiDialog(
-    provider: OnlineProvider,
-    selectedGeminiModel: GeminiModel,
-    aiAnswerMode: AiAnswerMode,
-    geminiModels: List<GeminiModel>,
-    status: String,
-    hasGeminiKey: Boolean,
-    hasGroqKey: Boolean,
-    onDismiss: () -> Unit,
-    onSelectProvider: (OnlineProvider) -> Unit,
-    onSelectGeminiModel: (GeminiModel) -> Unit,
-    onSelectAiAnswerMode: (AiAnswerMode) -> Unit,
-    onRefreshGeminiModels: () -> Unit,
-    onSaveGeminiKey: (String) -> Unit,
-    onSaveGroqKey: (String) -> Unit,
-    onTest: () -> Unit,
-    onTestFastGemini: () -> Unit,
-    onTestAntigravityAgent: () -> Unit,
-) {
-    var geminiKey by remember { mutableStateOf("") }
-    var groqKey by remember { mutableStateOf("") }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("HARU AI") },
-        confirmButton = {
-            TextButton(onClick = onDismiss) { Text("Done") }
-        },
-        text = {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .verticalScroll(rememberScrollState()),
-            ) {
-                HaruOptionDropdown(
-                    label = "AI provider",
-                    selectedText = providerLabel(provider),
-                    options = OnlineProvider.entries,
-                    optionLabel = ::providerLabel,
-                    isSelected = { it == provider },
-                    onSelect = onSelectProvider,
-                )
-
-                Spacer(Modifier.height(10.dp))
-                HaruOptionDropdown(
-                    label = "Answer mode",
-                    selectedText = aiAnswerMode.label,
-                    options = AiAnswerMode.entries,
-                    optionLabel = { it.label },
-                    isSelected = { it == aiAnswerMode },
-                    onSelect = onSelectAiAnswerMode,
-                )
-                Text("Auto looks up live facts when needed. General knowledge answers directly without search; changing facts may be outdated.", style = MaterialTheme.typography.labelSmall)
-                Spacer(Modifier.height(10.dp))
-                HaruOptionDropdown(
-                    label = "Gemini model",
-                    selectedText = selectedGeminiModel.label,
-                    options = geminiModels,
-                    optionLabel = { it.label },
-                    isSelected = { it.id == selectedGeminiModel.id },
-                    onSelect = onSelectGeminiModel,
-                    actionLabel = if (hasGeminiKey) {
-                        "Update models"
-                    } else {
-                        "Update models · save key first"
-                    },
-                    actionEnabled = hasGeminiKey,
-                    onAction = onRefreshGeminiModels,
-                )
-
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    "Only the newest stable Flash and Flash-Lite agents returned by Google's live catalog are kept. Updating agents uses one catalog request and does not consume a generation request.",
-                    style = MaterialTheme.typography.labelSmall,
-                )
-
-                Spacer(Modifier.height(10.dp))
-                Text(
-                    "Gemini API key" + if (hasGeminiKey) " · saved securely" else "",
-                    fontWeight = FontWeight.SemiBold,
-                )
-                OutlinedTextField(
-                    value = geminiKey,
-                    onValueChange = { geminiKey = it.take(300) },
-                    visualTransformation = PasswordVisualTransformation(),
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                Button(
-                    onClick = {
-                        onSaveGeminiKey(geminiKey)
-                        geminiKey = ""
-                    },
-                    enabled = geminiKey.isNotBlank(),
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text("Save Gemini key")
-                }
-
-                Spacer(Modifier.height(10.dp))
-                Text(
-                    "Groq API key" + if (hasGroqKey) " · saved securely" else "",
-                    fontWeight = FontWeight.SemiBold,
-                )
-                OutlinedTextField(
-                    value = groqKey,
-                    onValueChange = { groqKey = it.take(300) },
-                    visualTransformation = PasswordVisualTransformation(),
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                Button(
-                    onClick = {
-                        onSaveGroqKey(groqKey)
-                        groqKey = ""
-                    },
-                    enabled = groqKey.isNotBlank(),
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text("Save Groq key")
-                }
-                Text(
-                    "Groq uses Qwen 3.8 27B. HARU sends the same encrypted rolling conversation context used by Gemini.",
-                    style = MaterialTheme.typography.labelSmall,
-                )
-
-                Spacer(Modifier.height(10.dp))
-                if (provider == OnlineProvider.ANTIGRAVITY) {
-                    Button(
-                        onClick = onTestFastGemini,
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Text("Test Fast Gemini")
-                    }
-                    OutlinedButton(
-                        onClick = onTestAntigravityAgent,
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Text("Test Antigravity agent")
-                    }
-                } else {
-                    Button(
-                        onClick = onTest,
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Text("Test selected AI")
-                    }
-                }
-
-                if (status.isNotBlank()) {
-                    Text(status, style = MaterialTheme.typography.bodySmall)
-                }
-                Text(
-                    "Antigravity Auto uses Gemini for chat and news searches. Only explicit deep research uses a bounded agent task. Code review and reasoning use direct requests. Refresh models to discover economical search options; 2.5 Flash-Lite is retained when available. Search access depends on your Google project and billing tier. Connection tests consume quota. Gemini and Antigravity share your Google project's limits; HARU pauses after a quota error. Usage counts cover this app session only. On Gemini server errors, one Flash-Lite fallback is allowed, except 2.5 search requests remain on 2.5.",
-                    style = MaterialTheme.typography.labelSmall,
-                )
-            }
-        },
-    )
-}
-
-@Composable
-private fun ThinkingDots() {
-    val transition = rememberInfiniteTransition(label = "thinking-dots")
-    val alpha by transition.animateFloat(
-        initialValue = 0.30f,
-        targetValue = 1.0f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(650),
-            repeatMode = RepeatMode.Reverse,
-        ),
-        label = "thinking-dots-alpha",
-    )
-    Text(
-        text = "•••",
-        style = MaterialTheme.typography.titleMedium,
-        modifier = Modifier.alpha(alpha),
-    )
-}
-
-internal sealed interface HaruResponseBlock {
-    data class Heading(
-        val text: String,
-        val level: Int,
-    ) : HaruResponseBlock
-
-    data class Bullet(val text: String) : HaruResponseBlock
-
-    data class Numbered(
-        val number: String,
-        val text: String,
-    ) : HaruResponseBlock
-
-    data class Quote(val text: String) : HaruResponseBlock
-
-    data class Code(val text: String) : HaruResponseBlock
-
-    data class Paragraph(val text: String) : HaruResponseBlock
-
-    data object Gap : HaruResponseBlock
-}
-
-internal fun parseAssistantResponse(
-    message: String,
-): List<HaruResponseBlock> {
-    val clean =
-        message
-            .replace("\r\n", "\n")
-            .replace("\r", "\n")
-            .replace("\u0000", "")
-            .trim()
-
-    if (clean.isBlank()) return emptyList()
-
-    val blocks = mutableListOf<HaruResponseBlock>()
-    val codeLines = mutableListOf<String>()
-    val paragraphLines = mutableListOf<String>()
-    var inCode = false
-
-    fun flushParagraph() {
-        if (paragraphLines.isEmpty()) return
-        blocks +=
-            HaruResponseBlock.Paragraph(
-                paragraphLines
-                    .joinToString(" ")
-                    .replace(Regex("""\s+"""), " ")
-                    .trim()
-            )
-        paragraphLines.clear()
-    }
-
-    fun flushCode() {
-        if (codeLines.isEmpty()) return
-        blocks +=
-            HaruResponseBlock.Code(
-                codeLines.joinToString("\n").trimEnd()
-            )
-        codeLines.clear()
-    }
-
-    clean.lines().forEach { raw ->
-        val trimmed = raw.trim()
-
-        if (trimmed.startsWith("```")) {
-            flushParagraph()
-            if (inCode) flushCode()
-            inCode = !inCode
-            return@forEach
-        }
-
-        if (inCode) {
-            codeLines += raw
-            return@forEach
-        }
-
-        when {
-            trimmed.isBlank() -> {
-                flushParagraph()
-                if (blocks.lastOrNull() !is HaruResponseBlock.Gap) {
-                    blocks += HaruResponseBlock.Gap
-                }
-            }
-
-            HEADING_MARKDOWN.matches(trimmed) -> {
-                flushParagraph()
-                val match =
-                    HEADING_MARKDOWN.matchEntire(trimmed)
-                        ?: return@forEach
-                blocks +=
-                    HaruResponseBlock.Heading(
-                        text = match.groupValues[2],
-                        level = match.groupValues[1].length,
-                    )
-            }
-
-            trimmed.startsWith("- ") ||
-                trimmed.startsWith("* ") ||
-                trimmed.startsWith("• ") -> {
-                flushParagraph()
-                blocks +=
-                    HaruResponseBlock.Bullet(
-                        trimmed.drop(2).trim()
-                    )
-            }
-
-            ORDERED_MARKDOWN.matches(trimmed) -> {
-                flushParagraph()
-                val match =
-                    ORDERED_MARKDOWN.matchEntire(trimmed)
-                        ?: return@forEach
-                blocks +=
-                    HaruResponseBlock.Numbered(
-                        number = match.groupValues[1],
-                        text = match.groupValues[2],
-                    )
-            }
-
-            trimmed.startsWith("> ") -> {
-                flushParagraph()
-                blocks +=
-                    HaruResponseBlock.Quote(
-                        trimmed.drop(2).trim()
-                    )
-            }
-
-            else -> paragraphLines += trimmed
-        }
-    }
-
-    flushParagraph()
-    if (inCode) flushCode()
-
-    while (blocks.lastOrNull() is HaruResponseBlock.Gap) {
-        blocks.removeAt(blocks.lastIndex)
-    }
-
-    return blocks
-}
-
-@Composable
-private fun AssistantResponseText(message: String) {
-    val blocks =
-        remember(message) {
-            parseAssistantResponse(message)
-        }
-
-    Column(
-        modifier = Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(6.dp),
-    ) {
-        blocks.forEach { block ->
-            when (block) {
-                is HaruResponseBlock.Heading -> {
-                    Text(
-                        text = formattedInlineText(block.text),
-                        style =
-                            if (block.level <= 2) {
-                                MaterialTheme.typography.titleMedium
-                            } else {
-                                MaterialTheme.typography.titleSmall
-                            },
-                        fontWeight = FontWeight.SemiBold,
-                        textAlign = TextAlign.Start,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                }
-
-                is HaruResponseBlock.Bullet -> {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.Top,
-                    ) {
-                        Text(
-                            text = "•",
-                            modifier = Modifier.width(18.dp),
-                        )
-                        Text(
-                            text = formattedInlineText(block.text),
-                            style = MaterialTheme.typography.bodyMedium,
-                            textAlign = TextAlign.Start,
-                            modifier = Modifier.weight(1f),
-                        )
-                    }
-                }
-
-                is HaruResponseBlock.Numbered -> {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.Top,
-                    ) {
-                        Text(
-                            text = block.number + ".",
-                            modifier = Modifier.width(28.dp),
-                        )
-                        Text(
-                            text = formattedInlineText(block.text),
-                            style = MaterialTheme.typography.bodyMedium,
-                            textAlign = TextAlign.Start,
-                            modifier = Modifier.weight(1f),
-                        )
-                    }
-                }
-
-                is HaruResponseBlock.Quote -> {
-                    Text(
-                        text = formattedInlineText(block.text),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        textAlign = TextAlign.Start,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(start = 12.dp),
-                    )
-                }
-
-                is HaruResponseBlock.Code -> {
-                    Surface(
-                        modifier = Modifier.fillMaxWidth(),
-                        color =
-                            MaterialTheme.colorScheme.surfaceVariant,
-                        shape = MaterialTheme.shapes.small,
-                    ) {
-                        Text(
-                            text = block.text,
-                            style =
-                                MaterialTheme.typography.bodySmall.copy(
-                                    fontFamily = FontFamily.Monospace
-                                ),
-                            modifier = Modifier.padding(10.dp),
-                        )
-                    }
-                }
-
-                is HaruResponseBlock.Paragraph -> {
-                    Text(
-                        text = formattedInlineText(block.text),
-                        style = MaterialTheme.typography.bodyMedium,
-                        textAlign = TextAlign.Start,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                }
-
-                HaruResponseBlock.Gap ->
-                    Spacer(Modifier.height(2.dp))
-            }
-        }
-    }
-}
-
-private val HEADING_MARKDOWN =
-    Regex("""^(#{1,6})\s+(.+)$""")
-
-private val ORDERED_MARKDOWN =
-    Regex("""^(\d+)[.)]\s+(.+)$""")
-
-private fun formattedInlineText(
-    value: String,
-): AnnotatedString {
-    val source =
-        value
-            .replace(
-                Regex("""\[([^\]]+)]\((?:https?://)?[^)]+\)"""),
-                "$1",
-            )
-            .replace(Regex("""__(.+?)__"""), "**$1**")
-            .replace(Regex("""(?<!_)_([^_]+)_(?!_)"""), "*$1*")
-            .replace(
-                Regex(
-                    """[\u0000-\u0008\u000B\u000C\u000E-\u001F]"""
-                ),
-                "",
-            )
-
-    return buildAnnotatedString {
-        var index = 0
-        while (index < source.length) {
-            when {
-                source.startsWith("**", index) -> {
-                    val end = source.indexOf("**", index + 2)
-                    if (end > index + 2) {
-                        pushStyle(
-                            SpanStyle(
-                                fontWeight = FontWeight.SemiBold
-                            )
-                        )
-                        append(
-                            source.substring(index + 2, end)
-                        )
-                        pop()
-                        index = end + 2
-                    } else {
-                        append(source[index])
-                        index += 1
-                    }
-                }
-
-                source[index] == '`' -> {
-                    val end = source.indexOf('`', index + 1)
-                    if (end > index + 1) {
-                        pushStyle(
-                            SpanStyle(
-                                fontFamily = FontFamily.Monospace
-                            )
-                        )
-                        append(
-                            source.substring(index + 1, end)
-                        )
-                        pop()
-                        index = end + 1
-                    } else {
-                        index += 1
-                    }
-                }
-
-                source[index] == '*' -> {
-                    val end = source.indexOf('*', index + 1)
-                    if (end > index + 1) {
-                        append(
-                            source.substring(index + 1, end)
-                        )
-                        index = end + 1
-                    } else {
-                        index += 1
-                    }
-                }
-
-                else -> {
-                    append(source[index])
-                    index += 1
-                }
-            }
-        }
-    }
-}
-
-private fun providerLabel(provider: OnlineProvider): String =
-    when (provider) {
-        OnlineProvider.ANTIGRAVITY -> "Antigravity Auto"
-        OnlineProvider.GEMINI -> "Gemini"
-        OnlineProvider.GROQ -> "Groq · Qwen 3.8"
-    }
 
 private fun Modifier.sizeCompat(size: androidx.compose.ui.unit.Dp): Modifier =
     this.width(size).height(size)

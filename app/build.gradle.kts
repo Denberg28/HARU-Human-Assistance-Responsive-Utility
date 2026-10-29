@@ -17,8 +17,8 @@ android {
         applicationId = "io.haru.assistant"
         minSdk = 26
         targetSdk = 36
-        versionCode = 75
-        versionName = "0.9.40"
+        versionCode = 76
+        versionName = "0.10.0"
 
         ndk {
             abiFilters += "arm64-v8a"
@@ -100,7 +100,6 @@ dependencies {
     implementation("org.maplibre.gl:android-sdk:11.11.0")
     implementation(platform("com.squareup.okhttp3:okhttp-bom:5.5.0"))
     implementation("com.squareup.okhttp3:okhttp")
-    implementation("com.squareup.okhttp3:okhttp-dnsoverhttps")
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.robolectric:robolectric:4.17")
 }

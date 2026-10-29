@@ -1,6 +1,5 @@
 package io.haru.assistant.core
 
-import io.haru.assistant.onlineai.WebSource
 
 enum class HaruMood {
     IDLE,
@@ -19,7 +18,6 @@ data class HaruUiState(
     val command: String = "",
     val commandTooLong: Boolean = false,
     val latestUserMessage: String = "",
-    val webSources: List<WebSource> = emptyList(),
     val searchSuggestionsHtml: String = "",
     val isBusy: Boolean = false
 ) {
