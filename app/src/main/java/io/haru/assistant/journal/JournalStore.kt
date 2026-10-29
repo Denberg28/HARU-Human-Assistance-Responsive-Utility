@@ -67,7 +67,6 @@ class JournalEncryption(private val key: () -> SecretKey = ::androidJournalKey) 
         cipher.updateAAD(date.toString().toByteArray(Charsets.UTF_8))
         return String(cipher.doFinal(bytes.copyOfRange(12, bytes.size)), Charsets.UTF_8)
     }
-    companion object { private const val KEY_ALIAS = "haru_journal_v1" }
 }
 
 private fun androidJournalKey(): SecretKey {

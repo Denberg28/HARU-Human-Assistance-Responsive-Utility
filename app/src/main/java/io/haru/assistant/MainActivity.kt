@@ -27,8 +27,6 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import io.haru.assistant.companion.AndroidCompanionStore
 import io.haru.assistant.companion.CompanionSnapshot
 import io.haru.assistant.companion.HaruCheckerStore
-import io.haru.assistant.companion.HaruChatActionParser
-import io.haru.assistant.companion.HaruChatActionResult
 import io.haru.assistant.companion.ReminderScheduler
 import io.haru.assistant.core.CompanionMode
 import io.haru.assistant.core.CompanionModeStore
@@ -229,6 +227,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun addReminder(text: String, dueAt: Long) {
+        if (text.isBlank() || dueAt <= System.currentTimeMillis()) return
         val reminder = companionStore.addReminder(text, dueAt)
         companionSnapshot = companionStore.load()
         ReminderScheduler.schedule(this, reminder)

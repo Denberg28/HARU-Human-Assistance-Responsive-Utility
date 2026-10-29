@@ -149,7 +149,7 @@ fun JournalPane(
             }
         }
     }
-    if (editing) JournalEditor(viewModel, LocalDate.parse(selectedDate), onDismiss = { viewModel.flush(); editing = false })
+    if (editing && viewModel.ready) JournalEditor(viewModel, LocalDate.parse(selectedDate), onDismiss = { viewModel.flush(); editing = false })
 }
 
 @Composable

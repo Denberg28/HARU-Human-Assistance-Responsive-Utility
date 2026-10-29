@@ -57,6 +57,8 @@ class HaruViewModel(application: Application) : AndroidViewModel(application) {
                 entries = withContext(Dispatchers.IO) { store.load() }
                 ready = true
                 status = "Saved on this phone"
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 loadFailed = true
                 status = "Could not open the journal. Existing entries have been kept. Tap Retry."

@@ -9,6 +9,5 @@ class HelpSkill : HaruSkill {
     }
 
     override fun execute(command: String): SkillResult = SkillResult(
-        "I can answer questions through your saved AI provider, look up current information when search is available, and handle time, simple arithmetic, tasks and reminders locally. Ask clearly or paste text to review. I cannot guarantee every answer or access files you have not supplied."
-    )
+        "Write a journal entry for today or choose a past date. Star a memorable day and expand older entries by year, month, week, and date. Tasks and reminders are available in Today."
 }
