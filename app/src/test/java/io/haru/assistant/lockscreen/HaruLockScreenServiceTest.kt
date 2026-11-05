@@ -21,7 +21,7 @@ class HaruLockScreenServiceTest {
         val context = RuntimeEnvironment.getApplication()
         shadowOf(context).grantPermissions("android.permission.POST_NOTIFICATIONS")
         shadowOf(context.getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager)
-            .setIsKeyguardLocked(true)
+            .setKeyguardLocked(true)
         val notifications = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         AndroidCompanionStore(context).addTask("Newest task")
         val controller = Robolectric.buildService(HaruLockScreenService::class.java).create()
