@@ -205,6 +205,7 @@ class MainActivity : ComponentActivity() {
                     onAddReminder = ::addReminder,
                     onUpdateCompanionTask = ::updateCompanionTask,
                     onDeleteCompanionTask = ::deleteCompanionTask,
+                    onCompleteCompanionTask = ::completeCompanionTask,
                     onReorderCompanionTasks = ::reorderCompanionTasks,
                     onToggleHaruChecker = ::toggleHaruChecker,
                     onToggleLockScreen = ::toggleLockScreen,
@@ -242,19 +243,22 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun updateCompanionTask(
-        index: Int,
+        id: String,
         text: String,
     ) {
-        if (index !in companionSnapshot.tasks.indices) return
         companionSnapshot =
-            companionStore.updateTask(index, text)
+            companionStore.updateTask(id, text)
         HaruLockScreenService.refresh(this)
     }
 
-    private fun deleteCompanionTask(index: Int) {
-        if (index !in companionSnapshot.tasks.indices) return
+    private fun deleteCompanionTask(id: String) {
         companionSnapshot =
-            companionStore.deleteTask(index)
+            companionStore.deleteTask(id)
+        HaruLockScreenService.refresh(this)
+    }
+
+    private fun completeCompanionTask(id: String) {
+        companionSnapshot = companionStore.completeTask(id)
         HaruLockScreenService.refresh(this)
     }
 

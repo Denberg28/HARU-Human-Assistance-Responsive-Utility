@@ -125,6 +125,7 @@ class HaruLockScreenService : Service() {
     override fun onDestroy() {
         handler.removeCallbacks(showIfLocked)
         handler.removeCallbacks(clearAcknowledgement)
+        notificationManager.cancel(TASK_NOTIFICATION_ID)
 
         if (receiverRegistered) {
             runCatching { unregisterReceiver(wakeReceiver) }

@@ -17,8 +17,8 @@ android {
         applicationId = "io.haru.assistant"
         minSdk = 26
         targetSdk = 36
-        versionCode = 76
-        versionName = "0.10.0"
+        versionCode = 77
+        versionName = "0.10.1"
 
         ndk {
             abiFilters += "arm64-v8a"
@@ -102,4 +102,6 @@ dependencies {
     implementation("com.squareup.okhttp3:okhttp")
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.robolectric:robolectric:4.17")
+    testImplementation("androidx.compose.ui:ui-test-junit4")
+    debugImplementation("androidx.compose.ui:ui-test-manifest")
 }

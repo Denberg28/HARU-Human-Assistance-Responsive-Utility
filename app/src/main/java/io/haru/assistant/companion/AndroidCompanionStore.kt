@@ -76,10 +76,10 @@ class AndroidCompanionStore(
 
     fun addTask(text: String): CompanionSnapshot {
         val snapshot = load()
-        val tasks =
-            (snapshot.tasks + CompanionTask(clean(text)))
-                .filter { it.text.isNotBlank() }
-                .takeLast(200)
+        val cleanText = clean(text)
+        if (cleanText.isBlank()) return snapshot
+        // Preserve the user's existing order below the new entry.
+        val tasks = (listOf(CompanionTask(cleanText)) + snapshot.tasks).take(200)
         saveTasks(tasks)
         return load()
     }
@@ -87,8 +87,13 @@ class AndroidCompanionStore(
     fun completeTask(index: Int): CompanionSnapshot {
         val snapshot = load()
         if (index !in snapshot.tasks.indices) return snapshot
-        val tasks = snapshot.tasks.mapIndexed { i, item ->
-            if (i == index) item.copy(done = true) else item
+        return completeTask(snapshot.tasks[index].id)
+    }
+
+    fun completeTask(id: String): CompanionSnapshot {
+        val snapshot = load()
+        val tasks = snapshot.tasks.map { item ->
+            if (item.id == id) item.copy(done = true) else item
         }
         saveTasks(tasks)
         return load()
@@ -100,13 +105,18 @@ class AndroidCompanionStore(
     ): CompanionSnapshot {
         val snapshot = load()
         if (index !in snapshot.tasks.indices) return snapshot
+        return updateTask(snapshot.tasks[index].id, text)
+    }
+
+    fun updateTask(id: String, text: String): CompanionSnapshot {
+        val snapshot = load()
 
         val cleanText = clean(text)
         if (cleanText.isBlank()) return snapshot
 
         val tasks =
-            snapshot.tasks.mapIndexed { i, item ->
-                if (i == index) {
+            snapshot.tasks.map { item ->
+                if (item.id == id) {
                     item.copy(text = cleanText)
                 } else {
                     item
@@ -120,11 +130,14 @@ class AndroidCompanionStore(
     fun deleteTask(index: Int): CompanionSnapshot {
         val snapshot = load()
         if (index !in snapshot.tasks.indices) return snapshot
+        return deleteTask(snapshot.tasks[index].id)
+    }
+
+    fun deleteTask(id: String): CompanionSnapshot {
+        val snapshot = load()
 
         saveTasks(
-            snapshot.tasks.filterIndexed { i, _ ->
-                i != index
-            }
+            snapshot.tasks.filterNot { it.id == id }
         )
         return load()
     }
@@ -237,6 +250,7 @@ class AndroidCompanionStore(
         return runCatching {
             val array = JSONArray(raw)
             var needsIdMigration = false
+            val seenIds = mutableSetOf<String>()
             val tasks =
                 buildList {
                     for (i in 0 until array.length()) {
@@ -246,10 +260,11 @@ class AndroidCompanionStore(
 
                         val storedId = item.optString("id")
                         val id =
-                            storedId.takeIf { it.isNotBlank() }
+                            storedId.takeIf { it.isNotBlank() && it !in seenIds }
                                 ?: UUID.randomUUID().toString().also {
                                     needsIdMigration = true
                                 }
+                        seenIds.add(id)
 
                         add(
                             CompanionTask(
@@ -259,7 +274,7 @@ class AndroidCompanionStore(
                             )
                         )
                     }
-                }.takeLast(200)
+                }.take(200)
 
             if (needsIdMigration) {
                 saveTasks(tasks, synchronous = true)
@@ -274,7 +289,7 @@ class AndroidCompanionStore(
         synchronous: Boolean = false,
     ) {
         val array = JSONArray()
-        tasks.takeLast(200).forEach { task ->
+        tasks.take(200).forEach { task ->
             array.put(
                 JSONObject()
                     .put("id", task.id)
