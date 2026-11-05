@@ -6,6 +6,7 @@
 - Tap a task and choose **Mark complete** to clear it from open tasks and update the local companion and lock screen.
 - Dragging changes order in memory and saves at gesture end or cancellation, reducing synchronous storage writes and avoiding rebuilding the order during a gesture.
 - Task drafts, selection, and Today visibility survive configuration changes.
+- Returning from task editing retains the list's scroll position. Disabling the lock-screen service clears its separate task notification.
 - Due reminders remain visible until notification delivery succeeds, including when notification permission or the reminder channel is disabled.
 
 Journal encryption, date archive, themes, map sharing, and the signing identity are unchanged. Install over the existing app to retain local records.

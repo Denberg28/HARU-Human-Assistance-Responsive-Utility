@@ -26,6 +26,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -324,6 +325,7 @@ internal fun SimpleTodayDialog(
     var selectedTaskId by rememberSaveable {
         mutableStateOf<String?>(null)
     }
+    val taskListState = rememberLazyListState()
     val tasksById = remember(snapshot.tasks) { snapshot.tasks.associateBy { it.id } }
     val taskOrder =
         remember(snapshot.tasks) {
@@ -389,6 +391,7 @@ internal fun SimpleTodayDialog(
         title = { Text("Today") },
         text = {
             LazyColumn(
+                state = taskListState,
                 modifier = Modifier
                     .fillMaxWidth()
                     .heightIn(max = 500.dp),
