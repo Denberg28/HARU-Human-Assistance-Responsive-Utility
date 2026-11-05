@@ -24,6 +24,8 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -50,6 +52,7 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -107,8 +110,9 @@ fun HaruScreen(
     liveMonitorActive: Boolean,
     onAddCompanionTask: (String) -> Unit,
     onAddReminder: (String, Long) -> Unit,
-    onUpdateCompanionTask: (Int, String) -> Unit,
-    onDeleteCompanionTask: (Int) -> Unit,
+    onUpdateCompanionTask: (String, String) -> Unit,
+    onDeleteCompanionTask: (String) -> Unit,
+    onCompleteCompanionTask: (String) -> Unit,
     onReorderCompanionTasks: (List<String>) -> Unit,
     onToggleHaruChecker: () -> Unit,
     onToggleLockScreen: () -> Unit,
@@ -178,7 +182,7 @@ fun HaruScreen(
             // provides the selection motion, while the content swaps once.
             if (selectedTab == 0) {
                 journalStateHolder.SaveableStateProvider("journal") {
-                var showToday by remember { mutableStateOf(false) }
+                var showToday by rememberSaveable { mutableStateOf(false) }
                 JournalPane(
                     viewModel = journalViewModel,
                     companionSnapshot = companionSnapshot,
@@ -194,6 +198,7 @@ fun HaruScreen(
                     onAddTask = onAddCompanionTask,
                     onUpdateTask = onUpdateCompanionTask,
                     onDeleteTask = onDeleteCompanionTask,
+                    onCompleteTask = onCompleteCompanionTask,
                     onReorderTasks = onReorderCompanionTasks,
                     onAddReminder = onAddReminder,
                 )
@@ -304,20 +309,22 @@ fun HaruScreen(
 }
 
 @Composable
-private fun SimpleTodayDialog(
+internal fun SimpleTodayDialog(
     snapshot: CompanionSnapshot,
     onDismiss: () -> Unit,
     onAddTask: (String) -> Unit,
-    onUpdateTask: (Int, String) -> Unit,
-    onDeleteTask: (Int) -> Unit,
+    onUpdateTask: (String, String) -> Unit,
+    onDeleteTask: (String) -> Unit,
+    onCompleteTask: (String) -> Unit,
     onReorderTasks: (List<String>) -> Unit,
     onAddReminder: (String, Long) -> Unit,
 ) {
-    var taskText by remember { mutableStateOf("") }
-    var showReminder by remember { mutableStateOf(false) }
-    var selectedTaskIndex by remember {
-        mutableStateOf<Int?>(null)
+    var taskText by rememberSaveable { mutableStateOf("") }
+    var showReminder by rememberSaveable { mutableStateOf(false) }
+    var selectedTaskId by rememberSaveable {
+        mutableStateOf<String?>(null)
     }
+    val tasksById = remember(snapshot.tasks) { snapshot.tasks.associateBy { it.id } }
     val taskOrder =
         remember(snapshot.tasks) {
             mutableStateListOf<String>().apply {
@@ -342,28 +349,32 @@ private fun SimpleTodayDialog(
             mutableStateMapOf<String, Int>()
         }
 
-    val selectedIndex = selectedTaskIndex
-    if (selectedIndex != null) {
+    val selectedId = selectedTaskId
+    if (selectedId != null) {
         val selectedTask =
-            snapshot.tasks.getOrNull(selectedIndex)
+            snapshot.tasks.firstOrNull { it.id == selectedId && !it.done }
 
         if (selectedTask != null) {
             TaskEditDialog(
                 initialText = selectedTask.text,
                 onDismiss = {
-                    selectedTaskIndex = null
+                    selectedTaskId = null
                 },
                 onSave = { updated ->
-                    onUpdateTask(selectedIndex, updated)
-                    selectedTaskIndex = null
+                    onUpdateTask(selectedId, updated)
+                    selectedTaskId = null
                 },
                 onDelete = {
-                    onDeleteTask(selectedIndex)
-                    selectedTaskIndex = null
+                    onDeleteTask(selectedId)
+                    selectedTaskId = null
+                },
+                onComplete = {
+                    onCompleteTask(selectedId)
+                    selectedTaskId = null
                 },
             )
         } else {
-            selectedTaskIndex = null
+            selectedTaskId = null
         }
         return
     }
@@ -377,263 +388,255 @@ private fun SimpleTodayDialog(
         },
         title = { Text("Today") },
         text = {
-            Column(
+            LazyColumn(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(max = 500.dp)
-                    .verticalScroll(rememberScrollState()),
+                    .heightIn(max = 500.dp),
                 verticalArrangement =
                     Arrangement.spacedBy(8.dp),
             ) {
-                OutlinedTextField(
-                    value = taskText,
-                    onValueChange = {
-                        taskText = it.take(200)
-                    },
-                    label = { Text("New task") },
-                    placeholder = { Text("What do you need to do?") },
-                    singleLine = true,
-                    keyboardOptions =
-                        KeyboardOptions(
-                            imeAction = ImeAction.Done
-                        ),
-                    keyboardActions =
-                        KeyboardActions(
-                            onDone = {
-                                if (taskText.isNotBlank()) {
-                                    onAddTask(taskText)
-                                    taskText = ""
+                item(key = "new-task") {
+                    OutlinedTextField(
+                        value = taskText,
+                        onValueChange = {
+                            taskText = it.take(200)
+                        },
+                        label = { Text("New task") },
+                        placeholder = { Text("What do you need to do?") },
+                        singleLine = true,
+                        keyboardOptions =
+                            KeyboardOptions(
+                                imeAction = ImeAction.Done
+                            ),
+                        keyboardActions =
+                            KeyboardActions(
+                                onDone = {
+                                    if (taskText.isNotBlank()) {
+                                        onAddTask(taskText)
+                                        taskText = ""
+                                    }
                                 }
-                            }
-                        ),
-                    modifier = Modifier.fillMaxWidth(),
-                )
-
-                Button(
-                    onClick = {
-                        onAddTask(taskText)
-                        taskText = ""
-                    },
-                    enabled = taskText.isNotBlank(),
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text("Add task")
+                            ),
+                        modifier = Modifier.fillMaxWidth(),
+                    )
                 }
 
-                if (taskOrder.isEmpty()) {
-                    Text(
-                        "No open tasks.",
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                } else {
-                    Text(
-                        "Hold and drag ≡ to reorder. Tap a task to edit or delete.",
-                        style = MaterialTheme.typography.labelSmall,
-                    )
-                    taskOrder.take(12).forEach { taskId ->
-                        val task =
-                            snapshot.tasks.firstOrNull { it.id == taskId }
-                                ?: return@forEach
-                        val taskIndex =
-                            snapshot.tasks.indexOfFirst { it.id == taskId }
-                        if (taskIndex < 0) return@forEach
+                item(key = "add-task") {
+                    Button(
+                        onClick = {
+                            onAddTask(taskText)
+                            taskText = ""
+                        },
+                        enabled = taskText.isNotBlank(),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text("Add task")
+                    }
+                }
 
-                        key(taskId) {
-                            val isDragging =
-                                draggingTaskId == taskId
+                item(key = "task-help") {
+                    if (taskOrder.isEmpty()) {
+                        Text(
+                            "No open tasks.",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    } else {
+                        Text(
+                            "Hold and drag ≡ to reorder. Tap a task to edit or delete.",
+                            style = MaterialTheme.typography.labelSmall,
+                        )
+                    }
+                }
+                items(taskOrder, key = { it }, contentType = { "task" }) { taskId ->
+                    val task =
+                        tasksById[taskId]
+                            ?: return@items
 
-                            Card(
-                                onClick = {
-                                    if (!isDragging) {
-                                        selectedTaskIndex = taskIndex
-                                    }
-                                },
-                                modifier =
-                                    Modifier
-                                        .fillMaxWidth()
-                                        .zIndex(
-                                            if (isDragging) 1f else 0f
-                                        )
-                                        .graphicsLayer {
-                                            translationY =
-                                                if (isDragging) {
-                                                    dragOffsetY
-                                                } else {
-                                                    0f
-                                                }
-                                            shadowElevation =
-                                                if (isDragging) {
-                                                    10.dp.toPx()
-                                                } else {
-                                                    0f
-                                                }
-                                        }
-                                        .onGloballyPositioned { coordinates ->
-                                            taskRowHeights[taskId] =
-                                                coordinates.size.height
-                                        },
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(10.dp),
-                                    verticalAlignment = Alignment.Top,
-                                ) {
-                                    Text(
-                                        "≡",
-                                        modifier =
-                                            Modifier
-                                                .width(42.dp)
-                                                .pointerInput(taskId) {
-                                                    val fallbackHeight =
-                                                        56.dp.toPx()
-                                                    val rowSpacing =
-                                                        8.dp.toPx()
+                    key(taskId) {
+                        val isDragging =
+                            draggingTaskId == taskId
 
-                                                    fun rowHeight(id: String): Float =
-                                                        taskRowHeights[id]
-                                                            ?.toFloat()
-                                                            ?: fallbackHeight
-
-                                                    fun centerDistance(
-                                                        first: String,
-                                                        second: String,
-                                                    ): Float =
-                                                        rowHeight(first) / 2f +
-                                                            rowSpacing +
-                                                            rowHeight(second) / 2f
-
-                                                    fun persistOrderIfChanged() {
-                                                        if (dragOrderChanged) {
-                                                            onReorderTasks(
-                                                                taskOrder.toList()
-                                                            )
-                                                            dragOrderChanged = false
-                                                        }
-                                                    }
-
-                                                    fun finishDrag() {
-                                                        persistOrderIfChanged()
-                                                        draggingTaskId = null
-                                                        dragOffsetY = 0f
-                                                    }
-
-                                                    detectDragGesturesAfterLongPress(
-                                                        onDragStart = {
-                                                            draggingTaskId =
-                                                                taskId
-                                                            dragOffsetY = 0f
-                                                            dragOrderChanged = false
-                                                        },
-                                                        onDragCancel = {
-                                                            finishDrag()
-                                                        },
-                                                        onDragEnd = {
-                                                            finishDrag()
-                                                        },
-                                                        onDrag = {
-                                                                change,
-                                                                dragAmount,
-                                                            ->
-                                                            change.consume()
-                                                            dragOffsetY +=
-                                                                dragAmount.y
-
-                                                            val current =
-                                                                taskOrder.indexOf(taskId)
-
-                                                            if (
-                                                                current in
-                                                                    0 until
-                                                                        taskOrder.lastIndex
-                                                            ) {
-                                                                val next =
-                                                                    taskOrder[
-                                                                        current + 1
-                                                                    ]
-                                                                val step =
-                                                                    centerDistance(
-                                                                        taskId,
-                                                                        next,
-                                                                    )
-                                                                if (
-                                                                    dragOffsetY >
-                                                                        step * 0.55f
-                                                                ) {
-                                                                    val moved =
-                                                                        taskOrder.removeAt(
-                                                                            current
-                                                                        )
-                                                                    taskOrder.add(
-                                                                        current + 1,
-                                                                        moved,
-                                                                    )
-                                                                    dragOffsetY -= step
-                                                                    dragOrderChanged = true
-                                                                    persistOrderIfChanged()
-                                                                }
-                                                            }
-
-                                                            val updatedCurrent =
-                                                                taskOrder.indexOf(taskId)
-                                                            if (updatedCurrent > 0) {
-                                                                val previous =
-                                                                    taskOrder[
-                                                                        updatedCurrent - 1
-                                                                    ]
-                                                                val step =
-                                                                    centerDistance(
-                                                                        taskId,
-                                                                        previous,
-                                                                    )
-                                                                if (
-                                                                    dragOffsetY <
-                                                                        -step * 0.55f
-                                                                ) {
-                                                                    val moved =
-                                                                        taskOrder.removeAt(
-                                                                            updatedCurrent
-                                                                        )
-                                                                    taskOrder.add(
-                                                                        updatedCurrent - 1,
-                                                                        moved,
-                                                                    )
-                                                                    dragOffsetY += step
-                                                                    dragOrderChanged = true
-                                                                    persistOrderIfChanged()
-                                                                }
-                                                            }
-                                                        },
-                                                    )
-                                                },
-                                        fontWeight = FontWeight.Bold,
-                                    )
-                                    Text(
-                                        task.text,
-                                        modifier = Modifier.weight(1f),
-                                    )
+                        Card(
+                            onClick = {
+                                if (!isDragging) {
+                                    selectedTaskId = taskId
                                 }
+                            },
+                            modifier =
+                                Modifier
+                                    .fillMaxWidth()
+                                    .zIndex(
+                                        if (isDragging) 1f else 0f
+                                    )
+                                    .graphicsLayer {
+                                        translationY =
+                                            if (isDragging) {
+                                                dragOffsetY
+                                            } else {
+                                                0f
+                                            }
+                                        shadowElevation =
+                                            if (isDragging) {
+                                                10.dp.toPx()
+                                            } else {
+                                                0f
+                                            }
+                                    }
+                                    .onGloballyPositioned { coordinates ->
+                                        taskRowHeights[taskId] =
+                                            coordinates.size.height
+                                    },
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(10.dp),
+                                verticalAlignment = Alignment.Top,
+                            ) {
+                                Text(
+                                    "≡",
+                                    modifier =
+                                        Modifier
+                                            .width(42.dp)
+                                            .pointerInput(taskId, taskOrder) {
+                                                val fallbackHeight =
+                                                    56.dp.toPx()
+                                                val rowSpacing =
+                                                    8.dp.toPx()
+
+                                                fun rowHeight(id: String): Float =
+                                                    taskRowHeights[id]
+                                                        ?.toFloat()
+                                                        ?: fallbackHeight
+
+                                                fun centerDistance(
+                                                    first: String,
+                                                    second: String,
+                                                ): Float =
+                                                    rowHeight(first) / 2f +
+                                                        rowSpacing +
+                                                        rowHeight(second) / 2f
+
+                                                fun persistOrderIfChanged() {
+                                                    if (dragOrderChanged) {
+                                                        onReorderTasks(
+                                                            taskOrder.toList()
+                                                        )
+                                                        dragOrderChanged = false
+                                                    }
+                                                }
+
+                                                fun finishDrag() {
+                                                    persistOrderIfChanged()
+                                                    draggingTaskId = null
+                                                    dragOffsetY = 0f
+                                                }
+
+                                                detectDragGesturesAfterLongPress(
+                                                    onDragStart = {
+                                                        draggingTaskId =
+                                                            taskId
+                                                        dragOffsetY = 0f
+                                                        dragOrderChanged = false
+                                                    },
+                                                    onDragCancel = {
+                                                        finishDrag()
+                                                    },
+                                                    onDragEnd = {
+                                                        finishDrag()
+                                                    },
+                                                    onDrag = {
+                                                            change,
+                                                            dragAmount,
+                                                        ->
+                                                        change.consume()
+                                                        dragOffsetY +=
+                                                            dragAmount.y
+
+                                                        val current =
+                                                            taskOrder.indexOf(taskId)
+
+                                                        if (
+                                                            current in
+                                                                0 until
+                                                                    taskOrder.lastIndex
+                                                        ) {
+                                                            val next =
+                                                                taskOrder[
+                                                                    current + 1
+                                                                ]
+                                                            val step =
+                                                                centerDistance(
+                                                                    taskId,
+                                                                    next,
+                                                                )
+                                                            if (
+                                                                dragOffsetY >
+                                                                    step * 0.55f
+                                                            ) {
+                                                                val moved =
+                                                                    taskOrder.removeAt(
+                                                                        current
+                                                                    )
+                                                                taskOrder.add(
+                                                                    current + 1,
+                                                                    moved,
+                                                                )
+                                                                dragOffsetY -= step
+                                                                dragOrderChanged = true
+                                                            }
+                                                        }
+
+                                                        val updatedCurrent =
+                                                            taskOrder.indexOf(taskId)
+                                                        if (updatedCurrent > 0) {
+                                                            val previous =
+                                                                taskOrder[
+                                                                    updatedCurrent - 1
+                                                                ]
+                                                            val step =
+                                                                centerDistance(
+                                                                    taskId,
+                                                                    previous,
+                                                                )
+                                                            if (
+                                                                dragOffsetY <
+                                                                    -step * 0.55f
+                                                            ) {
+                                                                val moved =
+                                                                    taskOrder.removeAt(
+                                                                        updatedCurrent
+                                                                    )
+                                                                taskOrder.add(
+                                                                    updatedCurrent - 1,
+                                                                    moved,
+                                                                )
+                                                                dragOffsetY += step
+                                                                dragOrderChanged = true
+                                                            }
+                                                        }
+                                                    },
+                                                )
+                                            },
+                                    fontWeight = FontWeight.Bold,
+                                )
+                                Text(
+                                    task.text,
+                                    modifier = Modifier.weight(1f),
+                                )
                             }
                         }
                     }
                 }
 
-                val upcoming =
-                    snapshot.reminders
-                        .filter {
-                            it.dueAt >
-                                System.currentTimeMillis()
+                if (snapshot.reminders.isNotEmpty()) {
+                    item(key = "reminder-heading") {
+                        Column {
+                            HorizontalDivider()
+                            Text("Reminders", fontWeight = FontWeight.SemiBold)
                         }
-                        .sortedBy { it.dueAt }
-                        .take(4)
-
-                if (upcoming.isNotEmpty()) {
-                    HorizontalDivider()
-                    Text(
-                        "Reminders",
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                    upcoming.forEach { reminder ->
+                    }
+                    items(snapshot.reminders.sortedBy { it.dueAt }, key = { "reminder:${it.id}" }, contentType = { "reminder" }) { reminder ->
                         Text(
-                            "⏰ " + reminder.text + " · " +
+                            (if (reminder.dueAt <= System.currentTimeMillis()) "Due · " else "⏰ ") + reminder.text + " · " +
                                 DateFormat.getDateTimeInstance(
                                     DateFormat.SHORT,
                                     DateFormat.SHORT,
@@ -644,7 +647,9 @@ private fun SimpleTodayDialog(
                     }
                 }
 
-                TextButton(onClick = { showReminder = true }) { Text("Add reminder") }
+                item(key = "add-reminder") {
+                    TextButton(onClick = { showReminder = true }) { Text("Add reminder") }
+                }
             }
         },
     )
@@ -661,8 +666,9 @@ private fun TaskEditDialog(
     onDismiss: () -> Unit,
     onSave: (String) -> Unit,
     onDelete: () -> Unit,
+    onComplete: () -> Unit,
 ) {
-    var editedText by remember(initialText) {
+    var editedText by rememberSaveable(initialText) {
         mutableStateOf(initialText)
     }
 
@@ -683,15 +689,18 @@ private fun TaskEditDialog(
         },
         title = { Text("Task") },
         text = {
-            OutlinedTextField(
-                value = editedText,
-                onValueChange = {
-                    editedText = it.take(200)
-                },
-                label = { Text("Edit task") },
-                singleLine = false,
-                modifier = Modifier.fillMaxWidth(),
-            )
+            Column {
+                OutlinedTextField(
+                    value = editedText,
+                    onValueChange = {
+                        editedText = it.take(200)
+                    },
+                    label = { Text("Edit task") },
+                    singleLine = false,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                TextButton(onClick = onComplete) { Text("Mark complete") }
+            }
         },
     )
 }

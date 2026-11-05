@@ -51,9 +51,9 @@ class AndroidCompanionStoreReorderTest {
             .commit()
 
         val store = AndroidCompanionStore(context)
-        store.addTask("First")
-        store.addTask("Second")
         store.addTask("Third")
+        store.addTask("Second")
+        store.addTask("First")
 
         val before = store.load()
         val reordered =
@@ -84,9 +84,9 @@ class AndroidCompanionStoreReorderTest {
             .commit()
 
         val store = AndroidCompanionStore(context)
-        store.addTask("First")
-        store.addTask("Completed")
         store.addTask("Third")
+        store.addTask("Completed")
+        store.addTask("First")
         store.completeTask(1)
 
         val before = store.load()

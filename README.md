@@ -2,7 +2,9 @@
 
 HARU is a lightweight personal journal and companion. The Android app has **Journal** and **Map** tabs. Creator: MD.
 
-## Android v0.10.0
+## Android v0.10.1
+
+New tasks appear at the top while preserving the order beneath them. Today scrolls through all saved tasks and reminders, including overdue reminders awaiting notification delivery. Tap a task to edit, mark complete, or delete; hold ≡ to reorder. Task actions track stable IDs and dragging saves once on release. See [task update](docs/release-v0.10.1.md).
 
 AI chat has been replaced by a date-based journal. Write today or choose a past date, then mark a memorable day with ★. Journal text is encrypted on this phone and autosaves after a short typing pause. Save and open errors are shown without clearing stored entries.
 
