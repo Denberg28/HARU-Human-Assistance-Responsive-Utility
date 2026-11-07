@@ -16,6 +16,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -169,10 +170,13 @@ internal fun FinanceSpendingChart(groups: List<FinanceGroup>) {
         }
         val parts = groups.take(4).map { it.category to it.cents }.toMutableList()
         if (groups.size > 4) parts.add("Remaining categories" to groups.drop(4).sumOf { it.cents })
-        val colors = listOf(MaterialTheme.colorScheme.primary, MaterialTheme.colorScheme.secondary,
-            MaterialTheme.colorScheme.tertiary, MaterialTheme.colorScheme.outline, MaterialTheme.colorScheme.onSurfaceVariant)
+        // HARU intentionally uses the same accent for primary/secondary/tertiary.
+        // Muted distinct tones keep adjacent categories readable in every theme.
+        val colors = listOf(MaterialTheme.colorScheme.primary, Color(0xFF6F9991),
+            Color(0xFFC29A64), Color(0xFF9795AD), MaterialTheme.colorScheme.outline)
         val description = parts.joinToString { (name, cents) -> "$name: ${Finance.money(cents)}" }
-        Row(Modifier.fillMaxWidth().height(12.dp).clip(CircleShape).semantics { contentDescription = "Spending breakdown. $description" }) {
+        Row(Modifier.fillMaxWidth().height(12.dp).clip(CircleShape).semantics { contentDescription = "Spending breakdown. $description" },
+            horizontalArrangement = Arrangement.spacedBy(2.dp)) {
             parts.forEachIndexed { index, part ->
                 Box(Modifier.weight((part.second.toDouble() / total).toFloat()).fillMaxHeight().background(colors[index]))
             }
@@ -250,7 +254,12 @@ internal fun FinanceEditor(
         } },
         dismissButton = { TextButton(onClick = onDismiss, enabled = !busy) { Text("Cancel") } })
     if (confirmDelete && entry != null) AlertDialog(onDismissRequest = { if (!busy) confirmDelete = false },
-        title = { Text("Delete this entry?") }, text = { Text("Your totals will update after it is deleted.") },
+        title = { Text("Delete this entry?") }, text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Your totals will update after it is deleted.")
+                if (error != null) Text(error, color = MaterialTheme.colorScheme.error)
+            }
+        },
         confirmButton = { TextButton(enabled = !busy, onClick = { onDelete(entry.id) }) { Text("Delete") } },
         dismissButton = { TextButton(enabled = !busy, onClick = { confirmDelete = false }) { Text("Keep") } })
 }
