@@ -1,6 +1,10 @@
 # HARU — Human Assistance & Responsive Utility
 
-HARU is a lightweight personal journal and companion. The Android app has **Journal** and **Map** tabs. Creator: MD.
+HARU is a lightweight personal journal and companion. The Android app has **Journal**, **Finance**, and **Map** tabs. Creator: MD.
+
+## Android v0.11.0
+
+Finance records income and expenses in pesos with monthly or all-time income, expenses, and net. A minimal spending chart sits below the totals. Categories start collapsed; expand one to view, edit, or delete entries. Use preset or custom categories and an optional note. Financial fields are encrypted on this phone and work offline. Net is based on recorded entries. See [finance update](docs/release-v0.11.0.md).
 
 ## Android v0.10.1
 

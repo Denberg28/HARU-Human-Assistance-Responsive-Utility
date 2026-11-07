@@ -138,7 +138,7 @@ fun HaruScreen(
     var showSettings by remember { mutableStateOf(false) }
     var showAbout by remember { mutableStateOf(false) }
     var showLockScreenSetup by remember { mutableStateOf(false) }
-    val tabs = listOf("Journal", "Map")
+    val tabs = listOf("Journal", "Finance", "Map")
     Surface(modifier = modifier.fillMaxSize()) {
         Column(
             modifier = Modifier
@@ -204,6 +204,8 @@ fun HaruScreen(
                     onAddReminder = onAddReminder,
                 )
                 }
+            } else if (selectedTab == 1) {
+                journalStateHolder.SaveableStateProvider("finance") { FinancePane() }
             } else {
                 MapPane(
                     locations = trustedLocations,
@@ -257,7 +259,7 @@ fun HaruScreen(
                         fontWeight = FontWeight.SemiBold,
                     )
                     Text(
-                        "A private daily journal with memorable days, quiet caring check-ins, tasks, reminders, and trusted location tools.",
+                        "A private daily journal with memorable days, a simple finance tracker, quiet caring check-ins, tasks, reminders, and trusted location tools.",
                         style = MaterialTheme.typography.bodySmall,
                     )
                     HorizontalDivider()
