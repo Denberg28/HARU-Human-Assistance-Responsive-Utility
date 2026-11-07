@@ -1,6 +1,7 @@
 package io.haru.assistant.ui
 
 import android.app.DatePickerDialog
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -8,6 +9,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
@@ -17,14 +19,19 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.ProgressBarRangeInfo
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.progressBarRangeInfo
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.haru.assistant.finance.*
@@ -80,11 +87,12 @@ internal fun FinanceContent(
     LazyColumn(Modifier.fillMaxSize().navigationBarsPadding().padding(horizontal = 16.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(top = 8.dp, bottom = 24.dp)) {
         item {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.fillMaxWidth().testTag("finance-period-header"), verticalAlignment = Alignment.CenterVertically) {
+                Text(if (allTime) "All time" else month.format(DateTimeFormatter.ofPattern("MMM yyyy", locale)),
+                    Modifier.weight(1f).testTag("finance-period-label"), style = MaterialTheme.typography.titleMedium,
+                    textAlign = TextAlign.Start)
                 TextButton(onClick = { monthText = month.minusMonths(1).toString() }, enabled = !allTime,
                     modifier = Modifier.semantics { contentDescription = "Previous month" }) { Text("‹") }
-                Text(if (allTime) "All time" else month.format(DateTimeFormatter.ofPattern("MMM yyyy", locale)),
-                    Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
                 TextButton(onClick = { monthText = month.plusMonths(1).toString() }, enabled = !allTime && month < currentMonth,
                     modifier = Modifier.semantics { contentDescription = "Next month" }) { Text("›") }
                 FilterChip(selected = allTime, onClick = { allTime = !allTime }, label = { Text("All") })
@@ -110,6 +118,7 @@ internal fun FinanceContent(
                     }
                 }
             }
+            item { FinanceCashFlowChart(summary) }
             item { FinanceSpendingChart(groups.filter { it.type == FinanceType.EXPENSE }) }
             item { Button(onClick = onAdd, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text("Add entry") } }
             if (error != null) item { Text(error, color = MaterialTheme.colorScheme.error) }
@@ -156,6 +165,64 @@ internal fun FinanceContent(
                 }
             }
             item { Text("On this phone · PHP", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        }
+    }
+}
+
+/** Both bars share a zero baseline and the same scale, even with one expense category. */
+@Composable
+internal fun FinanceCashFlowChart(summary: FinanceSummary) {
+    val maximum = maxOf(summary.income, summary.expenses)
+    val gridColor = MaterialTheme.colorScheme.outlineVariant
+    val bars = listOf(
+        Triple("Income", summary.income, MaterialTheme.colorScheme.primary),
+        Triple("Expenses", summary.expenses, MaterialTheme.colorScheme.error),
+    )
+    Column(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text("Income vs expenses", style = MaterialTheme.typography.labelLarge)
+        if (maximum == 0L) {
+            Text("Add an income or expense to see your graph.", style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+        } else {
+            // Values sit above the plotting area so even a small bar has a readable amount.
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                bars.forEach { (label, cents, _) ->
+                    Text(Finance.money(cents), Modifier.weight(1f), textAlign = TextAlign.Center,
+                        style = MaterialTheme.typography.labelMedium)
+                }
+            }
+            Box(Modifier.fillMaxWidth().height(120.dp).testTag("finance-plot")) {
+                Canvas(Modifier.matchParentSize()) {
+                    listOf(0f, 0.5f, 1f).forEach { fraction ->
+                        val y = (size.height * fraction).coerceAtMost(size.height - 0.5.dp.toPx())
+                        drawLine(gridColor, Offset(0f, y), Offset(size.width, y), strokeWidth = 1.dp.toPx())
+                    }
+                }
+                Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                    bars.forEach { (label, cents, color) ->
+                        val fraction = (cents.toDouble() / maximum).toFloat()
+                        Box(Modifier.weight(1f).fillMaxHeight(), contentAlignment = Alignment.BottomCenter) {
+                            Box(Modifier.width(48.dp).fillMaxHeight(fraction)
+                                .clip(RoundedCornerShape(topStart = 6.dp, topEnd = 6.dp)).background(color)
+                                .testTag("finance-bar-$label").semantics {
+                                    contentDescription = "$label: ${Finance.money(cents)}"
+                                    progressBarRangeInfo = ProgressBarRangeInfo(fraction, 0f..1f)
+                                })
+                        }
+                    }
+                }
+            }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                bars.forEach { (label, _, _) ->
+                    Text(label, Modifier.weight(1f), textAlign = TextAlign.Center, style = MaterialTheme.typography.bodySmall)
+                }
+            }
+            val interpretation = when {
+                summary.net < 0 -> "Expenses exceed income by ${Finance.money(-summary.net)}"
+                summary.net > 0 -> "Income exceeds expenses by ${Finance.money(summary.net)}"
+                else -> "Income and expenses are equal"
+            }
+            Text(interpretation, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }

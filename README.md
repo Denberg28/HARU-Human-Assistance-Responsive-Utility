@@ -4,6 +4,8 @@ HARU is a lightweight personal journal and companion. The Android app has **Jour
 
 ## Android v0.11.0
 
+Updated in **v0.11.1**: a labelled income-versus-expenses bar graph now compares both amounts on a shared scale, including when all spending belongs to one category. The month starts at the left edge, with navigation controls on the right. See [chart update](docs/release-v0.11.1.md).
+
 Finance records income and expenses in pesos with monthly or all-time income, expenses, and net. A minimal spending chart sits below the totals. Categories start collapsed; expand one to view, edit, or delete entries. Use preset or custom categories and an optional note. Financial fields are encrypted on this phone and work offline. Net is based on recorded entries. See [finance update](docs/release-v0.11.0.md).
 
 ## Android v0.10.1
