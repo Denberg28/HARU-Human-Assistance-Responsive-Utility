@@ -17,6 +17,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -59,6 +60,7 @@ internal fun FinanceContent(
     var allTime by rememberSaveable { mutableStateOf(false) }
     var expanded by rememberSaveable { mutableStateOf(arrayListOf<String>()) }
     var currentMonth by remember { mutableStateOf(YearMonth.now()) }
+    val locale = LocalConfiguration.current.locales[0]
     val lifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycle
     DisposableEffect(lifecycle) {
         val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
@@ -81,7 +83,7 @@ internal fun FinanceContent(
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 TextButton(onClick = { monthText = month.minusMonths(1).toString() }, enabled = !allTime,
                     modifier = Modifier.semantics { contentDescription = "Previous month" }) { Text("‹") }
-                Text(if (allTime) "All time" else month.format(DateTimeFormatter.ofPattern("MMM yyyy", Locale.getDefault())),
+                Text(if (allTime) "All time" else month.format(DateTimeFormatter.ofPattern("MMM yyyy", locale)),
                     Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
                 TextButton(onClick = { monthText = month.plusMonths(1).toString() }, enabled = !allTime && month < currentMonth,
                     modifier = Modifier.semantics { contentDescription = "Next month" }) { Text("›") }
@@ -146,7 +148,7 @@ internal fun FinanceContent(
                         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         Column(Modifier.weight(1f)) {
                             Text(entry.note.ifBlank { entry.category }, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                            Text(entry.date.format(DateTimeFormatter.ofLocalizedDate(FormatStyle.MEDIUM)),
+                            Text(entry.date.format(DateTimeFormatter.ofLocalizedDate(FormatStyle.MEDIUM).withLocale(locale)),
                                 style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         Text(Finance.money(entry.cents), style = MaterialTheme.typography.bodyMedium)
@@ -208,6 +210,7 @@ internal fun FinanceEditor(
     var menu by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
     val context = LocalContext.current
+    val locale = LocalConfiguration.current.locales[0]
     val date = LocalDate.parse(dateText)
     val cents = Finance.parseAmount(amount)
     AlertDialog(onDismissRequest = { if (!busy) onDismiss() }, title = { Text(if (entry == null) "Add entry" else "Edit entry") },
@@ -243,7 +246,7 @@ internal fun FinanceEditor(
                 OutlinedButton(enabled = !busy, onClick = {
                     DatePickerDialog(context, { _, y, m, d -> dateText = LocalDate.of(y, m + 1, d).toString() },
                         date.year, date.monthValue - 1, date.dayOfMonth).apply { datePicker.maxDate = System.currentTimeMillis() }.show()
-                }) { Text(date.format(DateTimeFormatter.ofLocalizedDate(FormatStyle.MEDIUM))) }
+                }) { Text(date.format(DateTimeFormatter.ofLocalizedDate(FormatStyle.MEDIUM).withLocale(locale))) }
                 if (error != null) Text(error, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
                 if (entry != null) TextButton(enabled = !busy, onClick = { confirmDelete = true }) { Text("Delete entry") }
             }
