@@ -2,6 +2,10 @@
 
 HARU is a lightweight personal journal and companion. The Android app has **Journal**, **Finance**, and **Map** tabs. Creator: MD.
 
+## Android v0.11.2
+
+Completed journal weeks now collapse together instead of splitting dates between daily cards and archive headers. The current Monday–Sunday week stays daily; complete months and years roll up as whole buckets. Journal and Finance refresh at midnight and after clock/time-zone changes. See [release notes](docs/release-v0.11.2.md) and [review](docs/review-v0.11.2.md).
+
 ## Android v0.11.0
 
 Updated in **v0.11.1**: a labelled income-versus-expenses bar graph now compares both amounts on a shared scale, including when all spending belongs to one category. The month starts at the left edge, with navigation controls on the right. See [chart update](docs/release-v0.11.1.md).
@@ -14,7 +18,7 @@ New tasks appear at the top while preserving the order beneath them. Today scrol
 
 AI chat has been replaced by a date-based journal. Write today or choose a past date, then mark a memorable day with ★. Journal text is encrypted on this phone and autosaves after a short typing pause. Save and open errors are shown without clearing stored entries.
 
-Recent seven dates stay visible. Older entries collapse into weeks, months after four weeks, and years after twelve months. Expand through Year → Month → Week → Day. Calendar months retain their true lengths and crossing weeks are clipped to the parent month. Expansion state and stable list IDs keep navigation in place. The Memorable filter retains the same archive structure.
+The current calendar week stays visible. Completed weeks collapse together, whole months roll up once their final date is four weeks old, and whole years once their final date is twelve months old. Expand through Year → Month → Week → Day. Calendar months retain their true lengths and crossing weeks are clipped to the parent month. Expansion state and stable list IDs keep navigation in place. The Memorable filter retains the same archive structure.
 
 Tasks, task dragging, reminders, the local companion/check-ins, lock-screen setup, themes, and location sharing are retained. Create reminders with the direct date/time form. Tap the HARU title for About or open Settings for appearance and updates.
 

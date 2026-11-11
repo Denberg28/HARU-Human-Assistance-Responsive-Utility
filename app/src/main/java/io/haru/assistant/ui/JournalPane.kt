@@ -46,26 +46,7 @@ fun JournalPane(
     var editing by rememberSaveable { mutableStateOf(false) }
     var memorableOnly by rememberSaveable { mutableStateOf(false) }
     val context = LocalContext.current
-    val archivePreferences = remember { context.getSharedPreferences("haru_journal_view", android.content.Context.MODE_PRIVATE) }
-    // Kept independently of filters so reopening an archive restores its levels.
-    var expanded by rememberSaveable { mutableStateOf(ArrayList(archivePreferences.getStringSet("expanded", emptySet()).orEmpty())) }
-    LaunchedEffect(expanded) { archivePreferences.edit().putStringSet("expanded", expanded.toSet()).apply() }
-    val scope = rememberCoroutineScope()
-    val listState = rememberLazyListState()
-    // Re-evaluate date when returning from background, including overnight use.
-    var today by remember { mutableStateOf(LocalDate.now()) }
-    val lifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycle
-    DisposableEffect(lifecycle) {
-        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
-            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) today = LocalDate.now()
-        }
-        lifecycle.addObserver(observer)
-        onDispose { lifecycle.removeObserver(observer) }
-    }
-    val entries = viewModel.entries
-    val filtered = remember(entries, memorableOnly) { entries.filter { !memorableOnly || it.memorable } }
-    val nodes = remember(filtered, today) { JournalTimeline.build(filtered, today) }
-    val rows = remember(nodes, expanded) { JournalTimeline.rows(nodes, expanded.toSet()) }
+    val today = rememberLocalCalendarDate()
     fun edit(date: LocalDate) { selectedDate = date.toString(); editing = true }
 
     Column(Modifier.fillMaxSize().navigationBarsPadding().padding(horizontal = 16.dp)) {
@@ -88,10 +69,36 @@ fun JournalPane(
                     }.show()
             }, enabled = viewModel.ready, modifier = Modifier.weight(1f)) { Text("Choose date") }
         }
+        JournalArchive(viewModel.entries, today, memorableOnly, { memorableOnly = it },
+            viewModel.ready, viewModel.loadFailed, viewModel.status, viewModel::reload, ::edit,
+            Modifier.weight(1f))
+    }
+    if (editing && viewModel.ready) JournalEditor(viewModel, LocalDate.parse(selectedDate), onDismiss = { viewModel.flush(); editing = false })
+}
+
+
+@Composable
+internal fun JournalArchive(
+    entries: List<JournalEntry>, today: LocalDate, memorableOnly: Boolean,
+    onMemorableOnlyChange: (Boolean) -> Unit, ready: Boolean, loadFailed: Boolean,
+    status: String, onRetry: () -> Unit, onEdit: (LocalDate) -> Unit, modifier: Modifier = Modifier,
+) {
+    val context = LocalContext.current
+    val archivePreferences = remember { context.getSharedPreferences("haru_journal_view", android.content.Context.MODE_PRIVATE) }
+    // Stable bucket IDs retain expansion when a week moves beneath a month/year.
+    // Keep hidden filter results independently so returning from Memorable restores them.
+    var expanded by rememberSaveable { mutableStateOf(ArrayList(archivePreferences.getStringSet("expanded", emptySet()).orEmpty())) }
+    LaunchedEffect(expanded) { archivePreferences.edit().putStringSet("expanded", expanded.toSet()).apply() }
+    val scope = rememberCoroutineScope()
+    val listState = rememberLazyListState()
+    val filtered = remember(entries, memorableOnly) { entries.filter { !memorableOnly || it.memorable } }
+    val nodes = remember(filtered, today) { JournalTimeline.build(filtered, today) }
+    val rows = remember(nodes, expanded) { JournalTimeline.rows(nodes, expanded.toSet()) }
+    Column(modifier.fillMaxWidth()) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            FilterChip(selected = memorableOnly, onClick = { memorableOnly = !memorableOnly }, label = { Text("★ Memorable") })
+            FilterChip(selected = memorableOnly, onClick = { onMemorableOnlyChange(!memorableOnly) }, label = { Text("★ Memorable") })
             Spacer(Modifier.weight(1f))
-            if (expanded.isNotEmpty()) TextButton(onClick = {
+            if (rows.any { it.node.children.isNotEmpty() && it.node.id in expanded }) TextButton(onClick = {
                 // Find the surviving top-level parent of the visible row before
                 // removing its descendants, then keep that header at the viewport.
                 val first = rows.getOrNull(listState.firstVisibleItemIndex)
@@ -101,11 +108,11 @@ fun JournalPane(
                 scope.launch { listState.scrollToItem(index) }
             }) { Text("Collapse all") }
         }
-        if (viewModel.loadFailed) TextButton(onClick = viewModel::reload) { Text("Retry") }
-        Text(viewModel.status, style = MaterialTheme.typography.labelSmall,
+        if (loadFailed) TextButton(onClick = onRetry) { Text("Retry") }
+        Text(status, style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant)
         Spacer(Modifier.height(8.dp))
-        if (viewModel.ready && rows.isEmpty()) {
+        if (ready && rows.isEmpty()) {
             Text(if (memorableOnly) "Star a date to find it here." else "A little space for your day. Start with today or choose a past date.",
                 modifier = Modifier.padding(vertical = 24.dp), style = MaterialTheme.typography.bodyMedium)
         }
@@ -117,9 +124,9 @@ fun JournalPane(
                 Surface(shape = MaterialTheme.shapes.medium,
                     color = if (node.level == JournalLevel.DAY) MaterialTheme.colorScheme.surfaceContainerLow else MaterialTheme.colorScheme.surfaceContainer,
                     modifier = Modifier.fillMaxWidth().padding(start = (row.depth * 12).dp)
-                        .animateItem(fadeInSpec = tween(140), fadeOutSpec = tween(100), placementSpec = tween(180))
+                        .animateItem(fadeInSpec = tween(140), fadeOutSpec = null, placementSpec = tween(180))
                         .clickable(role = Role.Button, onClickLabel = if (node.level == JournalLevel.DAY) "Open journal entry" else if (open) "Collapse ${node.label}" else "Expand ${node.label}") {
-                            if (node.level == JournalLevel.DAY) edit(node.entries.single().date)
+                            if (node.level == JournalLevel.DAY) onEdit(node.entries.single().date)
                             else {
                                 val anchorId = rows.getOrNull(listState.firstVisibleItemIndex)?.node?.id
                                 val offset = listState.firstVisibleItemScrollOffset
@@ -142,14 +149,13 @@ fun JournalPane(
                         if (node.level == JournalLevel.DAY) {
                             Text(node.entries.single().text.ifBlank { "A memorable day" }, maxLines = 2, overflow = TextOverflow.Ellipsis,
                                 style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 4.dp))
-                        } else Text("${node.entries.size} days · ${node.level.name.lowercase().replaceFirstChar { it.uppercase() }}",
+                        } else Text(node.summary,
                             style = MaterialTheme.typography.labelSmall)
                     }
                 }
             }
         }
     }
-    if (editing && viewModel.ready) JournalEditor(viewModel, LocalDate.parse(selectedDate), onDismiss = { viewModel.flush(); editing = false })
 }
 
 @Composable
