@@ -68,17 +68,10 @@ internal fun FinanceContent(
     var expanded by rememberSaveable { mutableStateOf(arrayListOf<String>()) }
     var currentMonth by remember { mutableStateOf(YearMonth.now()) }
     val locale = LocalConfiguration.current.locales[0]
-    val lifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycle
-    DisposableEffect(lifecycle) {
-        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
-            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
-                val now = YearMonth.now()
-                if (monthText == currentMonth.toString()) monthText = now.toString()
-                currentMonth = now
-            }
-        }
-        lifecycle.addObserver(observer)
-        onDispose { lifecycle.removeObserver(observer) }
+    val calendarMonth = YearMonth.from(rememberLocalCalendarDate())
+    LaunchedEffect(calendarMonth) {
+        if (monthText == currentMonth.toString()) monthText = calendarMonth.toString()
+        currentMonth = calendarMonth
     }
     val month = YearMonth.parse(monthText)
     val filtered = remember(entries, month, allTime) { Finance.filter(entries, month.takeUnless { allTime }) }

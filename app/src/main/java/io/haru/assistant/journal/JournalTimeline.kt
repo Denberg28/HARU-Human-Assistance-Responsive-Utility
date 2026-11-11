@@ -24,25 +24,32 @@ data class JournalNode(
     val children: List<JournalNode> = emptyList(),
 ) {
     val stars: Int get() = entries.count { it.memorable }
+    val summary: String get() = "${entries.size} ${if (entries.size == 1) "day" else "days"} · ${level.name.lowercase().replaceFirstChar { it.uppercase() }}"
 }
 
 data class JournalRow(val node: JournalNode, val depth: Int)
 
-/** Calendar buckets keep real months, leap days, and year boundaries intact.
- * A crossing week is clipped to its parent month, so each day appears once.
- * Recent seven dates stay open; older buckets roll up at 7 days / 4 weeks / 12 months.
+/** Promote complete calendar buckets, never individual entries by their age.
+ * This week stays daily; completed weeks collapse together. A whole month rolls up
+ * once its final date is at least four weeks old, and a whole year after twelve months.
+ * Weeks crossing a month boundary are clipped to that month and labelled accordingly,
+ * so the year > month > week > day hierarchy contains every saved date exactly once.
  */
 object JournalTimeline {
     fun build(entries: List<JournalEntry>, today: LocalDate): List<JournalNode> {
-        val sorted = entries.sortedByDescending { it.date }
-        val recent = sorted.filter { it.date > today.minusDays(7) }.map(::day)
-        val weekly = sorted.filter { it.date <= today.minusDays(7) && it.date > today.minusWeeks(4) }
-            .groupBy { YearMonth.from(it.date) }.values.flatMap { weeks(it) }
-        val monthly = sorted.filter { it.date <= today.minusWeeks(4) && it.date > today.minusMonths(12) }
-            .groupBy { YearMonth.from(it.date) }.values.map { month(it) }
-        val yearly = sorted.filter { it.date <= today.minusMonths(12) }
-            .groupBy { it.date.year }.values.map(::year)
-        return (recent + weekly + monthly + yearly).sortedByDescending { it.entries.first().date }
+        val weekStart = today.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
+        return entries.sortedByDescending { it.date }.groupBy { it.date.year }.flatMap { (yearValue, yearEntries) ->
+            if (LocalDate.of(yearValue, 12, 31) <= today.minusMonths(12)) listOf(year(yearEntries))
+            else yearEntries.groupBy { YearMonth.from(it.date) }.flatMap { (monthValue, monthEntries) ->
+                if (monthValue.atEndOfMonth() <= today.minusWeeks(4)) listOf(month(monthEntries))
+                else weeks(monthEntries).flatMap { week ->
+                    // Use the full calendar week's end even when the month clips its label.
+                    // A week in progress must not archive early on the last day of a month.
+                    val end = week.entries.first().date.with(TemporalAdjusters.nextOrSame(DayOfWeek.SUNDAY))
+                    if (end < weekStart) listOf(week) else week.children
+                }
+            }
+        }
     }
 
     fun rows(nodes: List<JournalNode>, expanded: Set<String>): List<JournalRow> = buildList {
@@ -60,21 +67,21 @@ object JournalTimeline {
     private fun year(entries: List<JournalEntry>): JournalNode = JournalNode(
         "year:${entries.first().date.year}", entries.first().date.year.toString(),
         JournalLevel.YEAR, entries,
-        entries.groupBy { YearMonth.from(it.date) }.values.map { month(it, "year:${entries.first().date.year}/") },
+        entries.groupBy { YearMonth.from(it.date) }.values.map(::month),
     )
-    private fun month(entries: List<JournalEntry>, prefix: String = ""): JournalNode = JournalNode(
-        "${prefix}month:${YearMonth.from(entries.first().date)}",
+    private fun month(entries: List<JournalEntry>): JournalNode = JournalNode(
+        "month:${YearMonth.from(entries.first().date)}",
         entries.first().date.format(DateTimeFormatter.ofPattern("MMMM yyyy")),
-        JournalLevel.MONTH, entries, weeks(entries, "${prefix}month:${YearMonth.from(entries.first().date)}/"),
+        JournalLevel.MONTH, entries, weeks(entries),
     )
-    private fun weeks(entries: List<JournalEntry>, prefix: String = ""): List<JournalNode> = entries
+    private fun weeks(entries: List<JournalEntry>): List<JournalNode> = entries
         .groupBy { it.date.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY)) }
         .map { (monday, days) ->
             val month = YearMonth.from(days.first().date)
             val start = maxOf(monday, month.atDay(1))
             val end = minOf(monday.plusDays(6), month.atEndOfMonth())
             val format = DateTimeFormatter.ofPattern("d MMM")
-            JournalNode("${prefix}week:$month:$monday", "${start.format(format)} – ${end.format(format)}",
+            JournalNode("week:$month:$monday", "${start.format(format)} – ${end.format(format)}",
                 JournalLevel.WEEK, days, days.map(::day))
         }
 }
